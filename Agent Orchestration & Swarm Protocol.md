@@ -12,6 +12,9 @@
 
 *   **场景描述**：面对复杂的报错，需要同时检查数据库日志、API 响应、前端 Console 和云端监控。
 *   **协作逻辑**：
+    *   **阵容设计 (Roster Design)**：Lead / Orchestrator 可以根据当前任务自行设计需要哪些 Subagents（数量、名称、职责、权限、可见范围），而不是被固定为只能调用预置 agent。
+    *   **Agent 定义生成 (Agent Spec Generation)**：系统为每个 Subagent 生成一份可复用的 `agents.md`（例如 `agents/db/agents.md`），作为该 agent 的“说明书/运行契约”（Role、Inputs/Outputs、Permissions、Scope、Triggers 等）。
+        *   同时系统预置一些常用 agent 的 `agents.md` 模板，便于直接复用或轻微改造。
     *   **广播触发 (Broadcast Trigger)**：主 Agent 发布一个“诊断任务”，并行派发给 DB Agent, Network Agent, Log Agent。
     *   **并行执行 (Parallel Execution)**：所有 Subagents 同时工作，互不阻塞。
     *   **结果聚合 (Result Aggregation)**：Subagents 完成后不进行长篇大论，而是返回结构化的 `DiagnosticReport`。主 Agent 收到所有报告后进行综合分析。
@@ -63,6 +66,39 @@ Issue #2604 中反复提到 Context Window 是瓶颈。我们需要**按需共�
 
 ---
 
+### 3.1 Subagent 工作空间 (Agent Workspace) —— 一种内部机制
+
+“Context Sharing”是 AgentMesh 的内部工作机制之一：每个创建出的 subagent 都有自己的工作空间（一个子目录），用于沉淀可分享的产出与探索过程；系统通过“显式附加 (explicit attach)”把其中必要内容共享给其他 agent / Lead，避免全量上下文广播。
+
+*   **Workspace Directory**：每个 subagent 对应一个目录，例如：
+    *   `workspaces/<agent_instance>/README.md`（必需）：该 subagent 的工作空间入口（索引、摘要、链接）
+    *   `workspaces/<agent_instance>/**/*.md`：探索笔记、决策记录、排查日志、接口契约等（可选，但推荐）
+
+同时，agent 的“行为定义/说明书”应独立存放为可复用模板：
+
+*   **Agent Spec (`agents.md`)**：系统为每个 agent 生成一份可复用的 `agents.md`（例如 `agents/db/agents.md`），指导 subagent 的行为（Role、Inputs/Outputs、Permissions、Scope、Triggers 等）。
+    *   预置模板：框架可内置常用 `agents.md`，供 Lead 直接选用或微调。
+    *   重要：预置模板只需要 `agents.md` 即可（无需 `README.md`）。
+*   **内容格式**：工作空间内的可分享内容统一使用 Markdown。
+*   **文件元数据（强制）**：工作空间内所有可分享文件必须带元数据，用于被系统检索、引用、附加与追踪。建议使用 YAML Front Matter：
+
+    ```yaml
+    ---
+    title: "DB Error Triage Notes"
+    purpose: "Collect DB-side evidence and hypotheses for incident #123"
+    owner: "db-agent"
+    created: "2025-12-14"
+    updated: "2025-12-14"
+    tags: ["debug", "postgres", "incident"]
+    related:
+      - "DiagnosticReport"
+      - "schema.graphql"
+    ---
+    ```
+
+*   **显式附加 (Explicit Attach)**：Agent 在 @ 其他 agent 或向 Lead 汇报时，不直接“倾倒上下文”，而是选择性附加工作空间中的具体文件（或文件片段）。
+*   **可追踪性**：当某份工作空间产出被附加到任务上下文时，系统记录来源（agent、文件、时间、任务 ID），便于回溯。
+
 ### 4. 具体的 UI/UX 表现形式 (以聊天室为例)
 
 界面上不应只是单一的对话流，而应演进为 **"Mission Control Center"**：
@@ -85,5 +121,6 @@ Issue #2604 中反复提到 Context Window 是瓶颈。我们需要**按需共�
 1.  **可定义角色的 Agent 工厂**：允许用户通过 Prompt 预设 Agent 的职责（Role）、权限（Permissions）和可见范围（Scope）。
 2.  **事件驱动的编排引擎**：支持 `onTaskComplete`, `waitFor(@Agent)`, `runParallel` 等原语，实现复杂的任务流转。
 3.  **结构化通信协议**：Agent 之间不仅传输自然语言，还传输结构化数据（代码块、文件引用、状态码），并支持显式的上下文剪裁。
+4.  **工作空间机制（沉淀与共享）**：每个 subagent 拥有独立工作空间目录，所有可分享文件使用 Markdown + 元数据，作为可检索的协作资产库。
 
 这种设计将把 Coding Agent 从单一的“结对编程伙伴”升级为一支完整的“虚拟软件开发团队”。
