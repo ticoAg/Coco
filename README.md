@@ -32,7 +32,7 @@ AgentMesh 是一个供应商无关（vendor-agnostic）的多 Code Agent 编排�
 
 ## Skills（概念 / 定义 / 使用方法）
 
-AgentMesh 计划原封不动引入一套 **Skills（实验性）** 机制（参考 `docs/references/openai-codex/skills.md` 的语义）：
+引入 **Skills（实验性）** 机制（参考 [[skills.md]](docs/references/openai-codex/skills.md) [[skills.md]](docs/references/skills/README.md) 的语义）：
 
 - **Skills 是什么**：磁盘上的“小型可复用能力包”。每个 skill 都有 `name`、`description`（会被注入运行时上下文）以及可选的 Markdown 正文（保留在磁盘上，按需打开）。
 - **技能放在哪里**：每个 agent 自己的技能放在 `agents/<agent_name>/skills/**/SKILL.md`（递归）。
@@ -58,6 +58,7 @@ description: Summarize logs into a timeline and actionable hypotheses; use when 
 ---
 
 # Log Triage
+
 - Extract key request_ids / trace_ids.
 - Build a short incident timeline.
 ```
@@ -119,18 +120,18 @@ Context Sharing 不是一种“交互模式”，而是 AgentMesh 的内部工�
 
 ```mermaid
 flowchart LR
-  subgraph Global[Global Context (shared)]
+  subgraph Global["Global Context (shared)"]
     G1[Repo Structure]
     G2[Tech Decisions]
   end
 
-  subgraph Task[Task Context (shared)]
+  subgraph Task["Task Context (shared)"]
     T1[Requirements]
     T2[Relevant Files]
     T3[Contracts]
   end
 
-  subgraph Private[Private Context (agent-local)]
+  subgraph Private["Private Context (agent-local)"]
     P1[Scratchpad]
     P2[Local Notes]
   end
