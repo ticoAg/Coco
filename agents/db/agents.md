@@ -22,7 +22,7 @@ tags: ["agentmesh", "preset", "swarm", "database", "debug"]
 ## Outputs
 
 - `DiagnosticReport`（建议包含：Symptoms / Evidence / Hypotheses / NextChecks / ProposedFix）
-- 可分享的排查笔记（保存在工作空间 `.md` 文件中，带元数据）
+- 可分享的排查笔记（保存在任务目录的 `.md` 文件中，带元数据）
 
 ## Scope / Permissions (suggested)
 

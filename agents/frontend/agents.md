@@ -17,7 +17,7 @@ tags: ["agentmesh", "preset", "squad", "frontend"]
 ## Outputs
 
 - PR / 变更集
-- UI 侧集成说明、Mock 策略、以及可复用组件说明（沉淀到工作空间）
+- UI 侧集成说明、Mock 策略、以及可复用组件说明（沉淀到任务目录）
 
 ## Collaboration Pattern
 

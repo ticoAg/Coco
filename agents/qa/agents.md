@@ -16,7 +16,7 @@ tags: ["agentmesh", "preset", "squad", "qa", "testing"]
 
 ## Outputs
 
-- Test Plan / Test Cases（建议沉淀在工作空间，便于 explicit attach）
+- Test Plan / Test Cases（建议沉淀在任务目录中，便于 explicit attach）
 - Test Report（结构化：通过/失败/复现步骤/建议）
 
 ## Triggers (examples)
