@@ -89,6 +89,6 @@ flowchart LR
   A[Agent] -->|read/write| Task
   A[Agent] -->|local only| Private
 
-  A[Agent] -->|explicit attach| X[Shared Attachment\n(UserProfile.tsx / logs / traces)]
+  A[Agent] -->|explicit attach| X["Shared Attachment<br/>(UserProfile.tsx / logs / traces)"]
   X --> Task
 ```
