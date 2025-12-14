@@ -95,6 +95,45 @@ Issue #2604 中反复提到 Context Window 是瓶颈。我们需要**按需共�
 *   **显式附加 (Explicit Attach)**：Agent 在 @ 其他 agent 或向 Lead 汇报时，不直接“倾倒上下文”，而是选择性附加工作空间中的具体文件（或文件片段）。
 *   **可追踪性**：当某份工作空间产出被附加到任务上下文时，系统记录来源（agent、文件、时间、任务 ID），便于回溯。
 
+### 3.2 Agent Skills —— 可复用专家指令（实验性）
+
+为降低上下文窗口压力并提升可复用性，AgentMesh 可以原封不动引入一套 “Skills（实验性）” 机制（语义对齐 `docs/references/openai-codex/skills.md`）：
+
+*   **Skill 是什么**：磁盘上的“小型可复用能力包”。每个 skill 都包含：
+    *   `name`：技能名（会注入运行时上下文）
+    *   `description`：技能描述（会注入运行时上下文）
+    *   可选 Markdown 正文：具体步骤/脚本/示例（默认保留在磁盘上，按需打开）
+*   **技能放在哪里（按 agent 归档）**：
+    *   `agents/<agent_name>/skills/**/SKILL.md`（递归扫描）
+    *   只识别文件名精确为 `SKILL.md` 的文件
+    *   隐藏条目与符号链接跳过（约定）
+    *   渲染顺序：按 `name`，再按路径排序，保证稳定
+*   **文件格式（严格）**：`SKILL.md` = YAML Front Matter + 可选正文。
+    *   必需字段：
+        *   `name`：非空，≤100 字符（清理为单行）
+        *   `description`：非空，≤500 字符（清理为单行）
+    *   额外字段忽略；正文可以是任意 Markdown（默认不注入上下文）
+*   **加载与注入（目标行为）**：
+    *   启动时加载一次
+    *   若存在有效 skills，则在 subagent 运行时上下文中，在 `agents.md` 之后追加一个运行时 `## Skills` 区块
+    *   每条 skill 只注入：`name`、`description`、`file path`（正文仍保留在磁盘上）
+*   **校验与错误（目标行为）**：
+    *   无效 skills（YAML 缺失/非法、字段为空或超长）不会生效
+    *   系统提供可见的错误提示/日志，便于修复
+
+**创建 skill（示例）**：
+
+```md
+---
+name: api-contract-review
+description: Review API contracts for consistency, error models, and versioning; use before frontend integration.
+---
+
+# API Contract Review
+- Check request/response schemas and error codes.
+- Ensure pagination/auth fields are consistent.
+```
+
 ### 4. 具体的 UI/UX 表现形式 (以聊天室为例)
 
 界面上不应只是单一的对话流，而应演进为 **"Mission Control Center"**：
