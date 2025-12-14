@@ -78,7 +78,6 @@ Issue #2604 中反复提到 Context Window 是瓶颈。我们需要**按需共�
 
 *   **Agent Spec (`agents.md`)**：系统为每个 agent 生成一份可复用的 `agents.md`（例如 `agents/db/agents.md`），指导 subagent 的行为（Role、Inputs/Outputs、Permissions、Scope、Triggers 等）。
     *   预置模板：框架可内置常用 `agents.md`，供 Lead 直接选用或微调。
-    *   重要：预置模板只需要 `agents.md` 即可（无需 `README.md`）。
 *   **内容格式**：工作空间内的可分享内容统一使用 Markdown。
 *   **文件元数据（强制）**：工作空间内所有可分享文件必须带元数据，用于被系统检索、引用、附加与追踪。建议使用 YAML Front Matter：
 
@@ -86,9 +85,6 @@ Issue #2604 中反复提到 Context Window 是瓶颈。我们需要**按需共�
     ---
     title: "DB Error Triage Notes"
     purpose: "Collect DB-side evidence and hypotheses for incident #123"
-    owner: "db-agent"
-    created: "2025-12-14"
-    updated: "2025-12-14"
     tags: ["debug", "postgres", "incident"]
     related:
       - "DiagnosticReport"
