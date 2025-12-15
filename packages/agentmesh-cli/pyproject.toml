@@ -1,0 +1,23 @@
+[project]
+name = "agentmesh-cli"
+version = "0.1.0"
+description = "AgentMesh CLI"
+requires-python = ">=3.11"
+dependencies = [
+    "agentmesh-core",
+    "typer>=0.12",
+    "rich>=13.0",
+]
+
+[project.scripts]
+agentmesh = "agentmesh_cli.main:app"
+
+[tool.uv.sources]
+agentmesh-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentmesh_cli"]

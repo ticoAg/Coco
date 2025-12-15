@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agentmesh.dev/schemas/task.schema.json",
+  "title": "AgentMesh Task Configuration",
+  "description": "task.yaml 的 JSON Schema 定义，用于描述一次任务的状态、拓扑、阵容与 gating",
+  "type": "object",
+  "required": ["id", "title", "topology", "state"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "任务唯一标识（建议格式：YYYY-MM-DD-xxxx）",
+      "pattern": "^[a-zA-Z0-9_-]+$"
+    },
+    "title": {
+      "type": "string",
+      "description": "任务标题",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "description": {
+      "type": "string",
+      "description": "任务描述（可选）"
+    },
+    "topology": {
+      "type": "string",
+      "enum": ["swarm", "squad"],
+      "description": "协作拓扑：swarm（并发 fork/join）或 squad（分层小队 + 里程碑）"
+    },
+    "state": {
+      "type": "string",
+      "enum": ["created", "working", "input-required", "completed", "failed", "canceled"],
+      "description": "任务当前状态"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "任务创建时间（ISO 8601）"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "最后更新时间（ISO 8601）"
+    },
+    "milestones": {
+      "type": "array",
+      "description": "里程碑列表（仅 squad 拓扑）",
+      "items": {
+        "$ref": "#/definitions/Milestone"
+      }
+    },
+    "roster": {
+      "type": "array",
+      "description": "Agent 阵容",
+      "items": {
+        "$ref": "#/definitions/AgentInstance"
+      }
+    },
+    "gates": {
+      "type": "array",
+      "description": "人工介入点",
+      "items": {
+        "$ref": "#/definitions/Gate"
+      }
+    },
+    "config": {
+      "type": "object",
+      "description": "任务级配置",
+      "properties": {
+        "maxConcurrentAgents": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3,
+          "description": "最大并发 agent 数"
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 60,
+          "default": 3600,
+          "description": "任务超时时间（秒）"
+        },
+        "autoApprove": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否自动批准低风险操作"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "Milestone": {
+      "type": "object",
+      "required": ["id", "title", "state"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "里程碑 ID"
+        },
+        "title": {
+          "type": "string",
+          "description": "里程碑标题"
+        },
+        "state": {
+          "type": "string",
+          "enum": ["pending", "working", "done", "blocked"],
+          "description": "里程碑状态"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "依赖的里程碑 ID 列表"
+        }
+      }
+    },
+    "AgentInstance": {
+      "type": "object",
+      "required": ["instance", "agent", "state"],
+      "properties": {
+        "instance": {
+          "type": "string",
+          "description": "实例 ID（如 db-1）"
+        },
+        "agent": {
+          "type": "string",
+          "description": "Agent spec 名称（如 db）"
+        },
+        "state": {
+          "type": "string",
+          "enum": ["pending", "active", "awaiting", "dormant", "completed", "failed"],
+          "description": "Agent 状态"
+        },
+        "assignedMilestone": {
+          "type": "string",
+          "description": "所属里程碑 ID（仅 squad 拓扑）"
+        },
+        "skills": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "预装的 skill 列表"
+        }
+      }
+    },
+    "Gate": {
+      "type": "object",
+      "required": ["id", "type", "state"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Gate ID"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["human-approval", "auto-check", "milestone-gate"],
+          "description": "Gate 类型"
+        },
+        "state": {
+          "type": "string",
+          "enum": ["open", "blocked", "approved", "rejected"],
+          "description": "Gate 状态"
+        },
+        "reason": {
+          "type": "string",
+          "description": "阻塞原因"
+        },
+        "instructionsRef": {
+          "type": "string",
+          "description": "人工指导文件路径（如 ./shared/human-notes.md）"
+        },
+        "blockedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "阻塞时间"
+        },
+        "resolvedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "解决时间"
+        },
+        "resolvedBy": {
+          "type": "string",
+          "description": "解决者（human / auto）"
+        }
+      }
+    }
+  }
+}

@@ -2,8 +2,6 @@
 title: "Network Agent Spec"
 purpose: "Define the Network agent: connectivity, HTTP/TLS, DNS, timeouts, and external dependency diagnostics."
 owner: "network"
-created: "2025-12-14"
-updated: "2025-12-14"
 tags: ["agentmesh", "preset", "swarm", "network", "debug"]
 ---
 

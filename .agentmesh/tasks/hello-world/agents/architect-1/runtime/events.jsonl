@@ -1,0 +1,6 @@
+{"ts":"2025-12-15T22:00:05Z","type":"session.started","sessionId":"stub-hello-001","agent":"architect","instance":"architect-1"}
+{"ts":"2025-12-15T22:05:00Z","type":"turn.started","sessionId":"stub-hello-001","turnId":"turn-001","input":"分析当前代码库结构"}
+{"ts":"2025-12-15T22:10:00Z","type":"item.message","sessionId":"stub-hello-001","turnId":"turn-001","payload":{"role":"agent","content":"开始分析代码库结构..."}}
+{"ts":"2025-12-15T22:25:00Z","type":"artifact.written","sessionId":"stub-hello-001","turnId":"turn-001","path":"./artifacts/analysis-report.md"}
+{"ts":"2025-12-15T22:25:00Z","type":"turn.completed","sessionId":"stub-hello-001","turnId":"turn-001","status":"completed"}
+{"ts":"2025-12-15T22:30:00Z","type":"session.completed","sessionId":"stub-hello-001"}

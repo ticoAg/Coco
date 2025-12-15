@@ -1,0 +1,14 @@
+{
+  "agent": "architect",
+  "instance": "architect-1",
+  "adapter": "stub",
+  "vendorSession": {
+    "stubId": "stub-hello-001"
+  },
+  "recording": {
+    "events": "./runtime/events.jsonl"
+  },
+  "startedAt": "2025-12-15T22:00:05Z",
+  "lastActiveAt": "2025-12-15T22:30:00Z",
+  "state": "completed"
+}

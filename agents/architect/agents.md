@@ -2,9 +2,7 @@
 title: "Architect Agent Spec"
 purpose: "Define the Architect/Leader agent: decomposition, review, milestone gating, and cross-agent coordination."
 owner: "architect"
-created: "2025-12-14"
-updated: "2025-12-14"
-tags: ["agentmesh", "preset", "squad", "leader"]
+tags: ["agentmesh", "preset", "squad", "design", "adr"]
 ---
 
 # Architect (Leader)

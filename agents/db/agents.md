@@ -2,8 +2,6 @@
 title: "DB Agent Spec"
 purpose: "Define the DB agent: database diagnostics, query analysis, migrations, and evidence collection."
 owner: "db"
-created: "2025-12-14"
-updated: "2025-12-14"
 tags: ["agentmesh", "preset", "swarm", "database", "debug"]
 ---
 

@@ -151,8 +151,6 @@ tags: ["debug", "postgres", "incident"]
 task_id: "2025-12-14-xxxx"
 agent_instance: "db-1"
 artifact_id: "artifact-...-v1"
-created: "2025-12-14"
-updated: "2025-12-14"
 ---
 ```
 
@@ -171,8 +169,6 @@ purpose: "Summarize evidence, hypotheses, and next checks"
 tags: ["diagnostic-report", "swarm", "incident"]
 task_id: "..."
 agent_instance: "log-1"
-created: "..."
-updated: "..."
 ---
 
 ## Symptoms

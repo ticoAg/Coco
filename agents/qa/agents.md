@@ -2,9 +2,7 @@
 title: "QA Agent Spec"
 purpose: "Define the QA agent: test planning, cases generation, and acceptance verification."
 owner: "qa"
-created: "2025-12-14"
-updated: "2025-12-14"
-tags: ["agentmesh", "preset", "squad", "qa", "testing"]
+tags: ["agentmesh", "preset", "squad", "testing", "quality"]
 ---
 
 # QA Agent

@@ -2,8 +2,6 @@
 title: "Frontend Agent Spec"
 purpose: "Define the Frontend agent: UI implementation, integration, and contract-driven collaboration."
 owner: "frontend"
-created: "2025-12-14"
-updated: "2025-12-14"
 tags: ["agentmesh", "preset", "squad", "frontend"]
 ---
 

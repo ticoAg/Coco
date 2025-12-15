@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=../../../schemas/task.schema.json
+
+id: "hello-world"
+title: "Hello World Task"
+description: "演示 AgentMesh 任务目录结构的最小示例"
+topology: "squad"
+state: "completed"
+createdAt: "2025-12-15T22:00:00Z"
+updatedAt: "2025-12-15T22:30:00Z"
+
+milestones:
+  - id: "m1"
+    title: "代码库分析"
+    state: "done"
+
+roster:
+  - instance: "architect-1"
+    agent: "architect"
+    state: "completed"
+    assignedMilestone: "m1"
+    skills: []
+
+gates: []
+
+config:
+  maxConcurrentAgents: 3
+  timeoutSeconds: 3600
+  autoApprove: false
