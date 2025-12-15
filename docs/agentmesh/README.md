@@ -7,6 +7,7 @@
 - [[implementation.md]](./implementation.md)：实现评估 + 目标架构（如何直接读取 CLI 工具的结构化输出，并落盘为可介入产物）
 - [[artifacts.md]](./artifacts.md)：产物（Artifacts）形态规范：任务目录、结构化报告、显式共享、人工介入点
 - [[roadmap.md]](./roadmap.md)：多阶段实施路线图（Codex-first：session 驱动 + 事件流提取）
+- [[gui.md]](./gui.md)：GUI 形态（Artifacts-first 的任务页面）
 - `adapters/`：运行时适配说明（首个：[`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)）
 
 ## 核心原则（先定产物，再写引擎）

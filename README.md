@@ -14,7 +14,7 @@ AgentMesh 是一个多 `Code Agent` 编排框架，用于协调多个异构 agen
 ## 实施方向（与 `docs/agentmesh/` 同步）
 
 - **Codex-first / Session-based**：先把 Codex 作为第一个可用运行时，通过 `codex app-server`（或 `codex exec --json`）直接读取结构化事件流，落盘为可介入产物。
-- 其他工具后续接入时，优先寻找其“底层可编程接口/事件流”；实在没有再考虑 TUI 录制/抽取作为 fallback。
+- 其他工具后续接入时，接入路径通常先尝试其“底层可编程接口/事件流”；如果缺乏此类接口，再把 TUI 录制/抽取作为 fallback。
 
 ## 核心概念（简版）
 
@@ -32,7 +32,7 @@ AgentMesh 是一个多 `Code Agent` 编排框架，用于协调多个异构 agen
 
 Codex adapter 说明见：[`docs/agentmesh/adapters/codex.md`](./docs/agentmesh/adapters/codex.md)
 
-## 目录约定（建议）
+## 目录约定（示例）
 
 - `.agentmesh/agents/<agent_name>/agents.md`：该 agent 的角色定义（职责、输入/输出、权限、可见范围等），可由 Lead 生成或使用预置模板
 - `.agentmesh/agents/<agent_name>/skills/<skill_name>/SKILL.md`：该 agent 的 skill（一个 skill 是包含 `SKILL.md` 的自包含文件夹，可附带脚本/资源）
@@ -142,7 +142,7 @@ flowchart LR
   A[Agent] -->|read/write| Task
   A[Agent] -->|local only| Private
 
-  A[Agent] --> TD["Task Dir<br/>tasks/&lt;task_id&gt;/"]
+  A[Agent] --> TD["Task Dir<br/>.agentmesh/tasks/&lt;task_id&gt;/"]
   TD --> TS["shared/**<br/>(shared artifacts)"]
   TD --> W["agents/&lt;agent_instance&gt;/<br/>(agent artifacts)"]
   W --> W1["README.md<br/>(index)"]

@@ -1,6 +1,6 @@
 # AgentMesh 多阶段实施路线图（Codex-first / Session-based）
 
-> 原则：先把“产物形态 + 人工介入点”做扎实；执行层优先走 **CLI 工具的底层可编程接口**（先做 Codex），直接读取结构化输出。
+> 原则：先把“产物形态 + 人工介入点”做扎实；执行层以 **CLI 工具的底层可编程接口** 作为首个接入路径（先做 Codex），直接读取结构化输出。
 >
 > A2A / ACP / Claude Code Subagents 仅用于参考概念，不作为本项目核心依赖。
 
@@ -27,7 +27,7 @@
   - 写入结构化产物 + `events.jsonl`
   - 在 `gate.blocked` 时停下等待人工输入
 
-**实现建议（不绑定 vendor）**
+**实现方式（不绑定 vendor，示例）**
 - 先定义一个 **Adapter 接口**：
   - `start(task, agentSpec, prompt, attachments) -> sessionHandle`
   - `poll(sessionHandle) -> status/artifacts`
@@ -46,11 +46,11 @@
 - 先把 Codex 做成可用的 adapter：管理一个个 coder session，并从底层事件流直接提取输出
 - 不做 TUI 控制台，不解析 ANSI 屏幕；只处理 JSON/JSONL 级别的事件与结果
 
-**实现建议**
-- 优先使用 `codex app-server`（参考 `codex/codex-rs/app-server/README.md`）：
+**实现方式（示例）**
+- `codex app-server`（参考 `codex/codex-rs/app-server/README.md`）：
   - stdio JSON-RPC，Thread/Turn/Item 模型，事件流式输出
   - 支持 approvals（server→client 请求），天然对齐 `gate.blocked`
-- 备选 `codex exec --json`（参考 `codex/codex-rs/exec/`）：一次性跑完并输出 JSONL 事件
+- `codex exec --json`（参考 `codex/codex-rs/exec/`）：一次性跑完并输出 JSONL 事件
 - 细节：见 [`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)
 
 **交付物**
@@ -71,6 +71,18 @@
 
 **用户介入**
 - 对提取出的产物进行验收/驳回/补充，触发重跑或继续
+
+## Phase 3.5：GUI（Artifacts-first）
+
+**目标**
+- 提供用户可感知的 GUI 页面（不嵌入/复刻各家 TUI）
+- 把 “任务状态 + 产物 + gates/approval” 以可操作的方式呈现出来
+
+**交付物**
+- 任务列表/任务详情/产物浏览/事件流/审批弹窗
+- GUI ↔ orchestrator 的最小 API（HTTP + SSE/WS）
+
+细节见：[`docs/agentmesh/gui.md`](./gui.md)
 
 ## Phase 4：Skills 与工具集装配（按固定定义，不扩展）
 

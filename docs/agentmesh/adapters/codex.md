@@ -4,7 +4,7 @@
 >
 > 不做多 TUI 控制台，不解析 ANSI 屏幕；Codex 的交互用其底层接口完成。
 
-## 1. 推荐接口：`codex app-server`
+## 1. 接口选项：`codex app-server`
 
 Codex 提供 `codex app-server`（参见 `codex/codex-rs/app-server/README.md`），这是 Codex 用来支撑 VS Code 等富界面的底层接口。
 
@@ -21,7 +21,7 @@ Codex 提供 `codex app-server`（参见 `codex/codex-rs/app-server/README.md`�
 - Codex `Turn` ≈ “一轮输入→输出”的工作回合
 - Codex `Item` ≈ 过程事件与产物片段（用户消息、agentMessage、命令、文件变更、reasoning 等）
 
-### 1.3 最小工作流（建议）
+### 1.3 最小工作流（示例）
 
 1) **启动 app-server 进程（后台）**
 - Orchestrator 启动并持有该进程的 stdin/stdout
@@ -42,9 +42,9 @@ Codex 提供 `codex app-server`（参见 `codex/codex-rs/app-server/README.md`�
 - Codex 会以 server→client 的 JSON-RPC request 形式发起 approval（例如 applyPatch / execCommand）
 - AgentMesh 把它转成 `gate.blocked`，等待用户决定 allow/deny 后再回传响应
 
-### 1.4 事件落盘（强烈建议）
+### 1.4 事件落盘（说明）
 
-每个 `agent_instance` 建议落盘：
+每个 `agent_instance` 通常会落盘：
 
 - `agents/<instance>/runtime/requests.jsonl`：你发给 Codex 的 request（含 id）
 - `agents/<instance>/runtime/events.jsonl`：Codex 的 notifications + responses
@@ -53,7 +53,7 @@ Codex 提供 `codex app-server`（参见 `codex/codex-rs/app-server/README.md`�
 
 > 说明：Codex 自身也会在本地保存 rollout（JSONL）。任务目录里拷贝一份的价值在于“任务闭环可复现”，不依赖用户机器上的 Codex home。
 
-### 1.5 协议 Schema（建议用于强类型/兼容性）
+### 1.5 协议 Schema（强类型/兼容性）
 
 Codex app-server 支持生成与当前版本**严格匹配**的 schema（参见 `codex/codex-rs/app-server/README.md`）：
 
@@ -62,7 +62,7 @@ codex app-server generate-ts --out DIR
 codex app-server generate-json-schema --out DIR
 ```
 
-建议 adapter 开发时把 schema 作为“真源”，避免手写字段导致的版本漂移问题。
+adapter 开发时可以把 schema 作为“真源”，避免手写字段导致的版本漂移问题。
 
 ## 2. 备选接口：`codex exec --json`
 
@@ -81,7 +81,7 @@ codex app-server generate-json-schema --out DIR
 - 优点：实现成本低（子进程 + 读 stdout JSONL）
 - 缺点：交互粒度/能力较 `app-server` 弱（例如 approvals、细粒度 delta 等能力以实际版本为准）
 
-## 3. AgentMesh 侧的 adapter 形态（建议接口）
+## 3. AgentMesh 侧的 adapter 形态（接口示例）
 
 无论采用 `app-server` 还是 `exec --json`，AgentMesh 可以统一对外提供：
 
@@ -99,7 +99,7 @@ codex app-server generate-json-schema --out DIR
 
 ## 4. 预留：其他 CLI 工具接入
 
-本项目先把 Codex 跑通。未来接入其他 CLI 工具时，优先策略一致：
+本项目先把 Codex 跑通。未来接入其他 CLI 工具时，接入策略保持一致：
 
-- **先找“底层可编程接口/事件流”**（JSON-RPC / JSONL / API）
-- 如果某工具只能走 TUI/ANSI 屏幕，才考虑做“录制 + 抽取”的 fallback adapter
+- 接入顺序通常是：先找“底层可编程接口/事件流”（JSON-RPC / JSONL / API）
+- 如果某工具只能走 TUI/ANSI 屏幕，再考虑做“录制 + 抽取”的 fallback adapter

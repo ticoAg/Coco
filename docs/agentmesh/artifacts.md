@@ -6,7 +6,7 @@
 
 ## 1. 顶层目录：`.agentmesh/`
 
-推荐在真实项目中使用一个专用目录，避免污染业务代码：
+在真实项目中通常会使用一个专用目录，避免污染业务代码：
 
 ```
 .agentmesh/
@@ -25,19 +25,19 @@
 ```
 .agentmesh/tasks/<task_id>/
   README.md                     # 人类入口：目标、状态、里程碑、关键链接（必需）
-  task.yaml                     # 机器入口：状态机、拓扑、依赖、gating（强烈建议）
-  events.jsonl                  # 事件流：状态变化、产物更新、人工介入（强烈建议）
+  task.yaml                     # 机器入口：状态机、拓扑、依赖、gating（常见）
+  events.jsonl                  # 事件流：状态变化、产物更新、人工介入（常见）
   shared/
-    context-manifest.yaml       # “显式共享”清单：哪些文件/片段作为 task context（建议）
-    human-notes.md              # 人工指导/纠错入口（建议）
+    context-manifest.yaml       # “显式共享”清单：哪些文件/片段作为 task context（常见）
+    human-notes.md              # 人工指导/纠错入口（常见）
     contracts/                  # 契约中心（API/Schema/Error model）
     decisions/                  # 决策记录（ADR/权衡/结论）
     reports/                    # 汇总报告（joined summary）
   agents/
     <agent_instance_id>/
-      README.md                 # 该 agent 在本任务内的索引（建议）
-      session.json              # 适配层会话句柄（resume id / vendor info）（建议）
-      runtime/                  # 工具侧原始记录（建议）
+      README.md                 # 该 agent 在本任务内的索引（常见）
+      session.json              # 适配层会话句柄（resume id / vendor info）（常见）
+      runtime/                  # 工具侧原始记录（常见）
         requests.jsonl          # （可选）向工具发送的请求（JSONL）
         events.jsonl            # 工具产生的事件流（JSONL）
         rollout.jsonl           # （可选）工具自身落盘的会话/rollout 拷贝或引用
@@ -47,7 +47,7 @@
 
 ### 2.1.1 `agents/<agent_instance_id>/session.json`（会话句柄：支持 Awaiting/Dormant）
 
-为实现 `Awaiting`（可恢复待命）与 `Dormant`（序列化休眠），建议把“适配层恢复会话所需的信息”落盘到 `session.json`：
+为实现 `Awaiting`（可恢复待命）与 `Dormant`（序列化休眠），通常会把“适配层恢复会话所需的信息”落盘到 `session.json`：
 
 ```json
 {
@@ -78,11 +78,11 @@
 - `codex app-server`：`vendorSession.threadId = "thr_..."`（Thread/Turn/Item 模型）
 - `codex exec --json`：`vendorSession.threadId = "<uuid>"`（JSONL 事件以 `thread.started` 开头）
 
-### 2.1 `task.yaml`（最小建议字段）
+### 2.1 `task.yaml`（最小字段示例）
 
 `task.yaml` 用于让编排器与人类都能明确“当前跑到哪一步”，并提供“暂停/恢复/重做/改约束”的锚点。
 
-建议最小字段（可按实现增减）：
+一个常见的最小字段集合如下（可按实现增减）：
 
 ```yaml
 id: "2025-12-14-xxxx"
@@ -115,7 +115,7 @@ gates:
 
 ### 2.2 `events.jsonl`（可追踪性与可审计性）
 
-建议使用 JSON Lines 记录每个关键事件，便于：
+events.jsonl 常用 JSON Lines 记录每个关键事件，便于：
 
 - 复盘（为什么走到这个结论）
 - 追责（哪个 agent 产出了哪个 artifact）
@@ -135,12 +135,12 @@ gates:
 
 ## 3. 产物文件规范：Markdown + YAML Front Matter
 
-所有“可分享产物”（尤其是会被 explicit attach 的文档）建议统一：
+所有“可分享产物”（尤其是会被 explicit attach 的文档）通常会统一为：
 
 - 文件格式：Markdown（`.md`）
 - 带 YAML Front Matter 元数据（便于检索/引用/追踪）
 
-### 3.1 最小元数据（建议）
+### 3.1 最小元数据（示例）
 
 ```yaml
 ---
@@ -156,13 +156,13 @@ updated: "2025-12-14"
 ---
 ```
 
-> 与 A2A 的映射：`artifact_id` 对应 A2A `artifactId`；`title`/文件名可对应 A2A 的 `artifact-name`（建议保持稳定以支持“版本演进”）。
+> 与 A2A 的映射：`artifact_id` 对应 A2A `artifactId`；`title`/文件名可对应 A2A 的 `artifact-name`（通常保持稳定以支持“版本演进”）。
 
-## 4. 结构化交换：推荐的报告模板
+## 4. 结构化交换：报告模板（示例）
 
 ### 4.1 `DiagnosticReport`（Swarm 诊断统一交付）
 
-建议用 Markdown（方便人读）但结构固定（方便机读/汇总）。
+可以用 Markdown（方便人读），同时保持结构固定（方便机读/汇总）。
 
 ```
 ---
@@ -192,9 +192,9 @@ updated: "..."
 
 ### 4.2 API Contract（FE/BE 的共享中心）
 
-建议落在 `.agentmesh/tasks/<task_id>/shared/contracts/` 下，保持“契约为中心”的协作方式。
+API Contract 通常落在 `.agentmesh/tasks/<task_id>/shared/contracts/` 下，保持“契约为中心”的协作方式。
 
-最小结构建议包含：
+常见的最小结构包含：
 
 - 端点与版本：`/api/v1/...`
 - 鉴权：token/cookie/headers
@@ -208,7 +208,7 @@ updated: "..."
 
 ### 5.1 `shared/context-manifest.yaml`
 
-建议用一个 manifest 来显式声明“task context 的组成”，并支持人类编辑。
+常见做法是用一个 manifest 来显式声明“task context 的组成”，并支持人类编辑。
 
 ```yaml
 attachments:
@@ -228,7 +228,7 @@ attachments:
 
 ## 6. 人工介入点（Human-in-the-loop）
 
-为了“用户可随时介入”，建议在产物层提供两个机制：
+为了“用户可随时介入”，产物层通常会提供两个机制：
 
 1) **可编辑的指导入口**：`shared/human-notes.md`
 - 用户可以直接写“修正指令/约束/偏好/拒绝某假设”
@@ -242,9 +242,9 @@ attachments:
 - 编排器应停止自动推进（避免“自动把仓库改坏”）
 - 只允许在用户补充/批准后继续
 
-### 6.1 建议的“介入动作”清单（让用户知道能做什么）
+### 6.1 “介入动作”清单（示例）
 
-为了让“介入”变得可操作，建议在 UI/CLI 里对齐为这些动作（最终都落盘为文件变更 + 事件）：
+为了让“介入”变得可操作，UI/CLI 通常会对齐为这些动作（最终都落盘为文件变更 + 事件）：
 
 - **改上下文**：编辑 `shared/context-manifest.yaml`（增删 attach、改 reason、缩小片段范围）
 - **改约束/纠错**：编辑 `shared/human-notes.md`（补充事实、否定假设、给出硬约束）

@@ -1,6 +1,6 @@
 # AgentMesh 实现评估（Codex-first / Session-based）
 
-> 目标：参考 `docs/references/` 下的文档，评估如何落地 [[AgentMesh.md]](../../AgentMesh.md) 的设计，并优先设计**可让用户随时介入与修正**的产物形态。
+> 目标：参考 `docs/references/` 下的文档，评估如何落地 [[AgentMesh.md]](../../AgentMesh.md) 的设计，并把**可让用户随时介入与修正**的产物形态作为首要产出。
 >
 > 重要前提：本项目核心是**直接复用各方成熟的 code TUI/CLI 产品**（例如 codex cli 这类交互式命令行）。A2A / ACP / Claude Code Subagents 的概念只用于借鉴交互模型与术语，不作为硬依赖或必做集成。
 
@@ -38,7 +38,7 @@
 
 **但**本项目不计划直接复用 Claude Code 的 Subagents 技术实现（例如 `.claude/agents/*.md`、`/agents`、`resume agentId` 等）。在 AgentMesh 中：
 
-- 我们把每个 agent 当作一个**独立运行时**（CLI 工具），优先通过其“底层可编程接口/事件流”（例如 Codex app-server/exec）来管理 session 与提取输出
+- 我们把每个 agent 当作一个**独立运行时**（CLI 工具），通过其“底层可编程接口/事件流”（例如 Codex app-server/exec）来管理 session 与提取输出
 - “上下文隔离”由“多进程/多会话 + 任务目录产物 + 显式共享”实现，而不是依赖某家产品的 subagent 功能
 
 ### 2.2 Skills（固定定义：按 `docs/references/skills/README.md`）
@@ -71,7 +71,7 @@ Skills 在本项目里视为各家 agent 可共享的一种**能力封装形式*
 
 `docs/references/agentclientprotocol/introduction.md` 描述了 IDE ↔ agent 的协议化交互。
 
-在 AgentMesh 中，ACP 仅作为参考：我们优先把“CLI 工具 session 化 + 结构化产物 + 人工介入”打通，是否提供 ACP 兼容层属于后置增强，而不是核心路径。
+在 AgentMesh 中，ACP 仅作为参考：本项目先把“CLI 工具 session 化 + 结构化产物 + 人工介入”打通，是否提供 ACP 兼容层属于后置增强，而不是核心路径。
 
 ## 3. Codex-first：把“coder session”落到可编程的 Session/Thread
 
@@ -79,7 +79,7 @@ Skills 在本项目里视为各家 agent 可共享的一种**能力封装形式*
 
 以 Codex 为例（本仓库已包含 `./codex` 源码可参考），Codex CLI 提供了两条适合做 adapter 的路径：
 
-### 3.1 `codex app-server`（推荐：面向富 UI/自动化的底层接口）
+### 3.1 `codex app-server`（面向富 UI/自动化的底层接口）
 
 Codex 自带 `codex app-server`（参见 `codex/codex-rs/app-server/README.md`）：
 
@@ -103,9 +103,9 @@ Codex 也提供 `codex exec`（参见 `codex/codex-rs/exec/`）：
 
 这条路径的特点是：实现简单、无需长期后台服务，但“会话/turn”能力相对 `app-server` 更弱一些（更像一次性执行器）。
 
-Codex adapter 的具体交互与落盘建议见：[`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)。
+Codex adapter 的具体交互与落盘细节见：[`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)。
 
-## 4. 推荐总体架构（Session 驱动 + 产物驱动）
+## 4. 总体架构（Session 驱动 + 产物驱动）
 
 不做多 TUI 控制台时，AgentMesh 实际管理的是“一组 coder sessions”，核心是：**如何创建/恢复 session、如何跑一轮 turn、如何把事件流写入任务目录并生成产物**。
 
@@ -116,7 +116,7 @@ Codex adapter 的具体交互与落盘建议见：[`docs/agentmesh/adapters/code
   - 人工介入（gates：批准/拒绝/补充）
   - 产物汇总（join：把多个 agent 的结果合并为最终报告/下一步）
 - **Adapter（Codex-first）**
-  - 启动并维护 Codex 后台进程（优先 `codex app-server`）
+  - 启动并维护 Codex 后台进程（例如 `codex app-server`）
   - 对外提供 session/turn 抽象：`start_session` / `resume_session` / `start_turn` / `interrupt_turn` / `approve_or_deny`
   - 把 Codex 的事件流落盘（JSONL），并提取关键内容生成 AgentMesh 产物
 - **产物面（Task Directory）**
@@ -135,7 +135,7 @@ Codex adapter 的具体交互与落盘建议见：[`docs/agentmesh/adapters/code
   - TODO（todoList）与错误（error）
 - **审批对齐**：把 Codex 的审批请求映射为 AgentMesh 的 `gate.blocked`，等待用户决策后再回传 allow/deny
 
-## 5. 哪些点“今天就能做”，哪些点需要分阶段（Codex 优先）
+## 5. 哪些点“今天就能做”，哪些点需要分阶段（Codex-first）
 
 ### 可以立刻实现（产物驱动，低依赖）
 
@@ -154,7 +154,7 @@ Codex adapter 的具体交互与落盘建议见：[`docs/agentmesh/adapters/code
 
 ## 6. 下一步：从“产物形态”开始（你要的“任何环节可人工介入”）
 
-建议你先读：
+相关内容见：
 
 - [[artifacts.md]](./artifacts.md)：如何定义任务目录、报告、契约与人工介入点
 - [[roadmap.md]](./roadmap.md)：如何分阶段实现“Codex adapter + 事件流提取 + 产物落盘”
