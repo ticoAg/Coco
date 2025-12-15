@@ -23,7 +23,7 @@ Claude Code（Orchestrator 总线 - 协调中枢）
 
 ## Agent 角色定义
 
-### 1. Secretary（秘书）- Haiku 模型
+### 1. Secretary（秘书）- sonnet 模型
 
 **职责**：
 

@@ -84,18 +84,14 @@ SOLID + KISS + YAGNI + DRY + Law of Demeter
 
 ### 协作层级
 
-```
-用户（Product Manager - 决策者）
-  ↓ 需求、决策、验收
-Claude Code（Orchestrator 总线 - 协调中枢）
-  ↓ 任务协调、状态管理
-┌──────────────┬──────────────────┬──────────────────┬───────────────┐
-│  Secretary   │ Frontend Director│ Backend Director │  其他 Agent   │
-│  （秘书）    │  （前端研发总监）│  （后端研发总监）│  （诊断/QA）  │
-└──────────────┴──────────────────┴──────────────────┴───────────────┘
-                 ↓                  ↓
-            Frontend Dev        Backend Dev
-            （按需扩展）        （按需扩展）
+```mermaid
+graph TD
+    User[用户 - PM] -->|需求、决策、验收| CC[Claude Code - Orchestrator]
+    CC -->|任务协调| Secretary[Secretary]
+    CC -->|任务协调| FD[Frontend Director]
+    CC -->|任务协调| BD[Backend Director]
+    FD --> FDev[Frontend Dev]
+    BD --> BDev[Backend Dev]
 ```
 
 ### Agent 角色配置
