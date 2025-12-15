@@ -1,97 +1,300 @@
-import React, { useState } from 'react'
-import './index.css'
+/**
+ * AgentMesh Console - Main Application
+ * Orchestrate your intelligent swarm.
+ */
 
-function App() {
-    const [tasks] = useState([
-        { id: '1', title: 'Refactor Auth-Service', status: 'working', agent: 'Architect', time: '2 mins ago' },
-        { id: '2', title: 'Fix CSS Grid Issue', status: 'done', agent: 'Frontend', time: '1 hour ago' },
-        { id: '3', title: 'Database Migration v2', status: 'blocked', agent: 'DB-Admin', time: 'Pending Approval' },
-    ])
+import { useState, useCallback } from 'react';
+import './index.css';
 
-    return (
-        <div className="container animate-enter">
-            <header style={{ marginBottom: '3rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                    <h1 style={{ fontSize: '2rem', fontWeight: 700, background: 'linear-gradient(to right, var(--primary), var(--accent))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                        AgentMesh Console
-                    </h1>
-                    <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>Orchestrate your intelligent swarm.</p>
-                </div>
-                <div style={{ display: 'flex', gap: '1rem' }}>
-                    <button className="btn">Settings</button>
-                    <button className="btn btn-primary">+ New Task</button>
-                </div>
-            </header>
+// Components
+import { TaskList } from './components/TaskList';
+import { TaskDetail } from './components/TaskDetail';
+import { NewTaskModal } from './components/NewTaskModal';
 
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
+// Hooks
+import { useTasks, useTaskDetail, useClusterStatus } from './hooks/useTasks';
 
-                {/* Main Panel: Active Tasks */}
-                <section className="glass-panel" style={{ padding: '2rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                        <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Active Tasks</h2>
-                        <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Running: 1</span>
-                    </div>
+// Types
+import type { CreateTaskRequest, GateDecisionRequest } from './types/task';
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        {tasks.map(task => (
-                            <div key={task.id} className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                    <div style={{
-                                        width: '40px', height: '40px', borderRadius: '8px',
-                                        background: 'var(--bg-app)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        border: '1px solid var(--border)'
-                                    }}>
-                                        🐞
-                                    </div>
-                                    <div>
-                                        <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>{task.title}</h3>
-                                        <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{task.agent}</p>
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                                    <span style={{ fontSize: '0.875rem', color: 'var(--text-dim)' }}>{task.time}</span>
-                                    <span className={`status-badge status-${task.status === 'working' ? 'active' : task.status === 'blocked' ? 'blocked' : 'waiting'}`}>
-                                        {task.status.toUpperCase()}
-                                    </span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </section>
+// ============ Cluster Status Panel ============
 
-                {/* Side Panel: System Status */}
-                <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                    <div className="glass-panel" style={{ padding: '1.5rem' }}>
-                        <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Cluster Status</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
-                                <span style={{ color: 'var(--text-muted)' }}>Orchestrator</span>
-                                <span style={{ color: 'var(--status-success)' }}>● Online</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
-                                <span style={{ color: 'var(--text-muted)' }}>Codex Adapter</span>
-                                <span style={{ color: 'var(--status-success)' }}>● Connected</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
-                                <span style={{ color: 'var(--text-muted)' }}>Active Agents</span>
-                                <span>3 / 10</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="glass-panel" style={{ padding: '1.5rem' }}>
-                        <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Recent Events</h3>
-                        <ul style={{ listStyle: 'none', fontSize: '0.875rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                            <li><span style={{ color: 'var(--primary)' }}>[10:42]</span> Task #1 created</li>
-                            <li><span style={{ color: 'var(--primary)' }}>[10:45]</span> Architect started analysis</li>
-                            <li><span style={{ color: 'var(--status-error)' }}>[10:48]</span> Gate blocked: Migration</li>
-                        </ul>
-                    </div>
-                </aside>
-
-            </div>
-        </div>
-    )
+interface ClusterStatusPanelProps {
+  orchestratorStatus: 'online' | 'offline' | 'unknown';
+  adapterStatus: 'connected' | 'disconnected' | 'unknown';
+  activeAgents: number;
+  maxAgents: number;
 }
 
-export default App
+function ClusterStatusPanel({
+  orchestratorStatus,
+  adapterStatus,
+  activeAgents,
+  maxAgents,
+}: ClusterStatusPanelProps) {
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'online':
+      case 'connected':
+        return 'var(--status-success)';
+      case 'offline':
+      case 'disconnected':
+        return 'var(--status-error)';
+      default:
+        return 'var(--text-dim)';
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'online':
+        return 'Online';
+      case 'offline':
+        return 'Offline';
+      case 'connected':
+        return 'Connected';
+      case 'disconnected':
+        return 'Disconnected';
+      default:
+        return 'Unknown';
+    }
+  };
+
+  return (
+    <div className="glass-panel cluster-status-panel">
+      <h3 className="panel-title">Cluster Status</h3>
+      <div className="status-list">
+        <div className="status-item">
+          <span className="status-label">Orchestrator</span>
+          <span
+            className="status-value"
+            style={{ color: getStatusColor(orchestratorStatus) }}
+          >
+            <span className="status-dot">●</span> {getStatusLabel(orchestratorStatus)}
+          </span>
+        </div>
+        <div className="status-item">
+          <span className="status-label">Codex Adapter</span>
+          <span
+            className="status-value"
+            style={{ color: getStatusColor(adapterStatus) }}
+          >
+            <span className="status-dot">●</span> {getStatusLabel(adapterStatus)}
+          </span>
+        </div>
+        <div className="status-item">
+          <span className="status-label">Active Agents</span>
+          <span className="status-value">
+            {activeAgents} / {maxAgents}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ Recent Events Panel ============
+
+interface RecentEvent {
+  time: string;
+  message: string;
+  type: 'info' | 'warning' | 'error' | 'success';
+}
+
+interface RecentEventsPanelProps {
+  events: RecentEvent[];
+}
+
+function RecentEventsPanel({ events }: RecentEventsPanelProps) {
+  const getEventColor = (type: RecentEvent['type']) => {
+    switch (type) {
+      case 'success':
+        return 'var(--status-success)';
+      case 'warning':
+        return 'var(--status-warning)';
+      case 'error':
+        return 'var(--status-error)';
+      default:
+        return 'var(--primary)';
+    }
+  };
+
+  return (
+    <div className="glass-panel recent-events-panel">
+      <h3 className="panel-title">Recent Events</h3>
+      <ul className="events-list-mini">
+        {events.map((event, index) => (
+          <li key={index} className="event-item-mini">
+            <span
+              className="event-time"
+              style={{ color: getEventColor(event.type) }}
+            >
+              [{event.time}]
+            </span>
+            <span className="event-message">{event.message}</span>
+          </li>
+        ))}
+        {events.length === 0 && (
+          <li className="event-item-mini event-empty">No recent events</li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
+// ============ Main App Component ============
+
+function App() {
+  // State
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+
+  // Hooks
+  const { tasks, loading, error, refresh, createTask } = useTasks(true);
+  const {
+    task: selectedTask,
+    events: taskEvents,
+    loading: taskLoading,
+    error: taskError,
+    hasMoreEvents,
+    loadMoreEvents,
+    submitGateDecision,
+  } = useTaskDetail(selectedTaskId);
+  const { status: clusterStatus } = useClusterStatus(10000);
+
+  // Handlers
+  const handleSelectTask = useCallback((taskId: string) => {
+    setSelectedTaskId(taskId);
+  }, []);
+
+  const handleCloseDetail = useCallback(() => {
+    setSelectedTaskId(null);
+  }, []);
+
+  const handleCreateTask = useCallback(async (data: CreateTaskRequest) => {
+    setIsCreatingTask(true);
+    try {
+      const newTask = await createTask(data);
+      if (newTask) {
+        setSelectedTaskId(newTask.id);
+      }
+    } finally {
+      setIsCreatingTask(false);
+    }
+  }, [createTask]);
+
+  const handleGateDecision = useCallback(
+    async (gateId: string, decision: GateDecisionRequest): Promise<boolean> => {
+      return submitGateDecision(gateId, decision);
+    },
+    [submitGateDecision]
+  );
+
+  // Derive recent events from tasks
+  const recentEvents: RecentEvent[] = tasks
+    .slice(0, 5)
+    .map((task) => {
+      const time = new Date(task.updatedAt).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      let message = `Task "${task.title}"`;
+      let type: RecentEvent['type'] = 'info';
+
+      switch (task.state) {
+        case 'working':
+          message += ' is running';
+          type = 'info';
+          break;
+        case 'gate.blocked':
+          message += ' needs approval';
+          type = 'warning';
+          break;
+        case 'completed':
+          message += ' completed';
+          type = 'success';
+          break;
+        case 'failed':
+          message += ' failed';
+          type = 'error';
+          break;
+        default:
+          message += ` (${task.state})`;
+      }
+
+      return { time, message, type };
+    });
+
+  return (
+    <div className="container animate-enter">
+      {/* Header */}
+      <header className="app-header">
+        <div className="header-left">
+          <h1 className="app-title">AgentMesh Console</h1>
+          <p className="app-subtitle">Orchestrate your intelligent swarm.</p>
+        </div>
+        <div className="header-right">
+          <button className="btn">Settings</button>
+          <button
+            className="btn btn-primary"
+            onClick={() => setIsNewTaskModalOpen(true)}
+          >
+            + New Task
+          </button>
+        </div>
+      </header>
+
+      {/* Main Layout */}
+      <div className="main-layout">
+        {/* Left Column: Task List */}
+        <div className="main-column">
+          <TaskList
+            tasks={tasks}
+            loading={loading}
+            error={error}
+            selectedTaskId={selectedTaskId}
+            onSelectTask={handleSelectTask}
+            onCreateTask={() => setIsNewTaskModalOpen(true)}
+            onRefresh={refresh}
+          />
+        </div>
+
+        {/* Center Column: Task Detail */}
+        <div className="detail-column">
+          <TaskDetail
+            task={selectedTask}
+            events={taskEvents}
+            loading={taskLoading}
+            error={taskError}
+            hasMoreEvents={hasMoreEvents}
+            onLoadMoreEvents={loadMoreEvents}
+            onGateDecision={handleGateDecision}
+            onClose={handleCloseDetail}
+          />
+        </div>
+
+        {/* Right Column: Status Panels */}
+        <aside className="sidebar-column">
+          <ClusterStatusPanel
+            orchestratorStatus={clusterStatus?.orchestrator || 'unknown'}
+            adapterStatus={clusterStatus?.codexAdapter || 'unknown'}
+            activeAgents={clusterStatus?.activeAgents || 0}
+            maxAgents={clusterStatus?.maxAgents || 10}
+          />
+          <RecentEventsPanel events={recentEvents} />
+        </aside>
+      </div>
+
+      {/* New Task Modal */}
+      <NewTaskModal
+        isOpen={isNewTaskModalOpen}
+        onClose={() => setIsNewTaskModalOpen(false)}
+        onSubmit={handleCreateTask}
+        loading={isCreatingTask}
+      />
+    </div>
+  );
+}
+
+export default App;
