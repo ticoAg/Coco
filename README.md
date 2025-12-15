@@ -11,6 +11,11 @@ AgentMesh 是一个多 `Code Agent` 编排框架，用于协调多个异构 agen
 - 通过“显式共享”降低上下文窗口压力：只在需要时共享必要信息
 - 让不同厂商/不同模型/不同工具形态的 agent，可以通过统一适配层协作
 
+## 实施方向（与 `docs/agentmesh/` 同步）
+
+- **Codex-first / Session-based**：先把 Codex 作为第一个可用运行时，通过 `codex app-server`（或 `codex exec --json`）直接读取结构化事件流，落盘为可介入产物。
+- 其他工具后续接入时，优先寻找其“底层可编程接口/事件流”；实在没有再考虑 TUI 录制/抽取作为 fallback。
+
 ## 核心概念（简版）
 
 - **Topologies**：按任务选择协作拓扑（`Swarm` / `Squad`）
@@ -25,14 +30,16 @@ AgentMesh 是一个多 `Code Agent` 编排框架，用于协调多个异构 agen
 
 实现评估与多阶段路线图见：[`docs/agentmesh/README.md`](./docs/agentmesh/README.md)
 
+Codex adapter 说明见：[`docs/agentmesh/adapters/codex.md`](./docs/agentmesh/adapters/codex.md)
+
 ## 目录约定（建议）
 
 - `.agentmesh/agents/<agent_name>/agents.md`：该 agent 的角色定义（职责、输入/输出、权限、可见范围等），可由 Lead 生成或使用预置模板
 - `.agentmesh/agents/<agent_name>/skills/<skill_name>/SKILL.md`：该 agent 的 skill（一个 skill 是包含 `SKILL.md` 的自包含文件夹，可附带脚本/资源）
 - `.agentmesh/tasks/<task_id>/README.md`：该任务的入口（目标、状态、里程碑、关键链接）
 - `.agentmesh/tasks/<task_id>/shared/**`：任务级共享资产（例如契约、决策、汇总报告等）
-- `.agentmesh/tasks/<task_id>/agents/<agent_instance>/README.md`：subagent 在本任务内的产出索引（沉淀/摘要/链接）
-- `.agentmesh/tasks/<task_id>/agents/<agent_instance>/**/*.md`：该 subagent 在任务执行/代码探索中产出的可共享内容（都需要元数据）
+- `.agentmesh/tasks/<task_id>/agents/<agent_instance>/README.md`：agent 实例（coder session）在本任务内的产出索引（沉淀/摘要/链接）
+- `.agentmesh/tasks/<task_id>/agents/<agent_instance>/**/*.md`：该 agent 实例在任务执行/代码探索中产出的可共享内容（都需要元数据）
 
 ## Skills（概念 / 定义 / 使用方法）
 
@@ -109,7 +116,7 @@ flowchart TB
 
 ## 内部机制：Task Directory + 显式共享
 
-Context Sharing 不是一种“交互模式”，而是 AgentMesh 的内部工作机制：每个任务对应一个可持久化的 `Task Directory`；任务内每个 subagent 把产出沉淀在自己的子目录里，系统在需要时把其中的内容“显式附加（explicit attach）”到协作里，避免全量上下文广播。
+在 AgentMesh 的语境里，Context Sharing 更像一种内部工作机制：我们把一次协作任务落盘为可持久化的 `Task Directory`；每个 agent 实例（coder session）把产出沉淀在自己的子目录里，需要共享时再通过“显式附加（explicit attach）”引用相关文件/片段，避免全量上下文广播。
 
 ### Task Directory & Context Scoping（任务目录 + 作用域）
 
