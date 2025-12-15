@@ -10,11 +10,11 @@ Adapter 接口定义：抽象 CLI 工具（如 Codex）与 AgentMesh Orchestrato
 """
 
 from abc import abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, AsyncIterator, Protocol, runtime_checkable
-
+from typing import Any, Protocol, runtime_checkable
 
 # ============================================================
 # 基础类型定义
