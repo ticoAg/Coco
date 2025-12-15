@@ -98,31 +98,14 @@ filepath: ./AgentMesh.md
 - **显式附加 (Explicit Attach)**：Agent 在 @ 其他 agent 或向 Lead 汇报时，不直接“倾倒上下文”，而是选择性附加任务目录中的具体文件（或文件片段）。
 - **可追踪性**：当某份任务产出被附加到任务上下文时，系统记录来源（task_id、agent、文件、时间），便于回溯。
 
-### 3.2 Agent Skills —— 可复用专家指令（实验性）
+### 3.2 Agent Skills —— 可复用的能力包（按固定定义，不扩展）
 
-为降低上下文窗口压力并提升可复用性，AgentMesh 可以原封不动引入一套 “Skills（实验性）” 机制语义对齐 [[skills.md]](docs/references/openai-codex/skills.md), [[skills.md]](docs/references/skills/README.md)：
+AgentMesh 把 Skills 视为各家 agent 可共享的一种“能力封装形式”（指令、脚本、资源）。Skills 的定义以 [[skills/README.md]](docs/references/skills/README.md) 为准；不同产品（例如 codex）如何加载/呈现 Skills 属于其运行时实现细节（可参考 [[openai-codex/skills.md]](docs/references/openai-codex/skills.md)），不应反向成为 AgentMesh 的 Skills 规范扩展。
 
-- **Skill 是什么**：磁盘上的“小型可复用能力包”。每个 skill 都包含：
-  - `name`：技能名（会注入运行时上下文）
-  - `description`：技能描述（会注入运行时上下文）
-  - 可选 Markdown 正文：具体步骤/脚本/示例（默认保留在磁盘上，按需打开）
-- **技能放在哪里（按 agent 归档）**：
-  - `agents/<agent_name>/skills/**/SKILL.md`（递归扫描）
-  - 只识别文件名精确为 `SKILL.md` 的文件
-  - 隐藏条目与符号链接跳过（约定）
-  - 渲染顺序：按 `name`，再按路径排序，保证稳定
-- **文件格式（严格）**：`SKILL.md` = YAML Front Matter + 可选正文。
-  - 必需字段：
-    - `name`：非空，≤100 字符（清理为单行）
-    - `description`：非空，≤500 字符（清理为单行）
-  - 额外字段忽略；正文可以是任意 Markdown（默认不注入上下文）
-- **加载与注入（目标行为）**：
-  - 启动时加载一次
-  - 若存在有效 skills，则在 subagent 运行时上下文中，在 `agents.md` 之后追加一个运行时 `## Skills` 区块
-  - 每条 skill 只注入：`name`、`description`、`file path`（正文仍保留在磁盘上）
-- **校验与错误（目标行为）**：
-  - 无效 skills（YAML 缺失/非法、字段为空或超长）不会生效
-  - 系统提供可见的错误提示/日志，便于修复
+- **Skill 是什么**：一个自包含文件夹，其中包含 `SKILL.md`（YAML frontmatter + 指令正文），并可附带脚本与资源文件。
+- **`SKILL.md` 的关键字段**：`name` 与 `description`（其他更严格的校验规则由各运行时自行决定）。
+- **如何使用**：给每个 agent 预装不同的 skill sets，以增强特定任务领域能力；由对应运行时/adapter 决定如何启用（插件/目录约定/启动参数/prompt 指引等）。
+- **建议的归档方式（按 agent）**：`agents/<agent_name>/skills/<skill_name>/SKILL.md`（一个 skill 一个文件夹）。
 
 **创建 skill（示例）**：
 

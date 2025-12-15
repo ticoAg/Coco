@@ -2,7 +2,7 @@
 
 AgentMesh 是一个多 `Code Agent` 编排框架，用于协调多个异构 agent（如 `codex`、`Claude Code`、`gemini-cli`、`qwen-code` 等）高效完成复杂开发任务。
 
-> 当前状态：WIP（以设计与协议沉淀为主）
+> 当前状态：WIP（以设计与产物/运行时落地为主）
 
 ## 目标
 
@@ -18,15 +18,17 @@ AgentMesh 是一个多 `Code Agent` 编排框架，用于协调多个异构 agen
 - **Context Scoping**：`Global` / `Task` / `Private`，上下文按需可见
 - **Structured Exchange**：用结构化报告/契约替代长对话噪音（例如 `DiagnosticReport`、API Contract）
 - **Agent Specs**：由 `Lead/Orchestrator` 设计 agent 阵容，并为每个 agent 生成可复用的 `agents.md`
-- **Skills（机制）**：把可复用的“专家指令”保存在磁盘上，运行时仅注入技能摘要（`name`/`description`/`path`），技能正文按需打开（当前仅为设计约定）
+- **Skills（机制）**：把可复用的“专家指令/脚本/资源”以 Skills 形式保存在磁盘上；每个 agent 可预装不同 skill sets 来增强特定领域能力（如何加载由各运行时/适配器决定）
 - **Task（概念）**：一次完整的 `User` - `Agents` 任务交互单元（从需求提出到交付/总结），对应一个可持久化的任务目录；任务内可按 `agent_instance` 归档产出，并通过“显式共享”把必要信息附加给其他 agent（当前仅为设计约定）
 
 详细设想见：[[AgentMesh.md]](./AgentMesh.md)
 
+实现评估与多阶段路线图见：[`docs/agentmesh/README.md`](./docs/agentmesh/README.md)
+
 ## 目录约定（建议）
 
 - `.agentmesh/agents/<agent_name>/agents.md`：该 agent 的角色定义（职责、输入/输出、权限、可见范围等），可由 Lead 生成或使用预置模板
-- `.agentmesh/agents/<agent_name>/skills/**/SKILL.md`：该 agent 的技能（递归扫描，仅文件名精确为 `SKILL.md` 才生效）
+- `.agentmesh/agents/<agent_name>/skills/<skill_name>/SKILL.md`：该 agent 的 skill（一个 skill 是包含 `SKILL.md` 的自包含文件夹，可附带脚本/资源）
 - `.agentmesh/tasks/<task_id>/README.md`：该任务的入口（目标、状态、里程碑、关键链接）
 - `.agentmesh/tasks/<task_id>/shared/**`：任务级共享资产（例如契约、决策、汇总报告等）
 - `.agentmesh/tasks/<task_id>/agents/<agent_instance>/README.md`：subagent 在本任务内的产出索引（沉淀/摘要/链接）
@@ -34,20 +36,11 @@ AgentMesh 是一个多 `Code Agent` 编排框架，用于协调多个异构 agen
 
 ## Skills（概念 / 定义 / 使用方法）
 
-引入 **Skills（实验性）** 机制（参考 [[skills.md]](docs/references/openai-codex/skills.md) [[skills.md]](docs/references/skills/README.md) 的语义）：
+Skills 的定义遵循 [[skills/README.md]](docs/references/skills/README.md)。不同产品（例如 codex）如何支持/加载 skills 属于其运行时实现细节（可参考 [[openai-codex/skills.md]](docs/references/openai-codex/skills.md)），不作为本项目对 Skills 的扩展。
 
-- **Skills 是什么**：磁盘上的“小型可复用能力包”。每个 skill 都有 `name`、`description`（会被注入运行时上下文）以及可选的 Markdown 正文（保留在磁盘上，按需打开）。
-- **技能放在哪里**：每个 agent 自己的技能放在 `agents/<agent_name>/skills/**/SKILL.md`（递归）。
-  - 只识别文件名**精确**为 `SKILL.md` 的文件。
-  - 隐藏条目与符号链接会被跳过（约定）。
-  - 渲染顺序：按 `name`，再按路径排序，保证稳定。
-- **文件格式**：`SKILL.md` = YAML Front Matter + 可选正文。
-  - 必需字段：
-    - `name`：非空，≤100 字符（会被清理成单行）
-    - `description`：非空，≤500 字符（会被清理成单行）
-  - 额外字段会被忽略；正文可以是任意 Markdown（默认不注入上下文）。
-- **加载与注入（目标行为）**：启动时加载一次；如果存在有效 skills，则在该 subagent 的运行时上下文中，在 `agents.md` 之后追加 `## Skills`（每条一行，包含 `name`、`description` 与技能文件路径）。
-- **校验与错误（目标行为）**：无效 skills（YAML 缺失/非法、字段为空或超长）会被忽略，并产出可见的错误提示/日志，便于修复。
+- **Skill 是什么**：一个自包含文件夹，包含 `SKILL.md`（YAML frontmatter + 指令正文），可附带脚本与资源文件。
+- **`SKILL.md` 的关键字段**：`name` 与 `description`（其余字段与更严格的校验规则由各运行时自行决定）。
+- **怎么用**：给不同 agent 预装不同的 skill sets；由对应运行时/adapter 决定如何启用（插件/目录约定/启动参数/prompt 指引等）。
 
 ### 创建一个 skill（示例）
 
