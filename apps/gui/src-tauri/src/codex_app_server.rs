@@ -13,10 +13,10 @@ use tauri::Emitter;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
+use tokio::process::ChildStdout;
 use tokio::process::Child;
 use tokio::process::ChildStderr;
 use tokio::process::ChildStdin;
-use tokio::process::ChildStdout;
 use tokio::process::Command;
 use tokio::sync::Mutex;
 use tokio::sync::oneshot;
@@ -25,6 +25,8 @@ use tokio::time::timeout;
 const EVENT_NAME: &str = "codex_app_server";
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const CODEX_BIN_ENV: &str = "AGENTMESH_CODEX_BIN";
+const SHELL_PATH_TIMEOUT_SECS: u64 = 2;
+const PATH_SENTINEL: &str = "__AGENTMESH_PATH__=";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,7 +71,7 @@ struct CodexAppServerInner {
 
 impl CodexAppServer {
     pub async fn spawn(app: tauri::AppHandle, cwd: &Path) -> Result<Self, String> {
-        let (codex_bin, path_env) = resolve_codex_bin_and_path()?;
+        let (codex_bin, path_env) = resolve_codex_bin_and_path().await?;
 
         let mut cmd = Command::new(codex_bin);
         cmd.arg("app-server")
@@ -187,14 +189,16 @@ pub struct CodexDiagnostics {
     pub path: String,
     pub resolved_codex_bin: Option<String>,
     pub env_override: Option<String>,
+    pub path_source: String,
+    pub shell: Option<String>,
 }
 
-pub fn codex_diagnostics() -> CodexDiagnostics {
+pub async fn codex_diagnostics() -> CodexDiagnostics {
     let env_override = std::env::var_os(CODEX_BIN_ENV)
         .map(|v| v.to_string_lossy().to_string())
         .filter(|v| !v.trim().is_empty());
 
-    let path_env = ensure_codex_path_env();
+    let (path_env, path_source, shell) = preferred_path_env().await;
     let path_str = path_env.to_string_lossy().to_string();
     let search_paths = std::env::split_paths(&path_env).collect::<Vec<_>>();
     let resolved_codex_bin = find_executable_in_paths("codex", &search_paths)
@@ -204,14 +208,18 @@ pub fn codex_diagnostics() -> CodexDiagnostics {
         path: path_str,
         resolved_codex_bin,
         env_override,
+        path_source,
+        shell,
     }
 }
 
-fn resolve_codex_bin_and_path() -> Result<(PathBuf, OsString), String> {
+async fn resolve_codex_bin_and_path() -> Result<(PathBuf, OsString), String> {
+    let (path_env, _path_source, _shell) = preferred_path_env().await;
+
     if let Some(bin) = std::env::var_os(CODEX_BIN_ENV) {
         let path = PathBuf::from(bin);
         if path.is_file() {
-            return Ok((path, ensure_codex_path_env()));
+            return Ok((path, path_env));
         }
         return Err(format!(
             "{CODEX_BIN_ENV} points to a missing file: {}",
@@ -219,7 +227,6 @@ fn resolve_codex_bin_and_path() -> Result<(PathBuf, OsString), String> {
         ));
     }
 
-    let path_env = ensure_codex_path_env();
     let search_paths = std::env::split_paths(&path_env).collect::<Vec<_>>();
     if let Some(found) = find_executable_in_paths("codex", &search_paths) {
         return Ok((found, path_env));
@@ -228,6 +235,69 @@ fn resolve_codex_bin_and_path() -> Result<(PathBuf, OsString), String> {
     Err(format!(
         "codex not found on PATH. Hint (macOS): GUI apps started from Finder may not inherit your shell PATH. Set {CODEX_BIN_ENV}=/opt/homebrew/bin/codex or launch from Terminal."
     ))
+}
+
+async fn preferred_path_env() -> (OsString, String, Option<String>) {
+    if let Ok((path, shell)) = compute_shell_path_env().await {
+        let source = "shell".to_string();
+        return (path, source, Some(shell));
+    }
+
+    let source = "fallback".to_string();
+    (ensure_codex_path_env(), source, None)
+}
+
+async fn compute_shell_path_env() -> Result<(OsString, String), String> {
+    let shell = std::env::var_os("SHELL")
+        .map(|v| v.to_string_lossy().to_string())
+        .unwrap_or_else(|| {
+            if cfg!(target_os = "macos") {
+                "/bin/zsh".to_string()
+            } else {
+                "/bin/sh".to_string()
+            }
+        });
+
+    let shell_name = std::path::Path::new(&shell)
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or("sh");
+
+    let flag = match shell_name {
+        "zsh" | "bash" => "-lic",
+        _ => return Err(format!("unsupported shell for PATH sync: {shell}")),
+    };
+
+    let cmd = format!("printf '{PATH_SENTINEL}%s\\n' \"$PATH\"");
+    let mut proc = Command::new(&shell);
+    proc.arg(flag).arg(cmd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let child = proc.spawn().map_err(|e| e.to_string())?;
+    let output = timeout(
+        std::time::Duration::from_secs(SHELL_PATH_TIMEOUT_SECS),
+        child.wait_with_output(),
+    )
+    .await
+    .map_err(|_| format!("shell PATH sync timed out after {SHELL_PATH_TIMEOUT_SECS}s"))?
+    .map_err(|e| e.to_string())?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut last_path: Option<String> = None;
+    for line in stdout.lines() {
+        if let Some(rest) = line.strip_prefix(PATH_SENTINEL) {
+            let value = rest.trim();
+            if !value.is_empty() {
+                last_path = Some(value.to_string());
+            }
+        }
+    }
+
+    let path_str = last_path.ok_or_else(|| {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        format!("shell PATH sync failed to parse PATH. stdout={stdout:?} stderr={stderr:?}")
+    })?;
+
+    Ok((OsString::from(path_str), shell))
 }
 
 fn ensure_codex_path_env() -> OsString {

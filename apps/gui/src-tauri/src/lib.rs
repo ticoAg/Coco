@@ -760,6 +760,6 @@ fn codex_write_config(content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn codex_diagnostics() -> CodexDiagnostics {
-    codex_app_server::codex_diagnostics()
+async fn codex_diagnostics() -> CodexDiagnostics {
+    codex_app_server::codex_diagnostics().await
 }

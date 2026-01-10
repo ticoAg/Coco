@@ -258,6 +258,8 @@ export function CodexChat() {
     path: string
     resolvedCodexBin: string | null
     envOverride: string | null
+    pathSource?: string
+    shell?: string | null
   } | null>(null)
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null)
 
@@ -1220,6 +1222,10 @@ export function CodexChat() {
                     </div>
                     <div className="truncate">
                       {diagnostics.envOverride ? `AGENTMESH_CODEX_BIN: ${diagnostics.envOverride}` : 'AGENTMESH_CODEX_BIN: (unset)'}
+                    </div>
+                    <div className="truncate">
+                      PATH source: {diagnostics.pathSource ?? '(unknown)'}
+                      {diagnostics.shell ? ` · shell: ${diagnostics.shell}` : ''}
                     </div>
                     <div className="break-all rounded-lg bg-black/20 p-2">
                       <div className="mb-1 text-text-dim">PATH</div>
