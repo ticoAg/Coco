@@ -158,17 +158,18 @@ export function TaskDetail({
     eventsTailLimit: 200,
   })
 
-  const finalStatus = useMemo(() => {
+  const finalJson = useMemo(() => {
     if (!finalOutput?.json || typeof finalOutput.json !== 'object') return null
-    const obj = finalOutput.json as Record<string, unknown>
-    return typeof obj.status === 'string' ? obj.status : null
+    return finalOutput.json as Record<string, unknown>
   }, [finalOutput])
 
+  const finalStatus = useMemo(() => {
+    return typeof finalJson?.status === 'string' ? finalJson.status : null
+  }, [finalJson])
+
   const finalSummary = useMemo(() => {
-    if (!finalOutput?.json || typeof finalOutput.json !== 'object') return null
-    const obj = finalOutput.json as Record<string, unknown>
-    return typeof obj.summary === 'string' ? obj.summary : null
-  }, [finalOutput])
+    return typeof finalJson?.summary === 'string' ? finalJson.summary : null
+  }, [finalJson])
 
   if (loading) {
     return (

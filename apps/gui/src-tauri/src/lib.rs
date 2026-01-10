@@ -105,6 +105,14 @@ fn modified_ms(path: &std::path::Path) -> Option<u64> {
         .and_then(to_epoch_ms)
 }
 
+fn read_optional_string(path: &std::path::Path) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(path) {
+        Ok(content) => Ok(Some(content)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
 fn task_agents_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path::PathBuf {
     workspace_root
         .join(".agentmesh")
@@ -198,26 +206,25 @@ fn list_subagent_sessions(
         let adapter = std::fs::read_to_string(&session_path)
             .ok()
             .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
-            .and_then(|json| json.get("adapter").and_then(|v| v.as_str()).map(|v| v.to_string()));
+            .and_then(|json| {
+                json.get("adapter")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string())
+            });
 
-        let status_from_final = match std::fs::read_to_string(&final_path) {
-            Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
-                Ok(json) => {
-                    json.get("status").and_then(|v| v.as_str()).map(|status| {
-                        match status {
-                            "success" => "completed",
-                            "blocked" => "blocked",
-                            "failed" => "failed",
-                            _ => "unknown",
-                        }
-                        .to_string()
-                    })
-                }
-                Err(_) => None,
-            },
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
-            Err(err) => return Err(err.to_string()),
-        };
+        let status_from_final = read_optional_string(&final_path)?
+            .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+            .and_then(|json| {
+                json.get("status").and_then(|v| v.as_str()).map(|status| {
+                    match status {
+                        "success" => "completed",
+                        "blocked" => "blocked",
+                        "failed" => "failed",
+                        _ => "unknown",
+                    }
+                    .to_string()
+                })
+            });
 
         let events_non_empty = std::fs::metadata(&events_path)
             .ok()
@@ -246,13 +253,11 @@ fn list_subagent_sessions(
         });
     }
 
-    sessions.sort_by(|a, b| {
-        match (a.last_updated_at_ms, b.last_updated_at_ms) {
-            (Some(a_ts), Some(b_ts)) => b_ts.cmp(&a_ts),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => a.agent_instance.cmp(&b.agent_instance),
-        }
+    sessions.sort_by(|a, b| match (a.last_updated_at_ms, b.last_updated_at_ms) {
+        (Some(a_ts), Some(b_ts)) => b_ts.cmp(&a_ts),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.agent_instance.cmp(&b.agent_instance),
     });
 
     Ok(sessions)
@@ -273,16 +278,15 @@ fn get_subagent_final_output(
         .join("artifacts")
         .join("final.json");
 
-    let content = match std::fs::read_to_string(&final_path) {
-        Ok(content) => content,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+    let content = match read_optional_string(&final_path)? {
+        Some(content) => content,
+        None => {
             return Ok(SubagentFinalOutput {
                 exists: false,
                 json: None,
                 parse_error: None,
             })
         }
-        Err(err) => return Err(err.to_string()),
     };
 
     match serde_json::from_str::<serde_json::Value>(&content) {
@@ -315,10 +319,9 @@ fn tail_subagent_events(
         .join("runtime")
         .join("events.jsonl");
 
-    let content = match std::fs::read_to_string(&events_path) {
-        Ok(content) => content,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(err) => return Err(err.to_string()),
+    let content = match read_optional_string(&events_path)? {
+        Some(content) => content,
+        None => return Ok(Vec::new()),
     };
 
     let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();

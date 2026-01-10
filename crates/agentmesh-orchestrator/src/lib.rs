@@ -439,7 +439,10 @@ impl Orchestrator {
         })
     }
 
-    fn reconcile_subagents(&self, task_id: &str) -> Result<ReconcileSubagentsOutput, OrchestratorError> {
+    fn reconcile_subagents(
+        &self,
+        task_id: &str,
+    ) -> Result<ReconcileSubagentsOutput, OrchestratorError> {
         let mut task = self.store.read_task(task_id)?;
         let mut agent_event_index = self.load_agent_event_index(task_id)?;
         let mut gate_event_index = self.load_gate_event_index(task_id)?;
@@ -824,9 +827,7 @@ struct GateEventIndex {
 }
 
 fn agent_dir(task_dir: &Path, agent_instance: &str) -> PathBuf {
-    task_dir
-        .join(TASK_AGENTS_DIR_NAME)
-        .join(agent_instance)
+    task_dir.join(TASK_AGENTS_DIR_NAME).join(agent_instance)
 }
 
 #[derive(Debug, Clone)]
@@ -931,12 +932,18 @@ fn render_joined_summary_markdown(
     out.push_str("purpose: \"汇总多个 subagent 的最终输出与阻塞点\"\n");
     out.push_str("tags: [\"joined-summary\", \"subagents\"]\n");
     out.push_str(&format!("task_id: \"{}\"\n", escape_yaml_string(&task.id)));
-    out.push_str(&format!("generated_at: \"{}\"\n", generated_at.to_rfc3339()));
+    out.push_str(&format!(
+        "generated_at: \"{}\"\n",
+        generated_at.to_rfc3339()
+    ));
     out.push_str("---\n\n");
 
     out.push_str(&format!("# Joined Summary: {}\n\n", task.title));
     out.push_str(&format!("- task: `{}`\n", task.id));
-    out.push_str(&format!("- generatedAt: `{}`\n\n", generated_at.to_rfc3339()));
+    out.push_str(&format!(
+        "- generatedAt: `{}`\n\n",
+        generated_at.to_rfc3339()
+    ));
 
     out.push_str("## Workers\n\n");
     for w in workers {
@@ -973,7 +980,7 @@ fn escape_yaml_string(value: &str) -> String {
 fn validate_agent_instance(value: &str) -> Result<(), OrchestratorError> {
     let is_ok = !value.is_empty()
         && value
-        .chars()
+            .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     if is_ok {
         Ok(())
@@ -1122,7 +1129,9 @@ fn read_pid(path: &Path) -> Result<Option<i32>, OrchestratorError> {
     if trimmed.is_empty() {
         return Ok(None);
     }
-    let pid: i32 = trimmed.parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid pid"))?;
+    let pid: i32 = trimmed
+        .parse()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid pid"))?;
     Ok(Some(pid))
 }
 
@@ -1222,7 +1231,7 @@ fn send_signal(pid: i32, signal: i32) -> Result<(), OrchestratorError> {
         if err.raw_os_error() == Some(libc::ESRCH) {
             return Ok(());
         }
-        return Err(OrchestratorError::Io(err));
+        Err(OrchestratorError::Io(err))
     }
 
     #[cfg(not(unix))]
@@ -1258,7 +1267,11 @@ mod tests {
                 .spawn()
                 .unwrap()
         } else {
-            Command::new("sh").arg("-c").arg("sleep 60").spawn().unwrap()
+            Command::new("sh")
+                .arg("-c")
+                .arg("sleep 60")
+                .spawn()
+                .unwrap()
         }
     }
 
@@ -1298,7 +1311,11 @@ mod tests {
                 skills: Vec::new(),
             });
 
-            let agent_dir = orchestrator.store.task_dir(&task_id).join("agents").join(instance);
+            let agent_dir = orchestrator
+                .store
+                .task_dir(&task_id)
+                .join("agents")
+                .join(instance);
             let runtime_dir = agent_dir.join("runtime");
             fs::create_dir_all(&runtime_dir).unwrap();
             fs::write(runtime_dir.join("pid"), format!("{}\n", child.id())).unwrap();
@@ -1355,7 +1372,11 @@ mod tests {
         });
         orchestrator.store.write_task(&task).unwrap();
 
-        let agent_dir = orchestrator.store.task_dir(&task_id).join("agents").join("a1");
+        let agent_dir = orchestrator
+            .store
+            .task_dir(&task_id)
+            .join("agents")
+            .join("a1");
         let runtime_dir = agent_dir.join("runtime");
         fs::create_dir_all(&runtime_dir).unwrap();
         fs::write(runtime_dir.join("pid"), format!("{}\n", child.id())).unwrap();

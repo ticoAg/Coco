@@ -27,20 +27,15 @@ pub enum TaskState {
     Canceled,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MilestoneState {
+    #[default]
     Pending,
     #[serde(alias = "in_progress")]
     Working,
     Done,
     Blocked,
-}
-
-impl Default for MilestoneState {
-    fn default() -> Self {
-        Self::Pending
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -54,22 +49,17 @@ pub struct Milestone {
     pub depends_on: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentInstanceState {
     #[serde(alias = "created")]
+    #[default]
     Pending,
     Active,
     Awaiting,
     Dormant,
     Completed,
     Failed,
-}
-
-impl Default for AgentInstanceState {
-    fn default() -> Self {
-        Self::Pending
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

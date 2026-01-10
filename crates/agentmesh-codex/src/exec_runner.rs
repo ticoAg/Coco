@@ -34,7 +34,12 @@ pub struct CodexExecStartRequest {
 }
 
 impl CodexExecStartRequest {
-    pub fn new(agent_dir: PathBuf, cwd: PathBuf, prompt: String, output_schema_path: PathBuf) -> Self {
+    pub fn new(
+        agent_dir: PathBuf,
+        cwd: PathBuf,
+        prompt: String,
+        output_schema_path: PathBuf,
+    ) -> Self {
         Self {
             agent_dir,
             cwd,

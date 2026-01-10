@@ -30,7 +30,11 @@ enum CliError {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "agentmesh", version, about = "AgentMesh CLI (MVP: tasks + events)")]
+#[command(
+    name = "agentmesh",
+    version,
+    about = "AgentMesh CLI (MVP: tasks + events)"
+)]
 struct Cli {
     /// Output JSON (stable structure) for programmatic consumption.
     #[arg(long, global = true)]
@@ -228,7 +232,12 @@ fn cmd_task_list(
     }
 
     for task in tasks {
-        println!("{}\t{}\t{}", task.id, format_task_state(task.state), task.title);
+        println!(
+            "{}\t{}\t{}",
+            task.id,
+            format_task_state(task.state),
+            task.title
+        );
     }
     Ok(())
 }
@@ -454,19 +463,21 @@ fn exit_code_for_error(err: &CliError) -> u8 {
         CliError::Orchestrator(agentmesh_orchestrator::OrchestratorError::Store(
             agentmesh_core::task_store::TaskStoreError::TaskNotFound { .. },
         )) => EXIT_CODE_NOT_FOUND,
-        CliError::Orchestrator(agentmesh_orchestrator::OrchestratorError::SubagentNotFound { .. }) => {
-            EXIT_CODE_NOT_FOUND
-        }
-        CliError::Orchestrator(agentmesh_orchestrator::OrchestratorError::WaitAnyTimeout { .. }) => {
-            EXIT_CODE_TIMEOUT
-        }
+        CliError::Orchestrator(agentmesh_orchestrator::OrchestratorError::SubagentNotFound {
+            ..
+        }) => EXIT_CODE_NOT_FOUND,
+        CliError::Orchestrator(agentmesh_orchestrator::OrchestratorError::WaitAnyTimeout {
+            ..
+        }) => EXIT_CODE_TIMEOUT,
         CliError::InvalidTaskId { .. } => EXIT_CODE_USAGE,
         _ => 1,
     }
 }
 
 fn default_output_schema_path(workspace_root: &Path) -> PathBuf {
-    let candidate = workspace_root.join("schemas").join("worker-output.schema.json");
+    let candidate = workspace_root
+        .join("schemas")
+        .join("worker-output.schema.json");
     if candidate.exists() {
         return candidate;
     }
