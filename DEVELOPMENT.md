@@ -16,7 +16,7 @@ The previous Python implementation is archived under `legacy/python/`.
 - Rust toolchain (stable)
 - Node.js + npm
 - macOS build tools (Xcode Command Line Tools)
-- `codex` installed and available on `PATH` (required only when running workers)
+- `codex` installed and available on `PATH` (required for Codex Chat and when running workers)
 
 ## Common commands
 

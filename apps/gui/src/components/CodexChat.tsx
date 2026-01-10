@@ -68,6 +68,45 @@ type ChatEntry =
       tone?: 'info' | 'warning' | 'error'
     }
 
+type CodexChatSettings = {
+  showReasoning: boolean
+  defaultCollapseDetails: boolean
+}
+
+const SETTINGS_STORAGE_KEY = 'agentmesh.codexChat.settings.v1'
+
+function loadCodexChatSettings(): CodexChatSettings {
+  const defaults: CodexChatSettings = {
+    showReasoning: false,
+    defaultCollapseDetails: false,
+  }
+
+  if (typeof window === 'undefined') return defaults
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY)
+    if (!raw) return defaults
+    const parsed = JSON.parse(raw) as Partial<CodexChatSettings>
+    return {
+      showReasoning: Boolean(parsed.showReasoning),
+      defaultCollapseDetails: Boolean(parsed.defaultCollapseDetails),
+    }
+  } catch {
+    return defaults
+  }
+}
+
+function persistCodexChatSettings(next: CodexChatSettings) {
+  try {
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next))
+  } catch {
+    // ignore
+  }
+}
+
+function isCollapsibleEntry(entry: ChatEntry): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' }> {
+  return entry.kind === 'command' || entry.kind === 'fileChange'
+}
+
 function formatEpochSeconds(value: number): string {
   return new Date(value * 1000).toLocaleString()
 }
@@ -158,9 +197,11 @@ function normalizeThreadFromResponse(res: unknown): CodexThread | null {
 }
 
 export function CodexChat() {
+  const [settings, setSettings] = useState<CodexChatSettings>(() => loadCodexChatSettings())
   const [sessions, setSessions] = useState<CodexThreadSummary[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(true)
   const [sessionsError, setSessionsError] = useState<string | null>(null)
+  const [isSessionsOpen, setIsSessionsOpen] = useState(false)
 
   const [models, setModels] = useState<CodexModelInfo[]>([])
   const [modelsError, setModelsError] = useState<string | null>(null)
@@ -168,6 +209,7 @@ export function CodexChat() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [activeThread, setActiveThread] = useState<CodexThread | null>(null)
   const [entries, setEntries] = useState<ChatEntry[]>([])
+  const [collapsedByEntryId, setCollapsedByEntryId] = useState<Record<string, boolean>>({})
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null)
 
   const [input, setInput] = useState('')
@@ -177,9 +219,15 @@ export function CodexChat() {
   const [selectedEffort, setSelectedEffort] = useState<ReasoningEffort | null>(null)
 
   const [isConfigOpen, setIsConfigOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [configText, setConfigText] = useState('')
   const [configSaving, setConfigSaving] = useState(false)
   const [configError, setConfigError] = useState<string | null>(null)
+  const [autoContextEnabled, setAutoContextEnabled] = useState(true)
+
+  useEffect(() => {
+    persistCodexChatSettings(settings)
+  }, [settings])
 
   const listSessions = useCallback(async () => {
     setSessionsLoading(true)
@@ -233,8 +281,10 @@ export function CodexChat() {
   const selectSession = useCallback(async (threadId: string) => {
     setSelectedThreadId(threadId)
     setEntries([])
+    setCollapsedByEntryId({})
     setActiveThread(null)
     setActiveTurnId(null)
+    setIsSessionsOpen(false)
 
     try {
       const res = await apiClient.codexThreadResume(threadId)
@@ -255,15 +305,24 @@ export function CodexChat() {
         }
       }
       setEntries(historyEntries)
+      setCollapsedByEntryId(() => {
+        const out: Record<string, boolean> = {}
+        for (const entry of historyEntries) {
+          if (!isCollapsibleEntry(entry)) continue
+          out[entry.id] = settings.defaultCollapseDetails
+        }
+        return out
+      })
     } catch (err) {
       setEntries([
         { kind: 'system', id: 'system-error', tone: 'error', text: err instanceof Error ? err.message : 'Failed to load thread' },
       ])
     }
-  }, [])
+  }, [settings.defaultCollapseDetails])
 
   const createNewSession = useCallback(async () => {
     setEntries([])
+    setCollapsedByEntryId({})
     setActiveThread(null)
     setActiveTurnId(null)
     setSelectedThreadId(null)
@@ -316,6 +375,16 @@ export function CodexChat() {
     await apiClient.codexRespondApproval(requestId, decision)
   }, [])
 
+  const toggleEntryCollapse = useCallback(
+    (entryId: string) => {
+      setCollapsedByEntryId((prev) => {
+        const current = prev[entryId] ?? settings.defaultCollapseDetails
+        return { ...prev, [entryId]: !current }
+      })
+    },
+    [settings.defaultCollapseDetails]
+  )
+
   useEffect(() => {
     listSessions()
     loadModels()
@@ -358,6 +427,11 @@ export function CodexChat() {
           const entry = entryFromThreadItem(item)
           if (!entry) return
           setEntries((prev) => mergeEntry(prev, entry))
+          setCollapsedByEntryId((prev) => {
+            if (!isCollapsibleEntry(entry)) return prev
+            if (Object.prototype.hasOwnProperty.call(prev, entry.id)) return prev
+            return { ...prev, [entry.id]: settings.defaultCollapseDetails }
+          })
           return
         }
 
@@ -447,7 +521,7 @@ export function CodexChat() {
         // ignore
       })
     }
-  }, [activeTurnId, selectedThreadId])
+  }, [activeTurnId, selectedThreadId, settings.defaultCollapseDetails])
 
   const selectedModelInfo = useMemo(() => {
     if (!selectedModel) return null
@@ -465,109 +539,66 @@ export function CodexChat() {
     el.scrollTop = el.scrollHeight
   }, [entries.length])
 
+  const visibleEntries = useMemo(() => {
+    if (settings.showReasoning) return entries
+    return entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning')
+  }, [entries, settings.showReasoning])
+
   return (
-    <div className="flex h-full min-h-0 gap-6">
-      <aside className="w-[320px] shrink-0 space-y-4">
-        <div className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-semibold">Codex</div>
-              <div className="mt-1 text-xs text-text-muted">Sessions: {sessions.length}</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
-                onClick={openConfig}
-                title="Edit ~/.codex/config.toml"
-              >
-                Config
-              </button>
-              <button
-                type="button"
-                className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary-hover"
-                onClick={() => void createNewSession()}
-              >
-                + New
-              </button>
-            </div>
+    <div className="relative flex h-full min-h-0 flex-col">
+      <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-bg-panel/70 px-6 py-4 backdrop-blur">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold">
+            {selectedThreadId ? `Thread: ${selectedThreadId}` : 'New session'}
           </div>
+          {activeThread ? (
+            <div className="mt-1 text-xs text-text-muted">created: {formatEpochSeconds(activeThread.createdAt)}</div>
+          ) : (
+            <div className="mt-1 text-xs text-text-muted">Start a session and talk to Codex.</div>
+          )}
         </div>
 
-        {sessionsError ? (
-          <div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
-            {sessionsError}
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
+            onClick={() => setIsSessionsOpen(true)}
+          >
+            Sessions
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
+            onClick={() => setIsSettingsOpen(true)}
+          >
+            Settings
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
+            onClick={openConfig}
+            title="Edit ~/.codex/config.toml"
+          >
+            Config
+          </button>
+          <button
+            type="button"
+            className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary-hover"
+            onClick={() => void createNewSession()}
+          >
+            + New
+          </button>
+        </div>
+      </div>
+
+      <div ref={scrollRef} className="mt-6 min-h-0 flex-1 space-y-3 overflow-auto">
+        {visibleEntries.length === 0 ? (
+          <div className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 text-center text-sm text-text-muted backdrop-blur">
+            {selectedThreadId ? 'No messages yet.' : 'Start a new session and say hello.'}
           </div>
         ) : null}
 
-        <div className="min-h-0 overflow-auto rounded-2xl border border-white/10 bg-bg-panel/70 p-2 backdrop-blur">
-          {sessionsLoading ? (
-            <div className="p-3 text-sm text-text-muted">Loading sessions…</div>
-          ) : sessions.length === 0 ? (
-            <div className="p-3 text-sm text-text-muted">No sessions yet.</div>
-          ) : (
-            <div className="space-y-2">
-              {sessions.map((s) => {
-                const isSelected = s.id === selectedThreadId
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    className={[
-                      'w-full rounded-xl border px-3 py-2 text-left transition',
-                      isSelected
-                        ? 'border-primary/40 bg-primary/10'
-                        : 'border-white/10 bg-bg-panelHover hover:border-white/20',
-                    ].join(' ')}
-                    onClick={() => void selectSession(s.id)}
-                  >
-                    <div className="truncate text-sm font-semibold">{s.id}</div>
-                    <div className="mt-1 truncate text-xs text-text-muted">
-                      {s.preview || '—'}
-                    </div>
-                    <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-text-dim">
-                      <span className="truncate">{s.modelProvider}</span>
-                      <span className="shrink-0">{formatSessionUpdatedAtMs(s)}</span>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </aside>
-
-      <section className="flex min-h-0 flex-1 flex-col rounded-2xl border border-white/10 bg-bg-panel/70 backdrop-blur">
-        <div className="border-b border-white/10 px-6 py-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold">
-                {selectedThreadId ? `Thread: ${selectedThreadId}` : 'New session'}
-              </div>
-              {activeThread ? (
-                <div className="mt-1 text-xs text-text-muted">
-                  created: {formatEpochSeconds(activeThread.createdAt)}
-                </div>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
-              onClick={() => void listSessions()}
-            >
-              Refresh
-            </button>
-          </div>
-        </div>
-
-        <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-auto px-6 py-6">
-          {entries.length === 0 ? (
-            <div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">
-              {selectedThreadId ? 'No messages yet.' : 'Start a new session and say hello.'}
-            </div>
-          ) : null}
-
-          {entries.map((e) => {
+        {visibleEntries.map((e) => {
             if (e.kind === 'user') {
               return (
                 <div key={e.id} className="flex justify-end">
@@ -579,28 +610,34 @@ export function CodexChat() {
             }
 
             if (e.kind === 'assistant') {
-              const title = e.role === 'reasoning' ? 'Thought' : 'Assistant'
               return (
-                <div key={e.id} className="flex items-start gap-3">
-                  <div className="mt-1 h-7 w-7 shrink-0 rounded-full bg-white/10" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs text-text-dim">{title}{e.streaming ? ' (streaming)' : ''}</div>
-                    <div className="mt-1 whitespace-pre-wrap text-sm text-text-main">{e.text}</div>
-                  </div>
+                <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
+                  <div className="text-xs text-text-dim">Assistant{e.streaming ? ' (streaming)' : ''}</div>
+                  <div className="mt-2 whitespace-pre-wrap text-sm text-text-main">{e.text}</div>
                 </div>
               )
             }
 
             if (e.kind === 'command') {
+              const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails
               return (
-                <div key={e.id} className="rounded-xl border border-white/10 bg-bg-panelHover p-4">
-                  <div className="flex items-center justify-between gap-3">
+                <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-xs text-text-dim">Command</div>
+                      <div className="truncate text-xs text-text-dim">Run</div>
                       <div className="mt-1 font-mono text-xs text-text-main">{e.command}</div>
                       {e.cwd ? <div className="mt-1 text-[11px] text-text-dim">cwd: {e.cwd}</div> : null}
                     </div>
-                    <div className="shrink-0 text-xs text-text-muted">{e.status}</div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <div className="text-xs text-text-muted">{e.status}</div>
+                      <button
+                        type="button"
+                        className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-[11px] hover:border-white/20"
+                        onClick={() => toggleEntryCollapse(e.id)}
+                      >
+                        {collapsed ? 'Expand' : 'Collapse'}
+                      </button>
+                    </div>
                   </div>
                   {e.approval ? (
                     <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
@@ -625,7 +662,7 @@ export function CodexChat() {
                       </div>
                     </div>
                   ) : null}
-                  {e.output ? (
+                  {!collapsed && e.output ? (
                     <pre className="mt-3 max-h-[220px] overflow-auto rounded-lg bg-black/20 p-3 text-[11px] text-text-muted">
                       {e.output}
                     </pre>
@@ -635,24 +672,39 @@ export function CodexChat() {
             }
 
             if (e.kind === 'fileChange') {
+              const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails
               return (
-                <div key={e.id} className="rounded-xl border border-white/10 bg-bg-panelHover p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs text-text-dim">File change</div>
-                    <div className="text-xs text-text-muted">{e.status}</div>
+                <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs text-text-dim">Edited</div>
+                      <div className="mt-1 text-xs text-text-muted">{e.changes.map((c) => c.path).join(', ')}</div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <div className="text-xs text-text-muted">{e.status}</div>
+                      <button
+                        type="button"
+                        className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-[11px] hover:border-white/20"
+                        onClick={() => toggleEntryCollapse(e.id)}
+                      >
+                        {collapsed ? 'Expand' : 'Collapse'}
+                      </button>
+                    </div>
                   </div>
-                  <div className="mt-2 space-y-2">
-                    {e.changes.map((c, idx) => (
-                      <div key={`${e.id}-${idx}`} className="rounded-lg border border-white/10 bg-black/20 p-3">
-                        <div className="truncate text-xs font-semibold">{c.path}</div>
-                        {c.diff ? (
-                          <pre className="mt-2 max-h-[180px] overflow-auto text-[11px] text-text-muted">
-                            {c.diff}
-                          </pre>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
+                  {!collapsed ? (
+                    <div className="mt-3 space-y-2">
+                      {e.changes.map((c, idx) => (
+                        <div key={`${e.id}-${idx}`} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                          <div className="truncate text-xs font-semibold">{c.path}</div>
+                          {c.diff ? (
+                            <pre className="mt-2 max-h-[220px] overflow-auto text-[11px] text-text-muted">
+                              {c.diff}
+                            </pre>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   {e.approval ? (
                     <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
                       <div className="min-w-0 text-xs text-text-muted">
@@ -722,90 +774,111 @@ export function CodexChat() {
 
             return null
           })}
-        </div>
+      </div>
 
-        <div className="border-t border-white/10 px-6 py-4">
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-text-muted">Model</span>
-                <select
-                  className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-xs"
-                  value={selectedModel ?? ''}
-                  onChange={(e) => setSelectedModel(e.target.value || null)}
-                  disabled={models.length === 0}
-                >
-                  {models.length === 0 ? <option value="">(unavailable)</option> : null}
-                  {models.map((m) => (
-                    <option key={m.id} value={m.model}>
-                      {m.displayName}
-                    </option>
-                  ))}
-                </select>
-              </div>
+      <div className="mt-4 rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-bg-panelHover text-sm hover:border-white/20"
+              onClick={() => setIsSessionsOpen(true)}
+              title="Open sessions"
+            >
+              +
+            </button>
 
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-text-muted">Reasoning</span>
-                <select
-                  className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-xs"
-                  value={selectedEffort ?? ''}
-                  onChange={(e) => setSelectedEffort((e.target.value as ReasoningEffort) || null)}
-                  disabled={effortOptions.length === 0}
-                >
-                  {effortOptions.length === 0 ? <option value="">(default)</option> : null}
-                  {effortOptions.map((opt) => (
-                    <option key={opt.reasoningEffort} value={opt.reasoningEffort}>
-                      {opt.description}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <button
+              type="button"
+              className={[
+                'rounded-full border px-3 py-1 text-xs',
+                autoContextEnabled
+                  ? 'border-primary/40 bg-primary/10 text-text-main'
+                  : 'border-white/10 bg-bg-panelHover text-text-muted hover:border-white/20',
+              ].join(' ')}
+              onClick={() => setAutoContextEnabled((v) => !v)}
+            >
+              Auto context
+            </button>
 
-              {modelsError ? <div className="text-xs text-status-warning">{modelsError}</div> : null}
-            </div>
-
-            <div className="flex items-end gap-3">
-              <textarea
-                className="min-h-[56px] w-full resize-none rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3 text-sm outline-none focus:border-border-active"
-                placeholder="How can I help you today?"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault()
-                    void sendMessage()
-                  }
-                }}
-                disabled={sending}
-              />
-              <button
-                type="button"
-                className="h-[56px] rounded-xl bg-primary px-5 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50"
-                onClick={() => void sendMessage()}
-                disabled={sending || input.trim().length === 0}
-                title="Send (Ctrl/Cmd+Enter)"
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-text-muted">Model</span>
+              <select
+                className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-xs"
+                value={selectedModel ?? ''}
+                onChange={(e) => setSelectedModel(e.target.value || null)}
+                disabled={models.length === 0}
               >
-                Send
-              </button>
+                {models.length === 0 ? <option value="">(unavailable)</option> : null}
+                {models.map((m) => (
+                  <option key={m.id} value={m.model}>
+                    {m.displayName}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {activeTurnId ? (
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2">
-                <div className="truncate text-xs text-text-muted">turn: {activeTurnId}</div>
-                {selectedThreadId ? (
-                  <button
-                    type="button"
-                    className="rounded-md border border-white/10 bg-black/20 px-3 py-1 text-xs hover:border-white/20"
-                    onClick={() => void apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId)}
-                  >
-                    Interrupt
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-text-muted">Reasoning</span>
+              <select
+                className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-xs"
+                value={selectedEffort ?? ''}
+                onChange={(e) => setSelectedEffort((e.target.value as ReasoningEffort) || null)}
+                disabled={effortOptions.length === 0}
+              >
+                {effortOptions.length === 0 ? <option value="">(default)</option> : null}
+                {effortOptions.map((opt) => (
+                  <option key={opt.reasoningEffort} value={opt.reasoningEffort}>
+                    {opt.description}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {modelsError ? <div className="text-xs text-status-warning">{modelsError}</div> : null}
           </div>
+
+          {activeTurnId ? (
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-bg-panelHover px-3 py-1 text-xs text-text-muted">
+              <span className="truncate">turn: {activeTurnId}</span>
+              {selectedThreadId ? (
+                <button
+                  type="button"
+                  className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[11px] hover:border-white/20"
+                  onClick={() => void apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId)}
+                >
+                  Interrupt
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
-      </section>
+
+        <div className="flex items-end gap-3">
+          <textarea
+            className="min-h-[56px] w-full resize-none rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3 text-sm outline-none focus:border-border-active"
+            placeholder="Ask for follow-up changes"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault()
+                void sendMessage()
+              }
+            }}
+            disabled={sending}
+          />
+          <button
+            type="button"
+            className="h-[56px] rounded-xl bg-primary px-5 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50"
+            onClick={() => void sendMessage()}
+            disabled={sending || input.trim().length === 0}
+            title="Send (Ctrl/Cmd+Enter)"
+          >
+            Send
+          </button>
+        </div>
+      </div>
 
       {isConfigOpen ? (
         <div className="fixed inset-0 z-50 flex">
@@ -861,6 +934,137 @@ export function CodexChat() {
               >
                 {configSaving ? 'Saving…' : 'Save'}
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isSessionsOpen ? (
+        <div className="fixed inset-0 z-50 flex">
+          <div
+            className="flex-1 bg-black/60"
+            onClick={() => setIsSessionsOpen(false)}
+            role="button"
+            tabIndex={0}
+          />
+          <div className="w-[420px] max-w-[92vw] border-l border-white/10 bg-bg-panel/95 p-6 backdrop-blur">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Sessions</div>
+                <div className="mt-1 text-xs text-text-muted">Sorted by recently updated.</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
+                  onClick={() => void listSessions()}
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
+                  onClick={() => setIsSessionsOpen(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            {sessionsError ? (
+              <div className="mb-3 rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
+                {sessionsError}
+              </div>
+            ) : null}
+
+            <div className="min-h-0 overflow-auto rounded-2xl border border-white/10 bg-bg-panel/70 p-2">
+              {sessionsLoading ? (
+                <div className="p-3 text-sm text-text-muted">Loading sessions…</div>
+              ) : sessions.length === 0 ? (
+                <div className="p-3 text-sm text-text-muted">No sessions yet.</div>
+              ) : (
+                <div className="space-y-2">
+                  {sessions.map((s) => {
+                    const isSelected = s.id === selectedThreadId
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        className={[
+                          'w-full rounded-xl border px-3 py-2 text-left transition',
+                          isSelected
+                            ? 'border-primary/40 bg-primary/10'
+                            : 'border-white/10 bg-bg-panelHover hover:border-white/20',
+                        ].join(' ')}
+                        onClick={() => void selectSession(s.id)}
+                      >
+                        <div className="truncate text-sm font-semibold">{s.id}</div>
+                        <div className="mt-1 truncate text-xs text-text-muted">{s.preview || '—'}</div>
+                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-text-dim">
+                          <span className="truncate">{s.modelProvider}</span>
+                          <span className="shrink-0">{formatSessionUpdatedAtMs(s)}</span>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isSettingsOpen ? (
+        <div className="fixed inset-0 z-50 flex">
+          <div
+            className="flex-1 bg-black/60"
+            onClick={() => setIsSettingsOpen(false)}
+            role="button"
+            tabIndex={0}
+          />
+          <div className="w-[520px] max-w-[92vw] border-l border-white/10 bg-bg-panel/95 p-6 backdrop-blur">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Chat Settings</div>
+                <div className="mt-1 text-xs text-text-muted">Affects rendering only; no protocol changes.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
+                onClick={() => setIsSettingsOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">Show reasoning</div>
+                  <div className="mt-1 text-xs text-text-muted">Display Thought/Reasoning items in the timeline.</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.showReasoning}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, showReasoning: e.target.checked }))}
+                />
+              </label>
+
+              <label className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">Default collapse details</div>
+                  <div className="mt-1 text-xs text-text-muted">
+                    When enabled, command output & diffs start collapsed (you can always expand).
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.defaultCollapseDetails}
+                  onChange={(e) =>
+                    setSettings((prev) => ({ ...prev, defaultCollapseDetails: e.target.checked }))
+                  }
+                />
+              </label>
             </div>
           </div>
         </div>

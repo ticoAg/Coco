@@ -178,7 +178,9 @@ codex exec --json \
 
 - `codex app-server`（stdio JSON-RPC + notifications）
 
-它更像“后端服务”，天然适合 GUI 驱动；但复杂度更高，适合 Phase 2+ 再上。
+它更像“后端服务”，天然适合 GUI 驱动；复杂度更高，但一旦你需要“原生对话 + 内联审批 + 流式 item 事件”，就值得提前使用（例如 GUI 的 **Codex Chat** 视图）。
+
+> 说明：对“并行 subagents/worker + 任务产物落盘”这个阶段，`codex exec --json` 仍然更轻、更容易并发隔离；是否统一切换到 app-server 可以按需求分阶段演进。
 
 ## 8. Orchestrator 最小实现要点（给你写 AgentMesh 用）
 

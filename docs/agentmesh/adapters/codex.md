@@ -14,6 +14,7 @@ Codex 提供 `codex app-server`（参见 `codex/codex-rs/app-server/README.md`�
 - 传输：stdio 双向通信
 - 格式：逐行 JSON（JSONL）
 - 协议：JSON-RPC 2.0 语义，但消息里**省略** `"jsonrpc":"2.0"` 头（见 Codex 文档说明）
+- 本地状态：默认复用用户的 Codex Home（通常为 `~/.codex/`），包括 `~/.codex/sessions`（会话历史）与 `~/.codex/config.toml`（配置）
 
 ### 1.2 核心对象映射
 
@@ -41,6 +42,8 @@ Codex 提供 `codex app-server`（参见 `codex/codex-rs/app-server/README.md`�
 5) **处理审批（人类介入点）**
 - Codex 会以 server→client 的 JSON-RPC request 形式发起 approval（例如 applyPatch / execCommand）
 - AgentMesh 把它转成 `gate.blocked`，等待用户决定 allow/deny 后再回传响应
+
+> 实践建议：如果你在 GUI 内提供 “Codex Chat”（原生对话）视图，审批也可以直接作为会话消息渲染「批准/拒绝」按钮回传给 app-server；是否还需要映射为 `gate.blocked`，取决于你是否把该对话纳入 AgentMesh 的任务编排与产物体系。
 
 ### 1.4 事件落盘（说明）
 

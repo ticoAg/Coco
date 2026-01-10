@@ -4,6 +4,8 @@
 >
 > 你当前选择的落地方式是：**GUI 作为统一入口**；编排器能力以内置 Rust 后端（Tauri）提供，并写入任务目录 `.agentmesh/tasks/<task_id>/...`。
 > `agentmesh` CLI 可以作为可选 wrapper（脚本/自动化/内部 helper），但不是必须入口。
+>
+> 补充：在保持 “Artifacts-first” 的前提下，GUI 也可以提供一个 **Codex Chat** 视图，用 `codex app-server` 做原生对话（会话列表、流式事件、内联审批），而不是复刻 TUI。
 
 > 注：当前仓库内 `agentmesh` CLI 的实现为 MVP，先覆盖 `task create|list|show|events` 与 `--json`；
 > subagent 的 spawn/resume/cancel/join 等编排命令在后续 changes 中补齐。
@@ -15,7 +17,7 @@
 - **Rust Orchestrator（内置后端，可选 CLI）**
   - 形式：Rust crate（Tauri 后端内置）；也可提供 `agentmesh` 可执行文件作为可选 wrapper
   - 职责：写入任务目录 `.agentmesh/tasks/<task_id>/...`（规划：spawn/resume/cancel/join；当前 MVP：task/events）
-  - 执行：Codex-first 先用 `codex exec --json`；后续可接 `codex app-server`
+  - 执行：并行 subagents/worker 优先用 `codex exec --json`；需要“原生对话 + 内联审批”的交互则使用 `codex app-server`
   - 依赖：`codex` 可执行文件只依赖 PATH（不随 `.app` 打包）
 - **GUI（macOS `.app`，Web UI）**
   - 以只读展示为主：读取并展示任务目录的结构化产物（报告/契约/决策/事件、subagents events）
@@ -30,7 +32,7 @@
 - **后端（orchestrator）：Rust crate（Tauri 内置；可选 CLI wrapper）**
   - 用途：对接 `codex exec --json`（子进程 + JSONL），负责任务目录落盘与并发控制。
 - **前端（GUI）：React + Vite + TypeScript + Tailwind**
-  - 用途：实现任务列表/任务详情/审批弹窗/事件流等信息密集型页面。
+  - 用途：实现任务列表/任务详情/审批交互/事件流等信息密集型页面。
   - 补充：前端只消费任务目录抽象（必要时通过 Tauri 读文件 API）。
 
 也可以把后端换成其他语言/框架，只要能满足：
@@ -69,13 +71,25 @@ macOS-only 的 `.app` 里可以包含：
   - `runtime/events.jsonl`（Codex 原始事件）
   - `artifacts/*`（该 session 产物）
 
-### 2.3 Gate / Approval 弹窗（核心交互）
+### 2.3 Codex Chat（原生对话）
+
+当你需要“在 GUI 内直接与 Codex 对话”，并且希望具备与 `codex-cli` 对齐的核心交互（会话列表、流式输出、工具/文件/搜索事件展示、审批策略）时，可以在 GUI 增加一个 **Codex Chat** 视图：
+
+- 进程/协议：由 Tauri Rust 侧直接启动系统 PATH 中的 `codex app-server`，通过 stdio JSON-RPC 进行双向通信。
+- 会话历史：复用 `~/.codex/sessions`（对应 app-server 的 `thread/list`），按最近更新时间排序，显示 `threadId` + `preview` 摘要。
+- 输入区覆盖：仅提供 `model` 与 `model_reasoning_effort` 的快捷选择（其余配置从 `~/.codex/config.toml` 读取）。
+- 配置入口：在 GUI 内打开一个面板，直接编辑 `~/.codex/config.toml`（路径按平台 HOME 目录解析）。
+- 审批交互：当 Codex 请求命令/文件变更审批时，不弹模态框；以**会话消息**形式渲染「批准/拒绝」按钮，点击后回传给 Codex。
+
+> 注意：`~/.codex/config.toml` 可能包含敏感信息（例如凭据/令牌/账号配置），GUI 编辑等价于直接编辑该文件，请按需控制显示与日志。
+
+### 2.4 Gate / Approval（任务编排层，核心交互）
 
 当 Codex 需要人类输入/审批（例如 applyPatch / execCommand）时：
 
 - MVP：GUI 只展示 `gate.blocked` 的原因与指引（例如指向 `shared/human-notes.md`）
 - 决策执行：由主控通过 `agentmesh` 控制面完成 allow/deny/resume（可选 CLI wrapper；也可通过 GUI 内置后端暴露为接口）
-- Phase 2+：再把 allow/deny 交互迁移到 GUI（届时更适合切到 `codex app-server`）
+- 说明：当采用 `codex app-server` 驱动 **Codex Chat** 时，命令/文件变更审批可以直接在消息流内完成；任务编排层的 `gate.blocked` 仍然是“可人工介入”的统一锚点。
 
 ## 3. GUI ↔ 任务目录：最小读接口（建议：Tauri + 文件 watcher）
 

@@ -52,7 +52,7 @@
   - 配合独立 `CODEX_HOME` + git worktree，可获得良好的“独立上下文 + 并发隔离”体验
 - 再做 `codex app-server`（参考 `codex/codex-rs/app-server/README.md`）：
   - stdio JSON-RPC，Thread/Turn/Item 模型，事件流式输出
-  - 支持 approvals（server→client 请求），天然对齐 `gate.blocked` 与 GUI 的审批弹窗
+  - 支持 approvals（server→client 请求），天然对齐 `gate.blocked` 与 GUI 的审批交互
 - 细节：见 [`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)
 
 **交付物**
@@ -82,8 +82,9 @@
 - 把 “任务状态 + 产物 + gates/approval” 以可操作的方式呈现出来
 
 **交付物**
-- 任务列表/任务详情/产物浏览/事件流/审批弹窗
+- 任务列表/任务详情/产物浏览/事件流/审批交互
 - GUI 以 **只读方式**读取任务目录（文件 watcher/轮询），不依赖常驻本地 HTTP 服务
+- （可选增强）Codex Chat：用 `codex app-server` 做原生对话（会话列表/流式 item 事件/web_search 展示），审批以内联消息「批准/拒绝」完成；仅在输入区暴露 `model` 与 `model_reasoning_effort`，其余配置通过编辑 `~/.codex/config.toml` 管理，并复用 `~/.codex/sessions` 历史。
 
 细节见：[`docs/agentmesh/gui.md`](./gui.md)
 
