@@ -133,8 +133,8 @@ Claude subagent 有独立上下文窗口。Codex 侧可以用两层隔离实现�
 在“短进程控制面 + 任务目录事实来源”的架构下，`wait_any` 不一定需要常驻服务：
 
 - GUI 可以对 `agents/*/runtime/events.jsonl` 做文件监听：任意一个进入 terminal 就 toast
-- 主控（你的主 Codex TUI）也可以调用 `agentmesh wait-any --task <id> --json`：
-  - 其本质是“阻塞等待某个 worker 的 events/final.json 变化”，检测到 terminal 状态即返回 `{agentId, status}`
+- 主控（你的主 Codex TUI）也可以调用 `agentmesh --json subagent wait-any <taskId>`：
+  - 其本质是“阻塞等待某个 worker 的 events/final.json 变化”，检测到 terminal 状态即返回 `{agentInstance, status}`
 
 实现上可以用：
 
@@ -233,11 +233,11 @@ MVP 里你不必消费所有事件字段；只要能做下面这几类展示就�
 
 控制面建议提供一层可编程接口；如需脚本化，可用 `agentmesh` CLI 作为可选 wrapper（短进程）。命令集合示意：
 
-- `agentmesh subagent spawn --task <taskId> ...`：启动一个 subagent（返回 `agent_id`）
-- `agentmesh subagent list --task <taskId> --json`：列出全部 subagents 状态
-- `agentmesh subagent wait-any --task <taskId> --json`：阻塞直到任意完成（或超时）
-- `agentmesh subagent cancel --task <taskId> --agent <agentId>`：取消
-- `agentmesh subagent tail-events --task <taskId> --agent <agentId>`：跟随输出 events（本质是 tail `runtime/events.jsonl`）
+- `agentmesh subagent spawn <taskId> --instance <agentInstance> --agent <agent> "<PROMPT>"`：启动一个 subagent
+- `agentmesh --json subagent list <taskId>`：列出全部 subagents 状态
+- `agentmesh --json subagent wait-any <taskId> [--timeout-seconds N]`：阻塞直到任意完成（或超时）
+- `agentmesh subagent cancel <taskId> <agentInstance>`：取消
+- `tail -f .agentmesh/tasks/<taskId>/agents/<agentInstance>/runtime/events.jsonl`：跟随输出 events（MVP 可先用文件 tail；`tail-events` 子命令可后续补齐）
 
 GUI 展示的事实来源仍然是文件：
 

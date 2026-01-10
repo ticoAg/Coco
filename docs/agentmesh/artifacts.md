@@ -42,6 +42,7 @@
         requests.jsonl          # （可选）向工具发送的请求（JSONL）
         events.jsonl            # 工具产生的事件流（JSONL）
         stderr.log              # （可选）工具 stderr 原样记录（排障）
+        pid                     # （可选）worker 进程 PID（用于 cancel/list 等控制面）
         rollout.jsonl           # （可选）工具自身落盘的会话/rollout 拷贝或引用
       artifacts/
         ...                     # 该 agent 产物（md/json/png/...）
