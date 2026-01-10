@@ -3,8 +3,12 @@ use agentmesh_core::task::AgentInstanceState;
 use agentmesh_core::task::ClusterStatus;
 use agentmesh_core::task::CreateTaskRequest;
 use agentmesh_core::task::CreateTaskResponse;
+use agentmesh_core::task::Gate;
+use agentmesh_core::task::GateState;
+use agentmesh_core::task::GateType;
 use agentmesh_core::task::TaskEvent;
 use agentmesh_core::task::TaskFile;
+use agentmesh_core::task::TaskState;
 use agentmesh_core::task_store::TaskStore;
 use agentmesh_core::task_store::TaskStoreError;
 use chrono::Utc;
@@ -101,6 +105,8 @@ pub struct SubagentWaitAnyResult {
 }
 
 const TASK_AGENTS_DIR_NAME: &str = "agents";
+const TASK_SHARED_DIR_NAME: &str = "shared";
+const TASK_SHARED_REPORTS_DIR_NAME: &str = "reports";
 const RUNTIME_DIR_NAME: &str = "runtime";
 const ARTIFACTS_DIR_NAME: &str = "artifacts";
 const CODEX_HOME_DIR_NAME: &str = "codex_home";
@@ -110,10 +116,18 @@ const RUNTIME_STDERR_FILE_NAME: &str = "stderr.log";
 const RUNTIME_PID_FILE_NAME: &str = "pid";
 const FINAL_OUTPUT_FILE_NAME: &str = "final.json";
 const SESSION_FILE_NAME: &str = "session.json";
+const JOINED_SUMMARY_MD_FILE_NAME: &str = "joined-summary.md";
+const JOINED_SUMMARY_JSON_FILE_NAME: &str = "joined-summary.json";
 
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const CANCEL_GRACE_PERIOD: Duration = Duration::from_secs(3);
 const CANCEL_TERMINATE_PERIOD: Duration = Duration::from_secs(2);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JoinTaskResponse {
+    pub joined_summary_md: PathBuf,
+    pub joined_summary_json: PathBuf,
+}
 
 impl Orchestrator {
     pub fn new(workspace_root: PathBuf) -> Self {
@@ -371,12 +385,67 @@ impl Orchestrator {
         Ok(())
     }
 
+    pub fn task_join(&self, task_id: &str) -> Result<JoinTaskResponse, OrchestratorError> {
+        let task = self.reconcile_subagents(task_id)?.task;
+        let task_dir = self.store.task_dir(task_id);
+
+        let reports_dir = task_dir
+            .join(TASK_SHARED_DIR_NAME)
+            .join(TASK_SHARED_REPORTS_DIR_NAME);
+        fs::create_dir_all(&reports_dir)?;
+
+        let mut workers = Vec::new();
+        for agent in &task.roster {
+            let final_path = agent_dir(&task_dir, &agent.instance)
+                .join(ARTIFACTS_DIR_NAME)
+                .join(FINAL_OUTPUT_FILE_NAME);
+            let final_output = read_worker_final_output(&final_path)?;
+            workers.push(JoinedWorkerSummary {
+                agent_instance: agent.instance.clone(),
+                agent: agent.agent.clone(),
+                status: final_output.status,
+                summary: final_output.summary,
+                questions: final_output.questions,
+                next_actions: final_output.next_actions,
+            });
+        }
+
+        let generated_at = Utc::now();
+
+        let markdown = render_joined_summary_markdown(&task, generated_at, &workers);
+        let md_path = reports_dir.join(JOINED_SUMMARY_MD_FILE_NAME);
+        fs::write(&md_path, markdown)?;
+
+        let json_value = json!({
+            "taskId": task.id,
+            "generatedAt": generated_at.to_rfc3339(),
+            "workers": workers.iter().map(|w| {
+                json!({
+                    "agentInstance": w.agent_instance,
+                    "agent": w.agent,
+                    "status": w.status,
+                    "summary": w.summary,
+                    "questions": w.questions,
+                    "nextActions": w.next_actions,
+                })
+            }).collect::<Vec<_>>(),
+        });
+        let json_path = reports_dir.join(JOINED_SUMMARY_JSON_FILE_NAME);
+        fs::write(&json_path, serde_json::to_string_pretty(&json_value)?)?;
+
+        Ok(JoinTaskResponse {
+            joined_summary_md: md_path,
+            joined_summary_json: json_path,
+        })
+    }
+
     fn reconcile_subagents(&self, task_id: &str) -> Result<ReconcileSubagentsOutput, OrchestratorError> {
         let mut task = self.store.read_task(task_id)?;
-        let mut event_index = self.load_agent_event_index(task_id)?;
+        let mut agent_event_index = self.load_agent_event_index(task_id)?;
+        let mut gate_event_index = self.load_gate_event_index(task_id)?;
 
         let task_dir = self.store.task_dir(task_id);
-        let cancelled = event_index
+        let cancelled = agent_event_index
             .by_agent
             .iter()
             .filter_map(|(agent, events)| {
@@ -389,10 +458,17 @@ impl Orchestrator {
             .collect::<HashSet<_>>();
 
         let mut roster_changed = false;
+        let mut gates_changed = false;
+        let mut task_state_changed = false;
         let mut subagents = Vec::new();
+        let mut any_blocked = false;
 
-        for agent in &mut task.roster {
-            let agent_dir = agent_dir(&task_dir, &agent.instance);
+        for idx in 0..task.roster.len() {
+            let agent_instance = task.roster[idx].instance.clone();
+            let agent_name = task.roster[idx].agent.clone();
+            let agent_state = task.roster[idx].state;
+
+            let agent_dir = agent_dir(&task_dir, &agent_instance);
             let runtime_dir = agent_dir.join(RUNTIME_DIR_NAME);
             let artifacts_dir = agent_dir.join(ARTIFACTS_DIR_NAME);
 
@@ -405,7 +481,7 @@ impl Orchestrator {
                 maybe_update_session_thread_id(&events_path, &session_path)?;
             }
 
-            let status = if cancelled.contains(&agent.instance) {
+            let status = if cancelled.contains(&agent_instance) {
                 SubagentStatus::Cancelled
             } else if let Some(final_status) = read_final_status(&final_output_path)? {
                 match final_status.as_str() {
@@ -421,7 +497,7 @@ impl Orchestrator {
                     SubagentStatus::Failed
                 }
             } else {
-                match agent.state {
+                match agent_state {
                     AgentInstanceState::Active => SubagentStatus::Failed,
                     AgentInstanceState::Awaiting => SubagentStatus::Blocked,
                     AgentInstanceState::Completed => SubagentStatus::Completed,
@@ -434,59 +510,67 @@ impl Orchestrator {
 
             match status {
                 SubagentStatus::Running => {
-                    if agent.state != AgentInstanceState::Active {
-                        agent.state = AgentInstanceState::Active;
+                    if task.roster[idx].state != AgentInstanceState::Active {
+                        task.roster[idx].state = AgentInstanceState::Active;
                         roster_changed = true;
                     }
                 }
                 SubagentStatus::Blocked => {
-                    if agent.state != AgentInstanceState::Awaiting {
-                        agent.state = AgentInstanceState::Awaiting;
+                    any_blocked = true;
+                    if task.roster[idx].state != AgentInstanceState::Awaiting {
+                        task.roster[idx].state = AgentInstanceState::Awaiting;
                         roster_changed = true;
                     }
                     self.ensure_agent_event(
-                        &mut event_index,
+                        &mut agent_event_index,
                         task_id,
-                        &agent.instance,
+                        &agent_instance,
                         "agent.blocked",
                         json!({}),
                     )?;
+
+                    gates_changed |= self.ensure_blocked_gate(
+                        &mut task,
+                        &mut gate_event_index,
+                        &agent_instance,
+                        &final_output_path,
+                    )?;
                 }
                 SubagentStatus::Completed => {
-                    if agent.state != AgentInstanceState::Completed {
-                        agent.state = AgentInstanceState::Completed;
+                    if task.roster[idx].state != AgentInstanceState::Completed {
+                        task.roster[idx].state = AgentInstanceState::Completed;
                         roster_changed = true;
                     }
                     self.ensure_agent_event(
-                        &mut event_index,
+                        &mut agent_event_index,
                         task_id,
-                        &agent.instance,
+                        &agent_instance,
                         "agent.completed",
                         json!({}),
                     )?;
                 }
                 SubagentStatus::Failed => {
-                    if agent.state != AgentInstanceState::Failed {
-                        agent.state = AgentInstanceState::Failed;
+                    if task.roster[idx].state != AgentInstanceState::Failed {
+                        task.roster[idx].state = AgentInstanceState::Failed;
                         roster_changed = true;
                     }
                     self.ensure_agent_event(
-                        &mut event_index,
+                        &mut agent_event_index,
                         task_id,
-                        &agent.instance,
+                        &agent_instance,
                         "agent.failed",
                         json!({}),
                     )?;
                 }
                 SubagentStatus::Cancelled => {
-                    if agent.state != AgentInstanceState::Failed {
-                        agent.state = AgentInstanceState::Failed;
+                    if task.roster[idx].state != AgentInstanceState::Failed {
+                        task.roster[idx].state = AgentInstanceState::Failed;
                         roster_changed = true;
                     }
                     self.ensure_agent_event(
-                        &mut event_index,
+                        &mut agent_event_index,
                         task_id,
-                        &agent.instance,
+                        &agent_instance,
                         "agent.cancelled",
                         json!({}),
                     )?;
@@ -494,13 +578,26 @@ impl Orchestrator {
             }
 
             subagents.push(SubagentInfo {
-                agent_instance: agent.instance.clone(),
-                agent: agent.agent.clone(),
+                agent_instance,
+                agent: agent_name,
                 status,
             });
         }
 
-        if roster_changed {
+        if any_blocked && task.state != TaskState::InputRequired {
+            match task.state {
+                TaskState::Created | TaskState::Working => {
+                    task.state = TaskState::InputRequired;
+                    task_state_changed = true;
+                }
+                TaskState::InputRequired
+                | TaskState::Completed
+                | TaskState::Failed
+                | TaskState::Canceled => {}
+            }
+        }
+
+        if roster_changed || gates_changed || task_state_changed {
             task.updated_at = Utc::now();
             self.store.write_task(&task)?;
         }
@@ -569,6 +666,145 @@ impl Orchestrator {
 
         Ok(AgentEventIndex { by_agent })
     }
+
+    fn ensure_blocked_gate(
+        &self,
+        task: &mut TaskFile,
+        gate_event_index: &mut GateEventIndex,
+        agent_instance: &str,
+        final_output_path: &Path,
+    ) -> Result<bool, OrchestratorError> {
+        let gate_id = format!("gate-{agent_instance}");
+        let final_output = read_worker_final_output(final_output_path)?;
+        let reason = blocked_gate_reason(agent_instance, &final_output);
+
+        let now = Utc::now();
+        let instructions_ref = Some("./shared/human-notes.md".to_string());
+
+        let mut changed = false;
+        if let Some(gate) = task.gates.iter_mut().find(|g| g.id == gate_id) {
+            if gate.gate_type != GateType::HumanApproval {
+                gate.gate_type = GateType::HumanApproval;
+                changed = true;
+            }
+            if gate.state != GateState::Blocked {
+                gate.state = GateState::Blocked;
+                changed = true;
+            }
+            if gate.reason != reason {
+                gate.reason = reason.clone();
+                changed = true;
+            }
+            if gate.instructions_ref != instructions_ref {
+                gate.instructions_ref = instructions_ref.clone();
+                changed = true;
+            }
+            if gate.blocked_at.is_none() {
+                gate.blocked_at = Some(now);
+                changed = true;
+            }
+            if gate.resolved_at.is_some() {
+                gate.resolved_at = None;
+                changed = true;
+            }
+            if gate.resolved_by.is_some() {
+                gate.resolved_by = None;
+                changed = true;
+            }
+        } else {
+            task.gates.push(Gate {
+                id: gate_id.clone(),
+                gate_type: GateType::HumanApproval,
+                state: GateState::Blocked,
+                reason: reason.clone(),
+                instructions_ref,
+                blocked_at: Some(now),
+                resolved_at: None,
+                resolved_by: None,
+            });
+            changed = true;
+        }
+
+        self.ensure_gate_event(
+            gate_event_index,
+            &task.id,
+            &gate_id,
+            Some(agent_instance),
+            "gate.blocked",
+            json!({
+                "reason": reason,
+            }),
+        )?;
+
+        Ok(changed)
+    }
+
+    fn append_gate_event(
+        &self,
+        task_id: &str,
+        gate_id: &str,
+        agent_instance: Option<&str>,
+        event_type: &str,
+        payload: serde_json::Value,
+    ) -> Result<(), OrchestratorError> {
+        let mut payload = ensure_payload_gate_id(payload, gate_id);
+        if let Some(agent_instance) = agent_instance {
+            payload = ensure_payload_agent_instance(payload, agent_instance);
+        }
+
+        let event = TaskEvent {
+            ts: Utc::now(),
+            event_type: event_type.to_string(),
+            task_id: task_id.to_string(),
+            agent_instance: agent_instance.map(|v| v.to_string()),
+            turn_id: None,
+            payload,
+            by: Some("orchestrator".to_string()),
+            path: None,
+        };
+        self.store.append_task_event(task_id, &event)?;
+        Ok(())
+    }
+
+    fn ensure_gate_event(
+        &self,
+        index: &mut GateEventIndex,
+        task_id: &str,
+        gate_id: &str,
+        agent_instance: Option<&str>,
+        event_type: &str,
+        payload: serde_json::Value,
+    ) -> Result<(), OrchestratorError> {
+        let entry = index.by_gate.entry(gate_id.to_string()).or_default();
+        if entry.contains(event_type) {
+            return Ok(());
+        }
+
+        self.append_gate_event(task_id, gate_id, agent_instance, event_type, payload)?;
+        entry.insert(event_type.to_string());
+        Ok(())
+    }
+
+    fn load_gate_event_index(&self, task_id: &str) -> Result<GateEventIndex, OrchestratorError> {
+        let events = self
+            .store
+            .read_task_events(task_id, Some("gate."), usize::MAX, 0)?;
+
+        let mut by_gate: HashMap<String, HashSet<String>> = HashMap::new();
+        for event in events {
+            let Some(gate_id) = event
+                .payload
+                .get("gateId")
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string())
+            else {
+                continue;
+            };
+            by_gate.entry(gate_id).or_default().insert(event.event_type);
+        }
+
+        Ok(GateEventIndex { by_gate })
+    }
 }
 
 #[derive(Debug)]
@@ -582,16 +818,162 @@ struct AgentEventIndex {
     by_agent: HashMap<String, HashSet<String>>,
 }
 
+#[derive(Debug)]
+struct GateEventIndex {
+    by_gate: HashMap<String, HashSet<String>>,
+}
+
 fn agent_dir(task_dir: &Path, agent_instance: &str) -> PathBuf {
     task_dir
         .join(TASK_AGENTS_DIR_NAME)
         .join(agent_instance)
 }
 
+#[derive(Debug, Clone)]
+struct JoinedWorkerSummary {
+    agent_instance: String,
+    agent: String,
+    status: String,
+    summary: String,
+    questions: Vec<String>,
+    next_actions: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct WorkerFinalOutputSnapshot {
+    status: String,
+    summary: String,
+    questions: Vec<String>,
+    next_actions: Vec<String>,
+}
+
+fn read_worker_final_output(path: &Path) -> Result<WorkerFinalOutputSnapshot, OrchestratorError> {
+    if !path.exists() {
+        return Ok(WorkerFinalOutputSnapshot {
+            status: "missing".to_string(),
+            summary: "final output is missing".to_string(),
+            questions: Vec::new(),
+            next_actions: Vec::new(),
+        });
+    }
+
+    let content = fs::read_to_string(path)?;
+    let value: serde_json::Value = serde_json::from_str(&content)?;
+
+    let status = value
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("failed")
+        .to_string();
+    let summary = value
+        .get("summary")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let questions = value
+        .get("questions")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let next_actions = value
+        .get("nextActions")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Ok(WorkerFinalOutputSnapshot {
+        status,
+        summary,
+        questions,
+        next_actions,
+    })
+}
+
+fn blocked_gate_reason(agent_instance: &str, output: &WorkerFinalOutputSnapshot) -> String {
+    if let Some(first) = output.questions.first() {
+        let more = output.questions.len().saturating_sub(1);
+        if more == 0 {
+            return first.clone();
+        }
+        return format!("{first} (+{more} more)");
+    }
+
+    if !output.summary.trim().is_empty() {
+        return output.summary.trim().to_string();
+    }
+
+    format!("blocked by {agent_instance}")
+}
+
+fn render_joined_summary_markdown(
+    task: &TaskFile,
+    generated_at: chrono::DateTime<Utc>,
+    workers: &[JoinedWorkerSummary],
+) -> String {
+    let mut out = String::new();
+    out.push_str("---\n");
+    out.push_str(&format!(
+        "title: \"Joined Summary: {}\"\n",
+        escape_yaml_string(&task.title)
+    ));
+    out.push_str("purpose: \"汇总多个 subagent 的最终输出与阻塞点\"\n");
+    out.push_str("tags: [\"joined-summary\", \"subagents\"]\n");
+    out.push_str(&format!("task_id: \"{}\"\n", escape_yaml_string(&task.id)));
+    out.push_str(&format!("generated_at: \"{}\"\n", generated_at.to_rfc3339()));
+    out.push_str("---\n\n");
+
+    out.push_str(&format!("# Joined Summary: {}\n\n", task.title));
+    out.push_str(&format!("- task: `{}`\n", task.id));
+    out.push_str(&format!("- generatedAt: `{}`\n\n", generated_at.to_rfc3339()));
+
+    out.push_str("## Workers\n\n");
+    for w in workers {
+        out.push_str(&format!("### {} ({})\n\n", w.agent_instance, w.agent));
+        out.push_str(&format!("- status: `{}`\n", w.status));
+        if !w.summary.trim().is_empty() {
+            out.push_str(&format!("- summary: {}\n", w.summary.trim()));
+        }
+
+        if !w.questions.is_empty() {
+            out.push_str("- questions:\n");
+            for q in &w.questions {
+                out.push_str(&format!("  - {}\n", q.trim()));
+            }
+        }
+
+        if !w.next_actions.is_empty() {
+            out.push_str("- nextActions:\n");
+            for a in &w.next_actions {
+                out.push_str(&format!("  - {}\n", a.trim()));
+            }
+        }
+
+        out.push('\n');
+    }
+
+    out
+}
+
+fn escape_yaml_string(value: &str) -> String {
+    value.replace('"', "\\\"")
+}
+
 fn validate_agent_instance(value: &str) -> Result<(), OrchestratorError> {
     let is_ok = !value.is_empty()
         && value
-            .chars()
+        .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     if is_ok {
         Ok(())
@@ -633,6 +1015,20 @@ fn ensure_payload_agent_instance(
         }
         other => json!({
             "agentInstance": agent_instance,
+            "value": other,
+        }),
+    }
+}
+
+fn ensure_payload_gate_id(payload: serde_json::Value, gate_id: &str) -> serde_json::Value {
+    match payload {
+        serde_json::Value::Object(mut obj) => {
+            obj.entry("gateId".to_string())
+                .or_insert_with(|| serde_json::Value::String(gate_id.to_string()));
+            serde_json::Value::Object(obj)
+        }
+        other => json!({
+            "gateId": gate_id,
             "value": other,
         }),
     }
@@ -977,6 +1373,95 @@ mod tests {
         // Best-effort cleanup: the cancel path may reap the child process.
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    #[test]
+    fn join_includes_all_worker_fields() {
+        let root = new_temp_workspace_root();
+        let _guard = TempDirGuard(root.clone());
+
+        let orchestrator = Orchestrator::new(root.clone());
+        let resp = orchestrator
+            .create_task(CreateTaskRequest {
+                title: "join test".to_string(),
+                description: "".to_string(),
+                topology: TaskTopology::Swarm,
+                milestones: Vec::new(),
+                roster: Vec::new(),
+                config: None,
+            })
+            .unwrap();
+
+        let task_id = resp.id;
+        let mut task = orchestrator.get_task(&task_id).unwrap();
+        task.roster.push(AgentInstance {
+            instance: "w1".to_string(),
+            agent: "worker".to_string(),
+            state: AgentInstanceState::Completed,
+            assigned_milestone: None,
+            skills: Vec::new(),
+        });
+        task.roster.push(AgentInstance {
+            instance: "w2".to_string(),
+            agent: "worker".to_string(),
+            state: AgentInstanceState::Completed,
+            assigned_milestone: None,
+            skills: Vec::new(),
+        });
+        orchestrator.store.write_task(&task).unwrap();
+
+        let task_dir = orchestrator.store.task_dir(&task_id);
+        write_worker_final_json(
+            &task_dir,
+            "w1",
+            json!({
+                "status": "success",
+                "summary": "summary-one",
+                "questions": ["question-one"],
+                "nextActions": ["action-one"],
+            }),
+        );
+        write_worker_final_json(
+            &task_dir,
+            "w2",
+            json!({
+                "status": "blocked",
+                "summary": "summary-two",
+                "questions": ["question-two"],
+                "nextActions": ["action-two"],
+            }),
+        );
+
+        let resp = orchestrator.task_join(&task_id).unwrap();
+
+        let md = fs::read_to_string(resp.joined_summary_md).unwrap();
+        assert!(md.contains("summary-one"));
+        assert!(md.contains("question-one"));
+        assert!(md.contains("action-one"));
+        assert!(md.contains("summary-two"));
+        assert!(md.contains("question-two"));
+        assert!(md.contains("action-two"));
+
+        let json_content = fs::read_to_string(resp.joined_summary_json).unwrap();
+        assert!(json_content.contains("summary-one"));
+        assert!(json_content.contains("question-one"));
+        assert!(json_content.contains("action-one"));
+        assert!(json_content.contains("summary-two"));
+        assert!(json_content.contains("question-two"));
+        assert!(json_content.contains("action-two"));
+    }
+
+    fn write_worker_final_json(task_dir: &Path, agent_instance: &str, value: serde_json::Value) {
+        let artifacts_dir = task_dir
+            .join("agents")
+            .join(agent_instance)
+            .join("artifacts");
+        fs::create_dir_all(&artifacts_dir).unwrap();
+        fs::write(
+            artifacts_dir.join("final.json"),
+            serde_json::to_string_pretty(&value).unwrap(),
+        )
+        .unwrap();
     }
 
     struct TempDirGuard(PathBuf);
