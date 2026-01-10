@@ -126,3 +126,20 @@ export interface SubagentFinalOutput {
   json: unknown | null
   parseError: string | null
 }
+
+// ============ Shared Artifacts (GUI only) ============
+
+export type SharedArtifactCategory = 'reports' | 'contracts' | 'decisions'
+
+export interface SharedArtifactSummary {
+  path: string
+  filename: string
+  updatedAtMs: number | null
+  sizeBytes: number | null
+}
+
+export interface SharedArtifactContent {
+  path: string
+  content: string
+  updatedAtMs: number | null
+}

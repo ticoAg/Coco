@@ -19,6 +19,23 @@ struct SubagentFinalOutput {
     parse_error: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SharedArtifactSummary {
+    path: String,
+    filename: String,
+    updated_at_ms: Option<u64>,
+    size_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SharedArtifactContent {
+    path: String,
+    content: String,
+    updated_at_ms: Option<u64>,
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -31,6 +48,8 @@ pub fn run() {
             list_subagent_sessions,
             get_subagent_final_output,
             tail_subagent_events,
+            list_shared_artifacts,
+            read_shared_artifact,
         ])
         .setup(|app| {
             let workspace_root = resolve_workspace_root(app.handle())?;
@@ -119,6 +138,92 @@ fn task_agents_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path
         .join("tasks")
         .join(task_id)
         .join("agents")
+}
+
+fn task_shared_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path::PathBuf {
+    workspace_root
+        .join(".agentmesh")
+        .join("tasks")
+        .join(task_id)
+        .join("shared")
+}
+
+fn shared_category_dir(
+    workspace_root: &std::path::Path,
+    task_id: &str,
+    category: &str,
+) -> Result<std::path::PathBuf, String> {
+    validate_id(task_id, "task_id")?;
+    let subdir = match category {
+        "reports" => "reports",
+        "contracts" => "contracts",
+        "decisions" => "decisions",
+        other => return Err(format!("invalid category: {other}")),
+    };
+    Ok(task_shared_dir(workspace_root, task_id).join(subdir))
+}
+
+fn validate_artifact_rel_path(value: &str) -> Result<std::path::PathBuf, String> {
+    if value.trim().is_empty() {
+        return Err("artifact path cannot be empty".to_string());
+    }
+    let path = std::path::PathBuf::from(value);
+    if path.is_absolute() {
+        return Err("absolute paths are not allowed".to_string());
+    }
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir
+            | std::path::Component::RootDir
+            | std::path::Component::Prefix(_) => {
+                return Err("path traversal is not allowed".to_string())
+            }
+            _ => {}
+        }
+    }
+    Ok(path)
+}
+
+fn collect_artifact_summaries(
+    base_dir: &std::path::Path,
+    current_dir: &std::path::Path,
+    out: &mut Vec<SharedArtifactSummary>,
+) -> Result<(), String> {
+    let read_dir = std::fs::read_dir(current_dir).map_err(|e| e.to_string())?;
+    for entry in read_dir {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_artifact_summaries(base_dir, &path, out)?;
+            continue;
+        }
+        if !path.is_file() {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(base_dir)
+            .map_err(|e| e.to_string())?;
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        let filename = path
+            .file_name()
+            .and_then(|v| v.to_str())
+            .unwrap_or(&rel_str)
+            .to_string();
+        let meta = entry.metadata().ok();
+        let updated_at_ms = meta
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(to_epoch_ms);
+        let size_bytes = meta.as_ref().map(|m| m.len());
+
+        out.push(SharedArtifactSummary {
+            path: rel_str,
+            filename,
+            updated_at_ms,
+            size_bytes,
+        });
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -327,4 +432,57 @@ fn tail_subagent_events(
     let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
     let start = lines.len().saturating_sub(limit);
     Ok(lines[start..].to_vec())
+}
+
+#[tauri::command]
+fn list_shared_artifacts(
+    state: tauri::State<'_, AppState>,
+    task_id: String,
+    category: String,
+) -> Result<Vec<SharedArtifactSummary>, String> {
+    let base_dir = shared_category_dir(state.orchestrator.workspace_root(), &task_id, &category)?;
+    if !base_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut items = Vec::new();
+    collect_artifact_summaries(&base_dir, &base_dir, &mut items)?;
+    items.sort_by(|a, b| match (a.updated_at_ms, b.updated_at_ms) {
+        (Some(a_ts), Some(b_ts)) => b_ts.cmp(&a_ts),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.path.cmp(&b.path),
+    });
+
+    Ok(items)
+}
+
+#[tauri::command]
+fn read_shared_artifact(
+    state: tauri::State<'_, AppState>,
+    task_id: String,
+    category: String,
+    path: String,
+) -> Result<SharedArtifactContent, String> {
+    let base_dir = shared_category_dir(state.orchestrator.workspace_root(), &task_id, &category)?;
+    let rel_path = validate_artifact_rel_path(&path)?;
+    let full_path = base_dir.join(&rel_path);
+    if !full_path.exists() {
+        return Err("artifact not found".to_string());
+    }
+
+    let canonical_base = std::fs::canonicalize(&base_dir).map_err(|e| e.to_string())?;
+    let canonical_file = std::fs::canonicalize(&full_path).map_err(|e| e.to_string())?;
+    if !canonical_file.starts_with(&canonical_base) {
+        return Err("artifact path escapes category directory".to_string());
+    }
+
+    let content = std::fs::read_to_string(&canonical_file).map_err(|e| e.to_string())?;
+    let updated_at_ms = modified_ms(&canonical_file);
+
+    Ok(SharedArtifactContent {
+        path,
+        content,
+        updated_at_ms,
+    })
 }

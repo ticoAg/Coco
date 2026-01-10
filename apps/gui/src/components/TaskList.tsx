@@ -122,7 +122,7 @@ export function TaskList({
       )}
 
       <div className="mt-4 flex flex-col gap-3">
-        {(loading ? tasks : tasks).map((task) => {
+        {tasks.map((task) => {
           const isSelected = task.id === selectedTaskId
           const blockedGates = task.gates?.filter((g) => g.state === 'blocked').length ?? 0
 

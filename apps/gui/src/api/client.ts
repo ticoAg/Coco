@@ -3,6 +3,9 @@ import type {
   ClusterStatus,
   CreateTaskRequest,
   CreateTaskResponse,
+  SharedArtifactCategory,
+  SharedArtifactContent,
+  SharedArtifactSummary,
   SubagentFinalOutput,
   SubagentSessionSummary,
   Task,
@@ -74,6 +77,28 @@ export async function tailSubagentEvents(
   })
 }
 
+export async function listSharedArtifacts(
+  taskId: string,
+  category: SharedArtifactCategory
+): Promise<SharedArtifactSummary[]> {
+  return invoke<SharedArtifactSummary[]>('list_shared_artifacts', {
+    task_id: taskId,
+    category,
+  })
+}
+
+export async function readSharedArtifact(
+  taskId: string,
+  category: SharedArtifactCategory,
+  path: string
+): Promise<SharedArtifactContent> {
+  return invoke<SharedArtifactContent>('read_shared_artifact', {
+    task_id: taskId,
+    category,
+    path,
+  })
+}
+
 export const apiClient = {
   listTasks,
   getTask,
@@ -83,6 +108,8 @@ export const apiClient = {
   listSubagentSessions,
   getSubagentFinalOutput,
   tailSubagentEvents,
+  listSharedArtifacts,
+  readSharedArtifact,
 }
 
 export default apiClient

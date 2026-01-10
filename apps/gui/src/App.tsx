@@ -35,15 +35,23 @@ function ClusterStatusPanel({ status }: { status: ReturnType<typeof useClusterSt
   )
 }
 
+type RecentEventType = 'info' | 'warning' | 'error' | 'success'
+
+interface RecentEvent {
+  time: string
+  message: string
+  type: RecentEventType
+}
+
 function RecentEventsPanel({ tasks }: { tasks: Task[] }) {
-  const recentEvents = useMemo(() => {
+  const recentEvents = useMemo<RecentEvent[]>(() => {
     return tasks.slice(0, 5).map((task) => {
       const time = new Date(task.updatedAt).toLocaleTimeString([], {
         hour: '2-digit',
         minute: '2-digit',
       })
       let message = `Task "${task.title}"`
-      let type: 'info' | 'warning' | 'error' | 'success' = 'info'
+      let type: RecentEventType = 'info'
 
       switch (task.state) {
         case 'working':
@@ -70,7 +78,7 @@ function RecentEventsPanel({ tasks }: { tasks: Task[] }) {
     })
   }, [tasks])
 
-  const color = (type: string) => {
+  const color = (type: RecentEventType) => {
     switch (type) {
       case 'success':
         return 'text-status-success'

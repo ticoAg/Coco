@@ -1,9 +1,17 @@
 import { useMemo, useState } from 'react'
-import type { AgentInstance, Gate, Milestone, Task, TaskEvent } from '../types/task'
-import { useSubagentSessions } from '../hooks/useTasks'
+import ReactMarkdown from 'react-markdown'
+import type { AgentInstance, Gate, Milestone, SharedArtifactCategory, Task, TaskEvent } from '../types/task'
+import { useSharedArtifacts, useSubagentSessions } from '../hooks/useTasks'
 import { StatusBadge } from './TaskList'
 
-type TabId = 'overview' | 'events' | 'sessions'
+type TabId = 'overview' | 'events' | 'artifacts' | 'sessions'
+const TABS: Array<{ id: TabId; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'events', label: 'Events' },
+  { id: 'artifacts', label: 'Artifacts' },
+  { id: 'sessions', label: 'Sessions' },
+]
+const ARTIFACT_CATEGORIES: SharedArtifactCategory[] = ['reports', 'contracts', 'decisions']
 
 function formatDate(dateString: string): string {
   const date = new Date(dateString)
@@ -141,8 +149,10 @@ export function TaskDetail({
   onClose,
 }: TaskDetailProps) {
   const [tab, setTab] = useState<TabId>('overview')
+  const [artifactCategory, setArtifactCategory] = useState<SharedArtifactCategory>('reports')
 
-  const sessionsEnabled = tab === 'sessions' && Boolean(task) && !loading && !error
+  const detailReady = Boolean(task) && !loading && !error
+  const sessionsEnabled = tab === 'sessions' && detailReady
   const {
     sessions,
     selectedAgentInstance,
@@ -158,18 +168,40 @@ export function TaskDetail({
     eventsTailLimit: 200,
   })
 
-  const finalJson = useMemo(() => {
-    if (!finalOutput?.json || typeof finalOutput.json !== 'object') return null
-    return finalOutput.json as Record<string, unknown>
+  const artifactsEnabled = tab === 'artifacts' && detailReady
+  const {
+    items: artifacts,
+    selectedPath: selectedArtifactPath,
+    content: artifactContent,
+    loading: artifactsLoading,
+    error: artifactsError,
+    refresh: refreshArtifacts,
+    selectArtifact,
+  } = useSharedArtifacts(task?.id ?? null, artifactCategory, {
+    enabled: artifactsEnabled,
+    pollIntervalMs: 2000,
+  })
+
+  const { finalStatus, finalSummary } = useMemo(() => {
+    if (!finalOutput?.json || typeof finalOutput.json !== 'object') {
+      return { finalStatus: null, finalSummary: null }
+    }
+
+    const json = finalOutput.json as Record<string, unknown>
+    return {
+      finalStatus: typeof json.status === 'string' ? json.status : null,
+      finalSummary: typeof json.summary === 'string' ? json.summary : null,
+    }
   }, [finalOutput])
 
-  const finalStatus = useMemo(() => {
-    return typeof finalJson?.status === 'string' ? finalJson.status : null
-  }, [finalJson])
-
-  const finalSummary = useMemo(() => {
-    return typeof finalJson?.summary === 'string' ? finalJson.summary : null
-  }, [finalJson])
+  const selectedArtifact = useMemo(
+    () => artifacts.find((item) => item.path === selectedArtifactPath) ?? null,
+    [artifacts, selectedArtifactPath]
+  )
+  const isMarkdown = useMemo(
+    () => selectedArtifact?.path?.toLowerCase().endsWith('.md') ?? false,
+    [selectedArtifact]
+  )
 
   if (loading) {
     return (
@@ -218,36 +250,19 @@ export function TaskDetail({
       </div>
 
       <div className="mb-5 flex items-center gap-2 border-b border-white/10 pb-3">
-        <button
-          type="button"
-          className={[
-            'rounded-md px-3 py-1.5 text-sm',
-            tab === 'overview' ? 'bg-primary/15 text-primary' : 'text-text-muted hover:text-text-main',
-          ].join(' ')}
-          onClick={() => setTab('overview')}
-        >
-          Overview
-        </button>
-        <button
-          type="button"
-          className={[
-            'rounded-md px-3 py-1.5 text-sm',
-            tab === 'events' ? 'bg-primary/15 text-primary' : 'text-text-muted hover:text-text-main',
-          ].join(' ')}
-          onClick={() => setTab('events')}
-        >
-          Events
-        </button>
-        <button
-          type="button"
-          className={[
-            'rounded-md px-3 py-1.5 text-sm',
-            tab === 'sessions' ? 'bg-primary/15 text-primary' : 'text-text-muted hover:text-text-main',
-          ].join(' ')}
-          onClick={() => setTab('sessions')}
-        >
-          Sessions
-        </button>
+        {TABS.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            className={[
+              'rounded-md px-3 py-1.5 text-sm',
+              tab === id ? 'bg-primary/15 text-primary' : 'text-text-muted hover:text-text-main',
+            ].join(' ')}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {tab === 'overview' && (
@@ -338,6 +353,117 @@ export function TaskDetail({
               </button>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {tab === 'artifacts' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm font-semibold">Artifacts</div>
+            <button
+              type="button"
+              className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-sm hover:border-white/20"
+              onClick={() => void refreshArtifacts()}
+            >
+              Refresh
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {ARTIFACT_CATEGORIES.map((category) => (
+              <button
+                key={category}
+                type="button"
+                className={[
+                  'rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide',
+                  artifactCategory === category
+                    ? 'bg-primary/20 text-primary'
+                    : 'bg-white/10 text-text-muted hover:text-text-main',
+                ].join(' ')}
+                onClick={() => setArtifactCategory(category)}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+
+          {artifactsError ? (
+            <div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
+              {artifactsError}
+            </div>
+          ) : null}
+
+          {artifactsLoading && artifacts.length === 0 ? (
+            <div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">
+              Loading artifacts…
+            </div>
+          ) : artifacts.length === 0 ? (
+            <div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">
+              No artifacts in {artifactCategory}.
+            </div>
+          ) : (
+            <div className="grid grid-cols-[320px_1fr] gap-4">
+              <div className="space-y-2">
+                {artifacts.map((item) => {
+                  const isSelected = item.path === selectedArtifactPath
+                  return (
+                    <button
+                      key={item.path}
+                      type="button"
+                      className={[
+                        'w-full rounded-lg border px-3 py-2 text-left',
+                        isSelected
+                          ? 'border-primary/40 bg-primary/10'
+                          : 'border-white/10 bg-bg-panelHover hover:border-white/20',
+                      ].join(' ')}
+                      onClick={() => selectArtifact(item.path)}
+                    >
+                      <div className="truncate text-sm font-semibold">{item.filename}</div>
+                      <div className="mt-1 text-xs text-text-muted">
+                        updated: {formatEpochMs(item.updatedAtMs)}
+                      </div>
+                      {item.path !== item.filename ? (
+                        <div className="mt-1 truncate text-[11px] text-text-dim">{item.path}</div>
+                      ) : null}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="min-w-0 space-y-4">
+                {selectedArtifactPath ? (
+                  <div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="truncate text-sm font-semibold">{selectedArtifactPath}</div>
+                      <div className="text-xs text-text-muted">auto-refresh: 2s</div>
+                    </div>
+                    {selectedArtifact?.updatedAtMs ? (
+                      <div className="mt-1 text-xs text-text-muted">
+                        updated: {formatEpochMs(selectedArtifact.updatedAtMs)}
+                      </div>
+                    ) : null}
+                    <div className="mt-3">
+                      {!artifactContent ? (
+                        <div className="text-sm text-text-muted">Loading…</div>
+                      ) : isMarkdown ? (
+                        <div className="space-y-3 text-sm text-text-main">
+                          <ReactMarkdown>{artifactContent.content}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        <pre className="max-h-[420px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">
+                          {artifactContent.content}
+                        </pre>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">
+                    Select an artifact to preview.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

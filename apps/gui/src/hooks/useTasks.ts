@@ -3,11 +3,17 @@ import { apiClient } from '../api/client'
 import type {
   ClusterStatus,
   CreateTaskRequest,
+  SharedArtifactCategory,
+  SharedArtifactContent,
+  SharedArtifactSummary,
   SubagentFinalOutput,
   SubagentSessionSummary,
   Task,
   TaskEvent,
 } from '../types/task'
+
+const getErrorMessage = (err: unknown, fallback: string) =>
+  err instanceof Error ? err.message : fallback
 
 // ============ useTasks ============
 
@@ -37,7 +43,7 @@ export function useTasks(enablePolling: boolean = true): UseTasksReturn {
       setState({
         tasks: [],
         loading: false,
-        error: err instanceof Error ? err.message : 'Failed to load tasks',
+        error: getErrorMessage(err, 'Failed to load tasks'),
       })
     }
   }, [])
@@ -55,7 +61,7 @@ export function useTasks(enablePolling: boolean = true): UseTasksReturn {
     } catch (err) {
       setState((prev) => ({
         ...prev,
-        error: err instanceof Error ? err.message : 'Failed to create task',
+        error: getErrorMessage(err, 'Failed to create task'),
       }))
       return null
     }
@@ -110,7 +116,7 @@ export function useTaskDetail(taskId: string | null): UseTaskDetailReturn {
       setState((prev) => ({
         ...prev,
         loading: false,
-        error: err instanceof Error ? err.message : 'Failed to load task',
+        error: getErrorMessage(err, 'Failed to load task'),
       }))
     }
   }, [taskId])
@@ -168,7 +174,7 @@ export function useClusterStatus(pollInterval: number = 10000): UseClusterStatus
       setStatus(data)
       setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch status')
+      setError(getErrorMessage(err, 'Failed to fetch status'))
     } finally {
       setLoading(false)
     }
@@ -266,7 +272,7 @@ export function useSubagentSessions(
       setState((prev) => ({
         ...prev,
         loading: false,
-        error: err instanceof Error ? err.message : 'Failed to load subagent sessions',
+        error: getErrorMessage(err, 'Failed to load subagent sessions'),
       }))
     }
   }, [enabled, taskId, state.selectedAgentInstance, fetchDetails])
@@ -313,4 +319,122 @@ export function useSubagentSessions(
   }, [enabled, taskId, pollIntervalMs, refresh])
 
   return { ...state, refresh, selectAgentInstance }
+}
+
+// ============ useSharedArtifacts ============
+
+interface UseSharedArtifactsState {
+  items: SharedArtifactSummary[]
+  selectedPath: string | null
+  content: SharedArtifactContent | null
+  loading: boolean
+  error: string | null
+}
+
+interface UseSharedArtifactsReturn extends UseSharedArtifactsState {
+  refresh: () => Promise<void>
+  selectArtifact: (path: string) => void
+}
+
+export function useSharedArtifacts(
+  taskId: string | null,
+  category: SharedArtifactCategory,
+  options?: {
+    enabled?: boolean
+    pollIntervalMs?: number
+  }
+): UseSharedArtifactsReturn {
+  const enabled = options?.enabled ?? true
+  const pollIntervalMs = options?.pollIntervalMs ?? 2000
+
+  const [state, setState] = useState<UseSharedArtifactsState>({
+    items: [],
+    selectedPath: null,
+    content: null,
+    loading: true,
+    error: null,
+  })
+
+  const fetchContent = useCallback(async (path: string) => {
+    if (!taskId) return
+    const content = await apiClient.readSharedArtifact(taskId, category, path)
+    setState((prev) => ({ ...prev, content, error: null }))
+  }, [taskId, category])
+
+  const refresh = useCallback(async (options?: { background?: boolean }) => {
+    if (!enabled || !taskId) return
+
+    if (!options?.background) {
+      setState((prev) => ({ ...prev, loading: true }))
+    }
+    try {
+      const items = await apiClient.listSharedArtifacts(taskId, category)
+      const selectedStillValid =
+        state.selectedPath && items.some((item) => item.path === state.selectedPath)
+      const selectedPath = selectedStillValid
+        ? state.selectedPath
+        : items[0]?.path ?? null
+
+      setState((prev) => ({
+        ...prev,
+        items,
+        selectedPath,
+        loading: false,
+        error: null,
+      }))
+
+      if (!selectedPath) {
+        setState((prev) => ({ ...prev, content: null }))
+        return
+      }
+
+      await fetchContent(selectedPath)
+    } catch (err) {
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error: getErrorMessage(err, 'Failed to load artifacts'),
+      }))
+    }
+  }, [enabled, taskId, category, state.selectedPath, fetchContent])
+
+  const selectArtifact = useCallback((path: string) => {
+    setState((prev) => ({
+      ...prev,
+      selectedPath: path,
+      content: null,
+    }))
+    fetchContent(path).catch(() => {
+      // ignore selection errors; keep last successful state
+    })
+  }, [fetchContent])
+
+  useEffect(() => {
+    if (!enabled || !taskId) {
+      setState({
+        items: [],
+        selectedPath: null,
+        content: null,
+        loading: false,
+        error: null,
+      })
+      return
+    }
+
+    refresh()
+  }, [enabled, taskId, category, refresh])
+
+  useEffect(() => {
+    if (!enabled || !taskId) return
+
+    const timer = setInterval(() => {
+      refresh({ background: true }).catch(() => {
+        // ignore polling errors; keep last successful state
+      })
+    }, pollIntervalMs)
+
+    return () => clearInterval(timer)
+  }, [enabled, taskId, category, pollIntervalMs, refresh])
+
+  return { ...state, refresh, selectArtifact }
 }
