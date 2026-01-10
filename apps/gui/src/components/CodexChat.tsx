@@ -254,6 +254,12 @@ export function CodexChat() {
   const [configSaving, setConfigSaving] = useState(false)
   const [configError, setConfigError] = useState<string | null>(null)
   const [autoContextEnabled, setAutoContextEnabled] = useState(true)
+  const [diagnostics, setDiagnostics] = useState<{
+    path: string
+    resolvedCodexBin: string | null
+    envOverride: string | null
+  } | null>(null)
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null)
 
   useEffect(() => {
     persistCodexChatSettings(settings)
@@ -262,6 +268,16 @@ export function CodexChat() {
   useEffect(() => {
     persistApprovalPolicy(approvalPolicy)
   }, [approvalPolicy])
+
+  const loadDiagnostics = useCallback(async () => {
+    setDiagnosticsError(null)
+    try {
+      const res = await apiClient.codexDiagnostics()
+      setDiagnostics(res)
+    } catch (err) {
+      setDiagnosticsError(errorMessage(err, 'Failed to load diagnostics'))
+    }
+  }, [])
 
   const listSessions = useCallback(async () => {
     setSessionsLoading(true)
@@ -1122,7 +1138,7 @@ export function CodexChat() {
         </div>
       ) : null}
 
-        {isSettingsOpen ? (
+      {isSettingsOpen ? (
         <div className="fixed inset-0 z-50 flex">
           <div
             className="flex-1 bg-black/60"
@@ -1173,6 +1189,50 @@ export function CodexChat() {
                   }
                 />
               </label>
+
+              <div className="rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold">Codex diagnostics</div>
+                    <div className="mt-1 text-xs text-text-muted">
+                      If you see “codex not found on PATH”, this shows the PATH that the app-server spawn uses.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-md border border-white/10 bg-black/20 px-3 py-1 text-xs hover:border-white/20"
+                    onClick={() => void loadDiagnostics()}
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                {diagnosticsError ? (
+                  <div className="mt-2 text-xs text-status-warning">{diagnosticsError}</div>
+                ) : null}
+
+                {diagnostics ? (
+                  <div className="mt-3 space-y-2 text-[11px] text-text-muted">
+                    <div className="truncate">
+                      {diagnostics.resolvedCodexBin
+                        ? `resolved codex: ${diagnostics.resolvedCodexBin}`
+                        : 'resolved codex: (not found)'}
+                    </div>
+                    <div className="truncate">
+                      {diagnostics.envOverride ? `AGENTMESH_CODEX_BIN: ${diagnostics.envOverride}` : 'AGENTMESH_CODEX_BIN: (unset)'}
+                    </div>
+                    <div className="break-all rounded-lg bg-black/20 p-2">
+                      <div className="mb-1 text-text-dim">PATH</div>
+                      {diagnostics.path}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-3 text-xs text-text-muted">
+                    Tip: set <span className="font-mono">AGENTMESH_CODEX_BIN</span> to an absolute path (e.g.{' '}
+                    <span className="font-mono">/opt/homebrew/bin/codex</span>) if launching from Finder.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

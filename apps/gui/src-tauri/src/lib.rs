@@ -3,6 +3,7 @@ use tauri::Manager;
 mod codex_app_server;
 
 use codex_app_server::CodexAppServer;
+use codex_app_server::CodexDiagnostics;
 use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -81,6 +82,7 @@ pub fn run() {
             codex_model_list,
             codex_read_config,
             codex_write_config,
+            codex_diagnostics,
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
@@ -755,4 +757,9 @@ fn codex_write_config(content: String) -> Result<(), String> {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     std::fs::write(path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn codex_diagnostics() -> CodexDiagnostics {
+    codex_app_server::codex_diagnostics()
 }

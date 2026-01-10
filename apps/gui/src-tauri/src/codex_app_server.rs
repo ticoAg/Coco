@@ -2,7 +2,9 @@ use serde::Serialize;
 use serde_json::json;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering;
@@ -22,6 +24,7 @@ use tokio::time::timeout;
 
 const EVENT_NAME: &str = "codex_app_server";
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
+const CODEX_BIN_ENV: &str = "AGENTMESH_CODEX_BIN";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,18 +69,18 @@ struct CodexAppServerInner {
 
 impl CodexAppServer {
     pub async fn spawn(app: tauri::AppHandle, cwd: &Path) -> Result<Self, String> {
-        let mut cmd = Command::new("codex");
+        let (codex_bin, path_env) = resolve_codex_bin_and_path()?;
+
+        let mut cmd = Command::new(codex_bin);
         cmd.arg("app-server")
             .kill_on_drop(true)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .env("PATH", path_env)
             .current_dir(cwd);
 
-        let mut child = cmd.spawn().map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => "codex not found on PATH".to_string(),
-            _ => e.to_string(),
-        })?;
+        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
 
         let stdin = child
             .stdin
@@ -175,6 +178,127 @@ impl CodexAppServer {
         stdin.write_all(b"\n").await.map_err(|e| e.to_string())?;
         stdin.flush().await.map_err(|e| e.to_string())?;
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexDiagnostics {
+    pub path: String,
+    pub resolved_codex_bin: Option<String>,
+    pub env_override: Option<String>,
+}
+
+pub fn codex_diagnostics() -> CodexDiagnostics {
+    let env_override = std::env::var_os(CODEX_BIN_ENV)
+        .map(|v| v.to_string_lossy().to_string())
+        .filter(|v| !v.trim().is_empty());
+
+    let path_env = ensure_codex_path_env();
+    let path_str = path_env.to_string_lossy().to_string();
+    let search_paths = std::env::split_paths(&path_env).collect::<Vec<_>>();
+    let resolved_codex_bin = find_executable_in_paths("codex", &search_paths)
+        .map(|p| p.to_string_lossy().to_string());
+
+    CodexDiagnostics {
+        path: path_str,
+        resolved_codex_bin,
+        env_override,
+    }
+}
+
+fn resolve_codex_bin_and_path() -> Result<(PathBuf, OsString), String> {
+    if let Some(bin) = std::env::var_os(CODEX_BIN_ENV) {
+        let path = PathBuf::from(bin);
+        if path.is_file() {
+            return Ok((path, ensure_codex_path_env()));
+        }
+        return Err(format!(
+            "{CODEX_BIN_ENV} points to a missing file: {}",
+            path.display()
+        ));
+    }
+
+    let path_env = ensure_codex_path_env();
+    let search_paths = std::env::split_paths(&path_env).collect::<Vec<_>>();
+    if let Some(found) = find_executable_in_paths("codex", &search_paths) {
+        return Ok((found, path_env));
+    }
+
+    Err(format!(
+        "codex not found on PATH. Hint (macOS): GUI apps started from Finder may not inherit your shell PATH. Set {CODEX_BIN_ENV}=/opt/homebrew/bin/codex or launch from Terminal."
+    ))
+}
+
+fn ensure_codex_path_env() -> OsString {
+    let mut paths = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    for extra in default_search_dirs() {
+        if paths.iter().any(|p| p == &extra) {
+            continue;
+        }
+        paths.push(extra);
+    }
+
+    std::env::join_paths(paths).unwrap_or_else(|_| OsString::from("/usr/bin:/bin:/usr/sbin:/sbin"))
+}
+
+fn default_search_dirs() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+
+    if cfg!(target_os = "macos") {
+        out.push(PathBuf::from("/opt/homebrew/bin"));
+        out.push(PathBuf::from("/usr/local/bin"));
+    }
+
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        out.push(home.join(".local").join("bin"));
+        out.push(home.join(".cargo").join("bin"));
+    }
+
+    out
+}
+
+fn find_executable_in_paths(name: &str, paths: &[PathBuf]) -> Option<PathBuf> {
+    for base in paths {
+        let candidate = base.join(name);
+        if is_executable_file(&candidate) {
+            return Some(candidate);
+        }
+
+        #[cfg(windows)]
+        {
+            for suffix in [".exe", ".cmd", ".bat"] {
+                let candidate = base.join(format!("{name}{suffix}"));
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    if !meta.is_file() {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        return (meta.permissions().mode() & 0o111) != 0;
+    }
+
+    #[cfg(not(unix))]
+    {
+        true
     }
 }
 

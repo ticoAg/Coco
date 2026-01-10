@@ -80,6 +80,7 @@ macOS-only 的 `.app` 里可以包含：
 - 输入区覆盖：仅提供 `model` 与 `model_reasoning_effort` 的快捷选择（其余配置从 `~/.codex/config.toml` 读取）。
 - 配置入口：在 GUI 内打开一个面板，直接编辑 `~/.codex/config.toml`（路径按平台 HOME 目录解析）。
 - 审批交互：当 Codex 请求命令/文件变更审批时，不弹模态框；以**会话消息**形式渲染「批准/拒绝」按钮，点击后回传给 Codex。
+- macOS 注意：如果从 Finder 启动 `.app` 遇到 “codex not found on PATH”，通常是 GUI app 未继承 shell 的 PATH。可设置环境变量 `AGENTMESH_CODEX_BIN=/opt/homebrew/bin/codex`（或从 Terminal 启动）。
 
 > 注意：`~/.codex/config.toml` 可能包含敏感信息（例如凭据/令牌/账号配置），GUI 编辑等价于直接编辑该文件，请按需控制显示与日志。
 

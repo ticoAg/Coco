@@ -163,6 +163,10 @@ export async function codexWriteConfig(content: string): Promise<void> {
   await invoke<void>('codex_write_config', { content })
 }
 
+export async function codexDiagnostics(): Promise<{ path: string; resolvedCodexBin: string | null; envOverride: string | null }> {
+  return invoke<{ path: string; resolvedCodexBin: string | null; envOverride: string | null }>('codex_diagnostics')
+}
+
 export const apiClient = {
   listTasks,
   getTask,
@@ -183,6 +187,7 @@ export const apiClient = {
   codexModelList,
   codexReadConfig,
   codexWriteConfig,
+  codexDiagnostics,
 }
 
 export default apiClient

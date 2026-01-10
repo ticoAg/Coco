@@ -17,6 +17,7 @@ The previous Python implementation is archived under `legacy/python/`.
 - Node.js + npm
 - macOS build tools (Xcode Command Line Tools)
 - `codex` installed and available on `PATH` (required for Codex Chat and when running workers)
+  - macOS: if launching the `.app` from Finder, you may need to set `AGENTMESH_CODEX_BIN=/opt/homebrew/bin/codex` because GUI apps don't always inherit your shell `PATH`.
 
 ## Common commands
 
