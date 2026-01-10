@@ -1,5 +1,10 @@
 use tauri::Manager;
 
+mod codex_app_server;
+
+use codex_app_server::CodexAppServer;
+use tokio::sync::Mutex;
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SubagentSessionSummary {
@@ -36,6 +41,23 @@ struct SharedArtifactContent {
     updated_at_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexThreadSummary {
+    id: String,
+    preview: String,
+    model_provider: String,
+    created_at: i64,
+    updated_at_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexThreadListResponse {
+    data: Vec<CodexThreadSummary>,
+    next_cursor: Option<String>,
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -50,11 +72,36 @@ pub fn run() {
             tail_subagent_events,
             list_shared_artifacts,
             read_shared_artifact,
+            codex_thread_list,
+            codex_thread_start,
+            codex_thread_resume,
+            codex_turn_start,
+            codex_turn_interrupt,
+            codex_respond_approval,
+            codex_model_list,
+            codex_read_config,
+            codex_write_config,
         ])
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                let app_handle = window.app_handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = app_handle.state::<AppState>();
+                    let server = {
+                        let mut guard = state.codex.lock().await;
+                        guard.take()
+                    };
+                    if let Some(server) = server {
+                        server.shutdown().await;
+                    }
+                });
+            }
+        })
         .setup(|app| {
             let workspace_root = resolve_workspace_root(app.handle())?;
             app.manage(AppState {
                 orchestrator: agentmesh_orchestrator::Orchestrator::new(workspace_root),
+                codex: Mutex::new(None),
             });
 
             if cfg!(debug_assertions) {
@@ -70,9 +117,9 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-#[derive(Clone)]
 struct AppState {
     orchestrator: agentmesh_orchestrator::Orchestrator,
+    codex: Mutex<Option<CodexAppServer>>,
 }
 
 fn resolve_workspace_root<R: tauri::Runtime>(
@@ -485,4 +532,213 @@ fn read_shared_artifact(
         content,
         updated_at_ms,
     })
+}
+
+fn codex_config_path() -> Result<std::path::PathBuf, String> {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .ok_or_else(|| "HOME directory not found".to_string())?;
+
+    Ok(std::path::PathBuf::from(home)
+        .join(".codex")
+        .join("config.toml"))
+}
+
+async fn get_or_start_codex(
+    state: &tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<CodexAppServer, String> {
+    let mut guard = state.codex.lock().await;
+    if let Some(server) = guard.clone() {
+        return Ok(server);
+    }
+
+    let cwd = state.orchestrator.workspace_root().to_path_buf();
+    let server = CodexAppServer::spawn(app, &cwd).await?;
+    *guard = Some(server.clone());
+    Ok(server)
+}
+
+#[tauri::command]
+async fn codex_thread_list(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    cursor: Option<String>,
+    limit: Option<u32>,
+) -> Result<CodexThreadListResponse, String> {
+    let codex = get_or_start_codex(&state, app).await?;
+    let params = serde_json::json!({
+        "cursor": cursor,
+        "limit": limit,
+    });
+
+    let result = codex.request("thread/list", Some(params)).await?;
+    let data = result
+        .get("data")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "invalid thread/list response: data".to_string())?;
+    let next_cursor = result
+        .get("nextCursor")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+
+    let mut threads = Vec::with_capacity(data.len());
+    for entry in data {
+        let Some(id) = entry.get("id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let preview = entry
+            .get("preview")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let model_provider = entry
+            .get("modelProvider")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let created_at = entry.get("createdAt").and_then(|v| v.as_i64()).unwrap_or(0);
+        let updated_at_ms = entry
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(std::path::PathBuf::from)
+            .as_deref()
+            .and_then(modified_ms);
+
+        threads.push(CodexThreadSummary {
+            id: id.to_string(),
+            preview,
+            model_provider,
+            created_at,
+            updated_at_ms,
+        });
+    }
+
+    threads.sort_by(|a, b| match (a.updated_at_ms, b.updated_at_ms) {
+        (Some(a_ts), Some(b_ts)) => b_ts.cmp(&a_ts),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => b.created_at.cmp(&a.created_at),
+    });
+
+    Ok(CodexThreadListResponse {
+        data: threads,
+        next_cursor,
+    })
+}
+
+#[tauri::command]
+async fn codex_thread_start(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    model: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let codex = get_or_start_codex(&state, app).await?;
+    let cwd = state.orchestrator.workspace_root().to_string_lossy().to_string();
+    let params = serde_json::json!({
+        "cwd": cwd,
+        "model": model,
+    });
+
+    codex.request("thread/start", Some(params)).await
+}
+
+#[tauri::command]
+async fn codex_thread_resume(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    thread_id: String,
+) -> Result<serde_json::Value, String> {
+    let codex = get_or_start_codex(&state, app).await?;
+    let params = serde_json::json!({ "threadId": thread_id });
+    codex.request("thread/resume", Some(params)).await
+}
+
+#[tauri::command]
+async fn codex_turn_start(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    thread_id: String,
+    text: String,
+    model: Option<String>,
+    effort: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let codex = get_or_start_codex(&state, app).await?;
+
+    let effort = match effort.as_deref() {
+        None => None,
+        Some("") => None,
+        Some(v) => Some(v.to_string()),
+    };
+
+    let params = serde_json::json!({
+        "threadId": thread_id,
+        "input": [
+            { "type": "text", "text": text }
+        ],
+        "model": model,
+        "effort": effort,
+    });
+
+    codex.request("turn/start", Some(params)).await
+}
+
+#[tauri::command]
+async fn codex_turn_interrupt(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    thread_id: String,
+    turn_id: String,
+) -> Result<serde_json::Value, String> {
+    let codex = get_or_start_codex(&state, app).await?;
+    let params = serde_json::json!({ "threadId": thread_id, "turnId": turn_id });
+    codex.request("turn/interrupt", Some(params)).await
+}
+
+#[tauri::command]
+async fn codex_respond_approval(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    request_id: i64,
+    decision: String,
+) -> Result<(), String> {
+    let decision = decision.to_lowercase();
+    if decision != "accept" && decision != "decline" {
+        return Err("decision must be accept or decline".to_string());
+    }
+
+    let codex = get_or_start_codex(&state, app).await?;
+    codex.respond(request_id, serde_json::json!({ "decision": decision }))
+        .await
+}
+
+#[tauri::command]
+async fn codex_model_list(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    cursor: Option<String>,
+    limit: Option<u32>,
+) -> Result<serde_json::Value, String> {
+    let codex = get_or_start_codex(&state, app).await?;
+    let params = serde_json::json!({ "cursor": cursor, "limit": limit });
+    codex.request("model/list", Some(params)).await
+}
+
+#[tauri::command]
+fn codex_read_config() -> Result<String, String> {
+    let path = codex_config_path()?;
+    match std::fs::read_to_string(&path) {
+        Ok(content) => Ok(content),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
+#[tauri::command]
+fn codex_write_config(content: String) -> Result<(), String> {
+    let path = codex_config_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, content).map_err(|e| e.to_string())
 }

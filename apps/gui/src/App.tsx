@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import './index.css'
 
+import { CodexChat } from './components/CodexChat'
 import { TaskDetail } from './components/TaskDetail'
 import { TaskList } from './components/TaskList'
 import { NewTaskModal } from './components/NewTaskModal'
@@ -110,9 +111,9 @@ function RecentEventsPanel({ tasks }: { tasks: Task[] }) {
   )
 }
 
-export default function App() {
-  const enableTaskAuthoring = import.meta.env.VITE_AGENTMESH_ENABLE_TASK_AUTHORING === '1'
+type View = 'tasks' | 'codex'
 
+function TaskDashboard({ enableTaskAuthoring }: { enableTaskAuthoring: boolean }) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false)
   const [isCreatingTask, setIsCreatingTask] = useState(false)
@@ -126,45 +127,21 @@ export default function App() {
     setSelectedTaskId(taskId)
   }, [])
 
-  const handleCreateTask = useCallback(async (data: CreateTaskRequest) => {
-    setIsCreatingTask(true)
-    try {
-      const newId = await createTask(data)
-      if (newId) setSelectedTaskId(newId)
-    } finally {
-      setIsCreatingTask(false)
-    }
-  }, [createTask])
+  const handleCreateTask = useCallback(
+    async (data: CreateTaskRequest) => {
+      setIsCreatingTask(true)
+      try {
+        const newId = await createTask(data)
+        if (newId) setSelectedTaskId(newId)
+      } finally {
+        setIsCreatingTask(false)
+      }
+    },
+    [createTask]
+  )
 
   return (
-    <div className="min-h-full bg-bg-app p-8 text-text-main">
-      <header className="mb-8 flex items-start justify-between gap-6">
-        <div>
-          <h1 className="bg-gradient-to-r from-primary to-accent bg-clip-text text-3xl font-bold text-transparent">
-            AgentMesh
-          </h1>
-          <p className="mt-1 text-sm text-text-muted">Orchestrate your coding swarm.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="rounded-md border border-white/10 bg-bg-panelHover px-4 py-2 text-sm hover:border-white/20"
-            onClick={refresh}
-          >
-            Refresh
-          </button>
-          {enableTaskAuthoring ? (
-            <button
-              type="button"
-              className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover"
-              onClick={() => setIsNewTaskModalOpen(true)}
-            >
-              + New Task
-            </button>
-          ) : null}
-        </div>
-      </header>
-
+    <div className="h-full overflow-auto">
       <div className="grid grid-cols-[1fr_1.3fr_320px] gap-6">
         <div className="min-w-0">
           <TaskList
@@ -204,6 +181,55 @@ export default function App() {
           loading={isCreatingTask}
         />
       ) : null}
+    </div>
+  )
+}
+
+export default function App() {
+  const enableTaskAuthoring = import.meta.env.VITE_AGENTMESH_ENABLE_TASK_AUTHORING === '1'
+  const [view, setView] = useState<View>('tasks')
+
+  return (
+    <div className="flex h-full flex-col bg-bg-app p-8 text-text-main">
+      <header className="mb-8 flex items-start justify-between gap-6">
+        <div>
+          <h1 className="bg-gradient-to-r from-primary to-accent bg-clip-text text-3xl font-bold text-transparent">
+            AgentMesh
+          </h1>
+          <p className="mt-1 text-sm text-text-muted">
+            {view === 'codex' ? 'Chat with Codex.' : 'Orchestrate your coding swarm.'}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex overflow-hidden rounded-md border border-white/10 bg-bg-panel/70 backdrop-blur">
+            <button
+              type="button"
+              className={[
+                'px-4 py-2 text-sm transition',
+                view === 'tasks' ? 'bg-bg-panelHover font-semibold' : 'text-text-muted hover:text-text-main',
+              ].join(' ')}
+              onClick={() => setView('tasks')}
+            >
+              Tasks
+            </button>
+            <button
+              type="button"
+              className={[
+                'px-4 py-2 text-sm transition',
+                view === 'codex' ? 'bg-bg-panelHover font-semibold' : 'text-text-muted hover:text-text-main',
+              ].join(' ')}
+              onClick={() => setView('codex')}
+            >
+              Codex
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="min-h-0 flex-1">
+        {view === 'codex' ? <CodexChat /> : <TaskDashboard enableTaskAuthoring={enableTaskAuthoring} />}
+      </main>
     </div>
   )
 }

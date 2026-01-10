@@ -11,6 +11,7 @@ import type {
   Task,
   TaskEvent,
 } from '../types/task'
+import type { CodexModelListResponse, CodexThreadListResponse } from '../types/codex'
 
 export async function listTasks(): Promise<Task[]> {
   return invoke<Task[]>('list_tasks')
@@ -99,6 +100,67 @@ export async function readSharedArtifact(
   })
 }
 
+export async function codexThreadList(
+  cursor?: string | null,
+  limit?: number | null
+): Promise<CodexThreadListResponse> {
+  return invoke<CodexThreadListResponse>('codex_thread_list', {
+    cursor: cursor ?? null,
+    limit: limit ?? null,
+  })
+}
+
+export async function codexThreadStart(model?: string | null): Promise<unknown> {
+  return invoke<unknown>('codex_thread_start', { model: model ?? null })
+}
+
+export async function codexThreadResume(threadId: string): Promise<unknown> {
+  return invoke<unknown>('codex_thread_resume', { thread_id: threadId })
+}
+
+export async function codexTurnStart(
+  threadId: string,
+  text: string,
+  model?: string | null,
+  effort?: string | null
+): Promise<unknown> {
+  return invoke<unknown>('codex_turn_start', {
+    thread_id: threadId,
+    text,
+    model: model ?? null,
+    effort: effort ?? null,
+  })
+}
+
+export async function codexTurnInterrupt(threadId: string, turnId: string): Promise<unknown> {
+  return invoke<unknown>('codex_turn_interrupt', { thread_id: threadId, turn_id: turnId })
+}
+
+export async function codexRespondApproval(
+  requestId: number,
+  decision: 'accept' | 'decline'
+): Promise<void> {
+  await invoke<void>('codex_respond_approval', { request_id: requestId, decision })
+}
+
+export async function codexModelList(
+  cursor?: string | null,
+  limit?: number | null
+): Promise<CodexModelListResponse> {
+  return invoke<CodexModelListResponse>('codex_model_list', {
+    cursor: cursor ?? null,
+    limit: limit ?? null,
+  })
+}
+
+export async function codexReadConfig(): Promise<string> {
+  return invoke<string>('codex_read_config')
+}
+
+export async function codexWriteConfig(content: string): Promise<void> {
+  await invoke<void>('codex_write_config', { content })
+}
+
 export const apiClient = {
   listTasks,
   getTask,
@@ -110,6 +172,15 @@ export const apiClient = {
   tailSubagentEvents,
   listSharedArtifacts,
   readSharedArtifact,
+  codexThreadList,
+  codexThreadStart,
+  codexThreadResume,
+  codexTurnStart,
+  codexTurnInterrupt,
+  codexRespondApproval,
+  codexModelList,
+  codexReadConfig,
+  codexWriteConfig,
 }
 
 export default apiClient
