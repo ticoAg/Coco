@@ -81,6 +81,65 @@ adapter 开发时可以把 schema 作为“真源”，避免手写字段导致�
 - 优点：实现成本低（子进程 + 读 stdout JSONL）
 - 缺点：交互粒度/能力较 `app-server` 弱（例如 approvals、细粒度 delta 等能力以实际版本为准）
 
+### 2.1 subagent 并发执行的推荐用法（AgentMesh MVP）
+
+当 AgentMesh 需要并行跑多个 subagent（<=8）并在 GUI 中实时展示状态时，`codex exec --json` 是最省事的一条路：
+
+- 每个 subagent = 一个独立的 `codex exec --json` 子进程
+- worker stdout 只输出 JSONL：建议直接重定向落盘到 `agents/<id>/runtime/events.jsonl`，GUI/主控通过读文件实时展示状态
+- `codex` 可执行文件仅依赖 PATH（AgentMesh 不负责分发/嵌入）
+
+#### 2.1.1 强烈建议：每个 subagent 独立 `CODEX_HOME`
+
+为了做到“上下文/会话/缓存隔离”，建议为每个 subagent 指定独立 `CODEX_HOME`，例如：
+
+- `<task_dir>/agents/<agent_id>/codex_home/`
+
+这会让 Codex 的 sessions/rollouts 等文件互不干扰，更接近 Claude Code 的“子代理独立上下文窗口”体验。
+
+#### 2.1.2 worktree（可选，但推荐用于并发写）
+
+为了避免并发写同一份文件导致运行时冲突，启用 worktree 时每个 subagent 在独立 worktree 跑：
+
+- `<repo>/.agentmesh/worktrees/<task_id>/<agent_id>/`
+- 分支名：`agentmesh/<task_id>/<agent_id>`
+
+这样冲突集中在合并阶段（可视化、可回滚），而不是执行阶段“互相覆盖”。
+
+如果你选择不启用 worktree（共享工作目录）：
+
+- 允许多个“只读” subagent 并行（做分析/报告）
+- 但 **write-enabled subagent 必须串行**（用写锁保证）
+
+#### 2.1.3 建议命令（示意）
+
+```
+CODEX_HOME="<task_dir>/agents/<agent_id>/codex_home" \
+codex exec --json \
+  -C "<cwd>" \
+  --output-schema "<repo>/schemas/worker-output.schema.json" \
+  --output-last-message "<task_dir>/agents/<agent_id>/artifacts/final.json" \
+  "<PROMPT>"
+```
+
+说明：
+
+- `--json`：stdout 只输出 JSONL 事件；其他信息在 stderr（便于“只读 stdout”）
+- `--output-schema`：强制最终输出为结构化 JSON（便于 join/汇总）
+- `--output-last-message`：把最终消息直接落盘，GUI/Orchestrator 无需从 JSONL 中二次抽取（可选但推荐）
+- `-C "<cwd>"`：启用 worktree 时取 worktree 目录；未启用时取 repo 根目录
+
+#### 2.1.4 如何从事件流推导状态（建议）
+
+- `thread.started`：记录 `thread_id`（可用于 resume/追踪）
+- `turn.started`：状态 → `running`
+- `turn.completed`：状态 → `completed`（并记录 token usage）
+- `turn.failed` 或进程退出码非 0：状态 → `failed`
+- `item.*`：
+  - `command_execution`：可用于 GUI 展示“正在跑什么命令/输出”
+  - `file_change`：可用于展示“改了哪些文件”
+  - `todo_list`：可用于展示“计划执行到哪一步”
+
 ## 3. AgentMesh 侧的 adapter 形态（接口示例）
 
 无论采用 `app-server` 还是 `exec --json`，AgentMesh 可以统一对外提供：

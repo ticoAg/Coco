@@ -12,6 +12,7 @@
 .agentmesh/
   agents/                       # 可复用的 Agent Spec（模板/编译产物）
   tasks/                        # 所有任务落盘
+  locks/                        # （可选）并发控制锁（例如 shared workspace 单写锁）
   registry/                     # （可选）运行时/工具元数据缓存（threads、rollouts 等）
   logs/                         # （可选）编排器运行日志（非任务产物）
 ```

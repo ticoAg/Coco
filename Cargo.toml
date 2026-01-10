@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/agentmesh-core",
+  "crates/agentmesh-orchestrator",
+  "crates/agentmesh-codex",
+  "apps/gui/src-tauri",
+]
+

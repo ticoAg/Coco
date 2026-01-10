@@ -21,7 +21,7 @@
 ## Phase 1：本地编排器（产物驱动、可暂停/可恢复、可并发）
 
 **目标**
-- 实现一个最小 Orchestrator（CLI/daemon 均可），只要能：
+- 实现一个最小 Orchestrator（优先 CLI 短进程），只要能：
   - 创建 task 目录
   - 执行 `fork/join`（并发跑 N 个 agent）
   - 写入结构化产物 + `events.jsonl`
@@ -47,14 +47,17 @@
 - 不做 TUI 控制台，不解析 ANSI 屏幕；只处理 JSON/JSONL 级别的事件与结果
 
 **实现方式（示例）**
-- `codex app-server`（参考 `codex/codex-rs/app-server/README.md`）：
+- 先做 **`codex exec --json`**（参考 `codex/codex-rs/exec/`）：一次性跑完并输出 JSONL 事件
+  - 适合并行 subagents（<=8）：子进程 + 读 stdout JSONL 就能驱动 GUI 状态
+  - 配合独立 `CODEX_HOME` + git worktree，可获得良好的“独立上下文 + 并发隔离”体验
+- 再做 `codex app-server`（参考 `codex/codex-rs/app-server/README.md`）：
   - stdio JSON-RPC，Thread/Turn/Item 模型，事件流式输出
-  - 支持 approvals（server→client 请求），天然对齐 `gate.blocked`
-- `codex exec --json`（参考 `codex/codex-rs/exec/`）：一次性跑完并输出 JSONL 事件
+  - 支持 approvals（server→client 请求），天然对齐 `gate.blocked` 与 GUI 的审批弹窗
 - 细节：见 [`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)
 
 **交付物**
-- `codex-app-server` client（初始化、thread/start|resume、turn/start、interrupt、approve/deny）
+- `codex exec` runner（spawn/resume/cancel/并发管理）+ JSONL 事件解析
+- （可选）`codex-app-server` client（初始化、thread/start|resume、turn/start、interrupt、approve/deny）
 - 任务目录落盘原始记录：`agents/<instance>/runtime/events.jsonl`、`agents/<instance>/runtime/requests.jsonl`、`agents/<instance>/session.json`
 
 **用户介入**
@@ -80,7 +83,7 @@
 
 **交付物**
 - 任务列表/任务详情/产物浏览/事件流/审批弹窗
-- GUI ↔ orchestrator 的最小 API（HTTP + SSE/WS）
+- GUI 以 **只读方式**读取任务目录（文件 watcher/轮询），不依赖常驻本地 HTTP 服务
 
 细节见：[`docs/agentmesh/gui.md`](./gui.md)
 

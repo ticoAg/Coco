@@ -1,300 +1,201 @@
-/**
- * AgentMesh Console - Main Application
- * Orchestrate your intelligent swarm.
- */
+import { useCallback, useMemo, useState } from 'react'
+import './index.css'
 
-import { useState, useCallback } from 'react';
-import './index.css';
+import { TaskDetail } from './components/TaskDetail'
+import { TaskList } from './components/TaskList'
+import { NewTaskModal } from './components/NewTaskModal'
+import { useClusterStatus, useTaskDetail, useTasks } from './hooks/useTasks'
+import type { CreateTaskRequest, Task } from './types/task'
 
-// Components
-import { TaskList } from './components/TaskList';
-import { TaskDetail } from './components/TaskDetail';
-import { NewTaskModal } from './components/NewTaskModal';
-
-// Hooks
-import { useTasks, useTaskDetail, useClusterStatus } from './hooks/useTasks';
-
-// Types
-import type { CreateTaskRequest, GateDecisionRequest } from './types/task';
-
-// ============ Cluster Status Panel ============
-
-interface ClusterStatusPanelProps {
-  orchestratorStatus: 'online' | 'offline' | 'unknown';
-  adapterStatus: 'connected' | 'disconnected' | 'unknown';
-  activeAgents: number;
-  maxAgents: number;
-}
-
-function ClusterStatusPanel({
-  orchestratorStatus,
-  adapterStatus,
-  activeAgents,
-  maxAgents,
-}: ClusterStatusPanelProps) {
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'online':
-      case 'connected':
-        return 'var(--status-success)';
-      case 'offline':
-      case 'disconnected':
-        return 'var(--status-error)';
-      default:
-        return 'var(--text-dim)';
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'online':
-        return 'Online';
-      case 'offline':
-        return 'Offline';
-      case 'connected':
-        return 'Connected';
-      case 'disconnected':
-        return 'Disconnected';
-      default:
-        return 'Unknown';
-    }
-  };
-
+function ClusterStatusPanel({ status }: { status: ReturnType<typeof useClusterStatus>['status'] }) {
   return (
-    <div className="glass-panel cluster-status-panel">
-      <h3 className="panel-title">Cluster Status</h3>
-      <div className="status-list">
-        <div className="status-item">
-          <span className="status-label">Orchestrator</span>
-          <span
-            className="status-value"
-            style={{ color: getStatusColor(orchestratorStatus) }}
-          >
-            <span className="status-dot">●</span> {getStatusLabel(orchestratorStatus)}
-          </span>
-        </div>
-        <div className="status-item">
-          <span className="status-label">Codex Adapter</span>
-          <span
-            className="status-value"
-            style={{ color: getStatusColor(adapterStatus) }}
-          >
-            <span className="status-dot">●</span> {getStatusLabel(adapterStatus)}
-          </span>
-        </div>
-        <div className="status-item">
-          <span className="status-label">Active Agents</span>
-          <span className="status-value">
-            {activeAgents} / {maxAgents}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============ Recent Events Panel ============
-
-interface RecentEvent {
-  time: string;
-  message: string;
-  type: 'info' | 'warning' | 'error' | 'success';
-}
-
-interface RecentEventsPanelProps {
-  events: RecentEvent[];
-}
-
-function RecentEventsPanel({ events }: RecentEventsPanelProps) {
-  const getEventColor = (type: RecentEvent['type']) => {
-    switch (type) {
-      case 'success':
-        return 'var(--status-success)';
-      case 'warning':
-        return 'var(--status-warning)';
-      case 'error':
-        return 'var(--status-error)';
-      default:
-        return 'var(--primary)';
-    }
-  };
-
-  return (
-    <div className="glass-panel recent-events-panel">
-      <h3 className="panel-title">Recent Events</h3>
-      <ul className="events-list-mini">
-        {events.map((event, index) => (
-          <li key={index} className="event-item-mini">
-            <span
-              className="event-time"
-              style={{ color: getEventColor(event.type) }}
-            >
-              [{event.time}]
+    <div className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
+      <h3 className="text-sm font-semibold">Cluster Status</h3>
+      {!status ? (
+        <div className="mt-3 text-sm text-text-muted">Loading…</div>
+      ) : (
+        <div className="mt-4 space-y-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-text-muted">Orchestrator</span>
+            <span className="font-mono">{status.orchestrator}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-text-muted">Codex Adapter</span>
+            <span className="font-mono">{status.codexAdapter}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-text-muted">Active Agents</span>
+            <span className="font-mono">
+              {status.activeAgents} / {status.maxAgents}
             </span>
-            <span className="event-message">{event.message}</span>
-          </li>
-        ))}
-        {events.length === 0 && (
-          <li className="event-item-mini event-empty">No recent events</li>
-        )}
-      </ul>
+          </div>
+        </div>
+      )}
     </div>
-  );
+  )
 }
 
-// ============ Main App Component ============
-
-function App() {
-  // State
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
-  const [isCreatingTask, setIsCreatingTask] = useState(false);
-
-  // Hooks
-  const { tasks, loading, error, refresh, createTask } = useTasks(true);
-  const {
-    task: selectedTask,
-    events: taskEvents,
-    loading: taskLoading,
-    error: taskError,
-    hasMoreEvents,
-    loadMoreEvents,
-    submitGateDecision,
-  } = useTaskDetail(selectedTaskId);
-  const { status: clusterStatus } = useClusterStatus(10000);
-
-  // Handlers
-  const handleSelectTask = useCallback((taskId: string) => {
-    setSelectedTaskId(taskId);
-  }, []);
-
-  const handleCloseDetail = useCallback(() => {
-    setSelectedTaskId(null);
-  }, []);
-
-  const handleCreateTask = useCallback(async (data: CreateTaskRequest) => {
-    setIsCreatingTask(true);
-    try {
-      const newTask = await createTask(data);
-      if (newTask) {
-        setSelectedTaskId(newTask.id);
-      }
-    } finally {
-      setIsCreatingTask(false);
-    }
-  }, [createTask]);
-
-  const handleGateDecision = useCallback(
-    async (gateId: string, decision: GateDecisionRequest): Promise<boolean> => {
-      return submitGateDecision(gateId, decision);
-    },
-    [submitGateDecision]
-  );
-
-  // Derive recent events from tasks
-  const recentEvents: RecentEvent[] = tasks
-    .slice(0, 5)
-    .map((task) => {
+function RecentEventsPanel({ tasks }: { tasks: Task[] }) {
+  const recentEvents = useMemo(() => {
+    return tasks.slice(0, 5).map((task) => {
       const time = new Date(task.updatedAt).toLocaleTimeString([], {
         hour: '2-digit',
         minute: '2-digit',
-      });
-      let message = `Task "${task.title}"`;
-      let type: RecentEvent['type'] = 'info';
+      })
+      let message = `Task "${task.title}"`
+      let type: 'info' | 'warning' | 'error' | 'success' = 'info'
 
       switch (task.state) {
         case 'working':
-          message += ' is running';
-          type = 'info';
-          break;
-        case 'gate.blocked':
-          message += ' needs approval';
-          type = 'warning';
-          break;
+          message += ' is running'
+          type = 'info'
+          break
+        case 'input-required':
+          message += ' is blocked'
+          type = 'warning'
+          break
         case 'completed':
-          message += ' completed';
-          type = 'success';
-          break;
+          message += ' completed'
+          type = 'success'
+          break
         case 'failed':
-          message += ' failed';
-          type = 'error';
-          break;
+          message += ' failed'
+          type = 'error'
+          break
         default:
-          message += ` (${task.state})`;
+          message += ` (${task.state})`
       }
 
-      return { time, message, type };
-    });
+      return { time, message, type }
+    })
+  }, [tasks])
+
+  const color = (type: string) => {
+    switch (type) {
+      case 'success':
+        return 'text-status-success'
+      case 'warning':
+        return 'text-status-warning'
+      case 'error':
+        return 'text-status-error'
+      default:
+        return 'text-primary'
+    }
+  }
 
   return (
-    <div className="container animate-enter">
-      {/* Header */}
-      <header className="app-header">
-        <div className="header-left">
-          <h1 className="app-title">AgentMesh Console</h1>
-          <p className="app-subtitle">Orchestrate your intelligent swarm.</p>
+    <div className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
+      <h3 className="text-sm font-semibold">Recent</h3>
+      <div className="mt-4 space-y-2 text-xs">
+        {recentEvents.length ? (
+          recentEvents.map((ev, idx) => (
+            <div key={idx} className="flex gap-2">
+              <span className={`font-mono ${color(ev.type)}`}>[{ev.time}]</span>
+              <span className="text-text-muted">{ev.message}</span>
+            </div>
+          ))
+        ) : (
+          <div className="text-text-dim">No recent events</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  const enableTaskAuthoring = import.meta.env.VITE_AGENTMESH_ENABLE_TASK_AUTHORING === '1'
+
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false)
+  const [isCreatingTask, setIsCreatingTask] = useState(false)
+
+  const { tasks, loading, error, refresh, createTask } = useTasks(true)
+  const { task, events, loading: taskLoading, error: taskError, hasMoreEvents, loadMoreEvents } =
+    useTaskDetail(selectedTaskId)
+  const { status: clusterStatus } = useClusterStatus(10000)
+
+  const handleSelectTask = useCallback((taskId: string) => {
+    setSelectedTaskId(taskId)
+  }, [])
+
+  const handleCreateTask = useCallback(async (data: CreateTaskRequest) => {
+    setIsCreatingTask(true)
+    try {
+      const newId = await createTask(data)
+      if (newId) setSelectedTaskId(newId)
+    } finally {
+      setIsCreatingTask(false)
+    }
+  }, [createTask])
+
+  return (
+    <div className="min-h-full bg-bg-app p-8 text-text-main">
+      <header className="mb-8 flex items-start justify-between gap-6">
+        <div>
+          <h1 className="bg-gradient-to-r from-primary to-accent bg-clip-text text-3xl font-bold text-transparent">
+            AgentMesh
+          </h1>
+          <p className="mt-1 text-sm text-text-muted">Orchestrate your coding swarm.</p>
         </div>
-        <div className="header-right">
-          <button className="btn">Settings</button>
+        <div className="flex items-center gap-3">
           <button
-            className="btn btn-primary"
-            onClick={() => setIsNewTaskModalOpen(true)}
+            type="button"
+            className="rounded-md border border-white/10 bg-bg-panelHover px-4 py-2 text-sm hover:border-white/20"
+            onClick={refresh}
           >
-            + New Task
+            Refresh
           </button>
+          {enableTaskAuthoring ? (
+            <button
+              type="button"
+              className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover"
+              onClick={() => setIsNewTaskModalOpen(true)}
+            >
+              + New Task
+            </button>
+          ) : null}
         </div>
       </header>
 
-      {/* Main Layout */}
-      <div className="main-layout">
-        {/* Left Column: Task List */}
-        <div className="main-column">
+      <div className="grid grid-cols-[1fr_1.3fr_320px] gap-6">
+        <div className="min-w-0">
           <TaskList
             tasks={tasks}
             loading={loading}
             error={error}
             selectedTaskId={selectedTaskId}
             onSelectTask={handleSelectTask}
-            onCreateTask={() => setIsNewTaskModalOpen(true)}
+            onCreateTask={enableTaskAuthoring ? () => setIsNewTaskModalOpen(true) : undefined}
             onRefresh={refresh}
           />
         </div>
 
-        {/* Center Column: Task Detail */}
-        <div className="detail-column">
+        <div className="min-w-0">
           <TaskDetail
-            task={selectedTask}
-            events={taskEvents}
+            task={task}
+            events={events}
             loading={taskLoading}
             error={taskError}
             hasMoreEvents={hasMoreEvents}
             onLoadMoreEvents={loadMoreEvents}
-            onGateDecision={handleGateDecision}
-            onClose={handleCloseDetail}
+            onClose={() => setSelectedTaskId(null)}
           />
         </div>
 
-        {/* Right Column: Status Panels */}
-        <aside className="sidebar-column">
-          <ClusterStatusPanel
-            orchestratorStatus={clusterStatus?.orchestrator || 'unknown'}
-            adapterStatus={clusterStatus?.codexAdapter || 'unknown'}
-            activeAgents={clusterStatus?.activeAgents || 0}
-            maxAgents={clusterStatus?.maxAgents || 10}
-          />
-          <RecentEventsPanel events={recentEvents} />
+        <aside className="space-y-6">
+          <ClusterStatusPanel status={clusterStatus} />
+          <RecentEventsPanel tasks={tasks} />
         </aside>
       </div>
 
-      {/* New Task Modal */}
-      <NewTaskModal
-        isOpen={isNewTaskModalOpen}
-        onClose={() => setIsNewTaskModalOpen(false)}
-        onSubmit={handleCreateTask}
-        loading={isCreatingTask}
-      />
+      {enableTaskAuthoring ? (
+        <NewTaskModal
+          isOpen={isNewTaskModalOpen}
+          onClose={() => setIsNewTaskModalOpen(false)}
+          onSubmit={handleCreateTask}
+          loading={isCreatingTask}
+        />
+      ) : null}
     </div>
-  );
+  )
 }
-
-export default App;

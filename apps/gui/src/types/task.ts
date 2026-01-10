@@ -1,171 +1,105 @@
-/**
- * AgentMesh Task Types
- * Based on API specifications from gui.md
- */
+// Types mirrored from `agentmesh-core` (Rust) for Tauri IPC.
 
-// Task state enum (matches backend TaskState)
-export type TaskState = 'created' | 'working' | 'gate.blocked' | 'completed' | 'failed';
+export type TaskTopology = 'swarm' | 'squad'
 
-// Topology types
-export type TopologyType = 'swarm' | 'squad';
+export type TaskState =
+  | 'created'
+  | 'working'
+  | 'input-required'
+  | 'completed'
+  | 'failed'
+  | 'canceled'
 
-// Agent lifecycle states
-export type AgentState = 'active' | 'awaiting' | 'dormant';
+export type MilestoneState = 'pending' | 'working' | 'done' | 'blocked'
 
-// Agent instance within a task
-export interface AgentInstance {
-  id: string;
-  name: string;
-  role: string;
-  state: AgentState;
-  sessionId?: string;
-  cwd?: string;
-  artifacts?: string[];
-}
-
-// Milestone definition
 export interface Milestone {
-  id: string;
-  title: string;
-  description?: string;
-  status: 'pending' | 'in_progress' | 'completed';
-  completedAt?: string;
+  id: string
+  title: string
+  state: MilestoneState
+  dependsOn: string[]
 }
 
-// Gate definition (approval points)
+export type AgentInstanceState =
+  | 'pending'
+  | 'active'
+  | 'awaiting'
+  | 'dormant'
+  | 'completed'
+  | 'failed'
+
+export interface AgentInstance {
+  instance: string
+  agent: string
+  state: AgentInstanceState
+  assignedMilestone: string | null
+  skills: string[]
+}
+
+export type GateType = 'human-approval' | 'auto-check' | 'milestone-gate'
+
+export type GateState = 'open' | 'blocked' | 'approved' | 'rejected'
+
 export interface Gate {
-  id: string;
-  type: 'approval' | 'decision' | 'review';
-  title: string;
-  description?: string;
-  status: 'pending' | 'approved' | 'denied';
-  requestedAt: string;
-  resolvedAt?: string;
-  payload?: Record<string, unknown>;
+  id: string
+  type: GateType
+  state: GateState
+  reason: string
+  instructionsRef: string | null
+  blockedAt: string | null
+  resolvedAt: string | null
+  resolvedBy: string | null
 }
 
-// Task event types
-export type EventType =
-  | 'task.created'
-  | 'task.started'
-  | 'task.completed'
-  | 'task.failed'
-  | 'agent.started'
-  | 'agent.completed'
-  | 'agent.error'
-  | 'turn.started'
-  | 'turn.completed'
-  | 'gate.created'
-  | 'gate.resolved'
-  | 'artifact.created'
-  | 'artifact.updated'
-  | 'milestone.completed';
-
-// Event structure
-export interface TaskEvent {
-  id: string;
-  type: EventType;
-  timestamp: string;
-  sessionId?: string;
-  turnId?: string;
-  agentId?: string;
-  payload: Record<string, unknown>;
+export interface TaskConfig {
+  maxConcurrentAgents: number
+  timeoutSeconds: number
+  autoApprove: boolean
 }
 
-// Task report
-export interface Report {
-  id: string;
-  title: string;
-  path: string;
-  type: 'diagnostic' | 'summary' | 'analysis';
-  createdAt: string;
-  updatedAt: string;
-}
-
-// Task contract
-export interface Contract {
-  id: string;
-  title: string;
-  path: string;
-  type: 'api' | 'schema' | 'error-model';
-  version?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// Task decision (ADR)
-export interface Decision {
-  id: string;
-  title: string;
-  path: string;
-  status: 'proposed' | 'accepted' | 'deprecated' | 'superseded';
-  createdAt: string;
-  updatedAt: string;
-}
-
-// Main Task interface
 export interface Task {
-  id: string;
-  title: string;
-  description?: string;
-  state: TaskState;
-  topology: TopologyType;
-  roster: AgentInstance[];
-  milestones: Milestone[];
-  gates: Gate[];
-  createdAt: string;
-  updatedAt: string;
-  // Optional extended data
-  reports?: Report[];
-  contracts?: Contract[];
-  decisions?: Decision[];
+  id: string
+  title: string
+  description: string
+  topology: TaskTopology
+  state: TaskState
+  createdAt: string
+  updatedAt: string
+  milestones: Milestone[]
+  roster: AgentInstance[]
+  gates: Gate[]
+  config: TaskConfig
 }
 
-// API Response types
-export interface TaskListResponse {
-  tasks: Task[];
-  total: number;
+export interface TaskEvent {
+  ts: string
+  type: string
+  taskId: string
+  agentInstance: string | null
+  turnId: string | null
+  payload: unknown
+  by: string | null
+  path: string | null
 }
 
-export interface TaskDetailResponse {
-  task: Task;
-  events?: TaskEvent[];
-}
-
-export interface TaskEventsResponse {
-  events: TaskEvent[];
-  hasMore: boolean;
-  cursor?: string;
-}
-
-// Create task request
 export interface CreateTaskRequest {
-  title: string;
-  description?: string;
-  topology: TopologyType;
-  agents?: {
-    name: string;
-    role: string;
-  }[];
+  title: string
+  description?: string
+  topology: TaskTopology
+  roster?: Array<{
+    instance: string
+    agent: string
+  }>
 }
 
-// Gate decision request
-export interface GateDecisionRequest {
-  decision: 'approve' | 'deny';
-  comment?: string;
+export interface CreateTaskResponse {
+  id: string
+  message: string
 }
 
-// API Error response
-export interface ApiError {
-  code: string;
-  message: string;
-  details?: Record<string, unknown>;
-}
-
-// Cluster status
 export interface ClusterStatus {
-  orchestrator: 'online' | 'offline';
-  codexAdapter: 'connected' | 'disconnected';
-  activeAgents: number;
-  maxAgents: number;
+  orchestrator: string
+  codexAdapter: string
+  activeAgents: number
+  maxAgents: number
 }
+

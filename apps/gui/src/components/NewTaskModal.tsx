@@ -1,299 +1,234 @@
-/**
- * NewTaskModal Component
- * Modal dialog for creating new tasks
- */
-
-import React, { useState, useRef, useEffect } from 'react';
-import type { CreateTaskRequest, TopologyType } from '../types/task';
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CreateTaskRequest, TaskTopology } from '../types/task'
 
 interface NewTaskModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit: (data: CreateTaskRequest) => Promise<void>;
-  loading?: boolean;
+  isOpen: boolean
+  onClose: () => void
+  onSubmit: (data: CreateTaskRequest) => Promise<void>
+  loading?: boolean
 }
 
-interface AgentConfig {
-  id: string;
-  name: string;
-  role: string;
+interface RosterRow {
+  id: string
+  instance: string
+  agent: string
 }
 
-export function NewTaskModal({
-  isOpen,
-  onClose,
-  onSubmit,
-  loading = false,
-}: NewTaskModalProps) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [topology, setTopology] = useState<TopologyType>('swarm');
-  const [agents, setAgents] = useState<AgentConfig[]>([]);
-  const [error, setError] = useState<string | null>(null);
+export function NewTaskModal({ isOpen, onClose, onSubmit, loading = false }: NewTaskModalProps) {
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [topology, setTopology] = useState<TaskTopology>('swarm')
+  const [roster, setRoster] = useState<RosterRow[]>([])
+  const [error, setError] = useState<string | null>(null)
 
-  const titleInputRef = useRef<HTMLInputElement>(null);
-  const modalRef = useRef<HTMLDivElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
 
-  // Focus title input when modal opens
   useEffect(() => {
-    if (isOpen) {
-      titleInputRef.current?.focus();
+    if (isOpen) titleInputRef.current?.focus()
+  }, [isOpen])
+
+  useEffect(() => {
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) onClose()
     }
-  }, [isOpen]);
+    document.addEventListener('keydown', onEscape)
+    return () => document.removeEventListener('keydown', onEscape)
+  }, [isOpen, onClose])
 
-  // Handle escape key
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
-
-  // Reset form when modal closes
   useEffect(() => {
     if (!isOpen) {
-      setTitle('');
-      setDescription('');
-      setTopology('swarm');
-      setAgents([]);
-      setError(null);
+      setTitle('')
+      setDescription('')
+      setTopology('swarm')
+      setRoster([])
+      setError(null)
     }
-  }, [isOpen]);
+  }, [isOpen])
 
-  const handleAddAgent = () => {
-    const newAgent: AgentConfig = {
-      id: crypto.randomUUID(),
-      name: '',
-      role: '',
-    };
-    setAgents([...agents, newAgent]);
-  };
+  const canSubmit = useMemo(() => title.trim().length > 0, [title])
 
-  const handleRemoveAgent = (id: string) => {
-    setAgents(agents.filter((a) => a.id !== id));
-  };
+  const addRosterRow = () => {
+    setRoster((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), instance: '', agent: '' },
+    ])
+  }
 
-  const handleAgentChange = (
-    id: string,
-    field: 'name' | 'role',
-    value: string
-  ) => {
-    setAgents(
-      agents.map((a) => (a.id === id ? { ...a, [field]: value } : a))
-    );
-  };
+  const removeRosterRow = (id: string) => {
+    setRoster((prev) => prev.filter((r) => r.id !== id))
+  }
+
+  const updateRosterRow = (id: string, field: 'instance' | 'agent', value: string) => {
+    setRoster((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)))
+  }
+
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (e.target === modalRef.current) onClose()
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Validation
-    if (!title.trim()) {
-      setError('Task title is required');
-      return;
+    e.preventDefault()
+    if (!canSubmit) {
+      setError('Task title is required')
+      return
     }
-
-    setError(null);
 
     const data: CreateTaskRequest = {
       title: title.trim(),
       description: description.trim() || undefined,
       topology,
-      agents: agents
-        .filter((a) => a.name.trim() && a.role.trim())
-        .map((a) => ({ name: a.name.trim(), role: a.role.trim() })),
-    };
+      roster: roster
+        .map((r) => ({ instance: r.instance.trim(), agent: r.agent.trim() }))
+        .filter((r) => r.instance && r.agent),
+    }
 
+    setError(null)
     try {
-      await onSubmit(data);
-      onClose();
+      await onSubmit(data)
+      onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create task');
+      setError(err instanceof Error ? err.message : 'Failed to create task')
     }
-  };
+  }
 
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === modalRef.current) {
-      onClose();
-    }
-  };
-
-  if (!isOpen) return null;
+  if (!isOpen) return null
 
   return (
     <div
-      className="modal-backdrop"
       ref={modalRef}
       onClick={handleBackdropClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
     >
-      <div className="modal glass-panel">
-        <div className="modal-header">
-          <h2>Create New Task</h2>
+      <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-bg-panel/90 p-6 backdrop-blur">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">Create Task</h2>
+            <p className="mt-1 text-sm text-text-muted">Creates a new `.agentmesh/tasks/*` entry.</p>
+          </div>
           <button
-            className="btn btn-icon"
+            type="button"
+            className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-sm hover:border-white/20"
             onClick={onClose}
             disabled={loading}
-            title="Close"
           >
-            x
+            ✕
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="modal-form">
-          {error && (
-            <div className="form-error">
-              <span className="error-icon">!</span>
-              {error}
-            </div>
-          )}
+        {error ? (
+          <div className="mb-4 rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
+            {error}
+          </div>
+        ) : null}
 
-          {/* Title */}
-          <div className="form-group">
-            <label htmlFor="task-title">Title *</label>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Title *</label>
             <input
               ref={titleInputRef}
-              id="task-title"
-              type="text"
-              className="form-input"
+              className="w-full rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2 text-sm outline-none focus:border-border-active"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Enter task title"
+              placeholder="e.g. Investigate login latency"
               disabled={loading}
             />
           </div>
 
-          {/* Description */}
-          <div className="form-group">
-            <label htmlFor="task-description">Description</label>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Description</label>
             <textarea
-              id="task-description"
-              className="form-input form-textarea"
+              className="w-full rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2 text-sm outline-none focus:border-border-active"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe the task objectives"
               rows={3}
+              placeholder="What should this task produce?"
               disabled={loading}
             />
           </div>
 
-          {/* Topology */}
-          <div className="form-group">
-            <label>Topology</label>
-            <div className="topology-options">
-              <label
-                className={`topology-option ${
-                  topology === 'swarm' ? 'topology-option-selected' : ''
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="topology"
-                  value="swarm"
-                  checked={topology === 'swarm'}
-                  onChange={(e) =>
-                    setTopology(e.target.value as TopologyType)
-                  }
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Topology</label>
+            <div className="grid grid-cols-2 gap-3">
+              {(['swarm', 'squad'] as TaskTopology[]).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={[
+                    'rounded-lg border px-3 py-3 text-left text-sm transition',
+                    topology === value ? 'border-border-active bg-primary/10' : 'border-white/10 bg-bg-panelHover hover:border-white/20',
+                  ].join(' ')}
+                  onClick={() => setTopology(value)}
                   disabled={loading}
-                />
-                <div className="topology-content">
-                  <span className="topology-icon">🐝</span>
-                  <div className="topology-info">
-                    <span className="topology-name">Swarm</span>
-                    <span className="topology-desc">
-                      Parallel execution with result aggregation
-                    </span>
+                >
+                  <div className="font-semibold">{value}</div>
+                  <div className="mt-1 text-xs text-text-muted">
+                    {value === 'swarm'
+                      ? 'Parallel diagnostics / fork-join'
+                      : 'Milestone-driven squad workflow'}
                   </div>
-                </div>
-              </label>
-              <label
-                className={`topology-option ${
-                  topology === 'squad' ? 'topology-option-selected' : ''
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="topology"
-                  value="squad"
-                  checked={topology === 'squad'}
-                  onChange={(e) =>
-                    setTopology(e.target.value as TopologyType)
-                  }
-                  disabled={loading}
-                />
-                <div className="topology-content">
-                  <span className="topology-icon">👥</span>
-                  <div className="topology-info">
-                    <span className="topology-name">Squad</span>
-                    <span className="topology-desc">
-                      Hierarchical team with leader coordination
-                    </span>
-                  </div>
-                </div>
-              </label>
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Agents */}
-          <div className="form-group">
-            <div className="form-group-header">
-              <label>Agents (optional)</label>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <label className="text-sm font-medium">Roster (optional)</label>
               <button
                 type="button"
-                className="btn btn-small"
-                onClick={handleAddAgent}
+                className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-1.5 text-sm hover:border-white/20"
+                onClick={addRosterRow}
                 disabled={loading}
               >
-                + Add Agent
+                + Add
               </button>
             </div>
-            {agents.length > 0 && (
-              <div className="agents-form-list">
-                {agents.map((agent, index) => (
-                  <div key={agent.id} className="agent-form-item">
-                    <span className="agent-form-number">{index + 1}</span>
+
+            {roster.length ? (
+              <div className="space-y-2">
+                {roster.map((row, idx) => (
+                  <div key={row.id} className="grid grid-cols-[32px_1fr_1fr_40px] items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                      {idx + 1}
+                    </div>
                     <input
-                      type="text"
-                      className="form-input"
-                      value={agent.name}
-                      onChange={(e) =>
-                        handleAgentChange(agent.id, 'name', e.target.value)
-                      }
-                      placeholder="Agent name"
+                      className="rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2 text-sm outline-none focus:border-border-active"
+                      value={row.instance}
+                      onChange={(e) => updateRosterRow(row.id, 'instance', e.target.value)}
+                      placeholder="instance (e.g. backend-1)"
                       disabled={loading}
                     />
                     <input
-                      type="text"
-                      className="form-input"
-                      value={agent.role}
-                      onChange={(e) =>
-                        handleAgentChange(agent.id, 'role', e.target.value)
-                      }
-                      placeholder="Role (e.g., Frontend, Backend)"
+                      className="rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2 text-sm outline-none focus:border-border-active"
+                      value={row.agent}
+                      onChange={(e) => updateRosterRow(row.id, 'agent', e.target.value)}
+                      placeholder="agent (e.g. backend)"
                       disabled={loading}
                     />
                     <button
                       type="button"
-                      className="btn btn-icon btn-danger"
-                      onClick={() => handleRemoveAgent(agent.id)}
+                      className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-2 text-sm hover:border-white/20"
+                      onClick={() => removeRosterRow(row.id)}
                       disabled={loading}
-                      title="Remove agent"
+                      title="Remove"
                     >
-                      x
+                      ✕
                     </button>
                   </div>
                 ))}
               </div>
+            ) : (
+              <div className="rounded-lg border border-white/10 bg-bg-panelHover p-3 text-sm text-text-muted">
+                No roster entries yet.
+              </div>
             )}
           </div>
 
-          {/* Actions */}
-          <div className="modal-actions">
+          <div className="flex items-center justify-end gap-3 pt-2">
             <button
               type="button"
-              className="btn"
+              className="rounded-md border border-white/10 bg-bg-panelHover px-4 py-2 text-sm hover:border-white/20"
               onClick={onClose}
               disabled={loading}
             >
@@ -301,23 +236,17 @@ export function NewTaskModal({
             </button>
             <button
               type="submit"
-              className="btn btn-primary"
-              disabled={loading}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50"
+              disabled={loading || !canSubmit}
             >
-              {loading ? (
-                <>
-                  <span className="btn-spinner" />
-                  Creating...
-                </>
-              ) : (
-                'Create Task'
-              )}
+              {loading ? 'Creating…' : 'Create'}
             </button>
           </div>
         </form>
       </div>
     </div>
-  );
+  )
 }
 
-export default NewTaskModal;
+export default NewTaskModal
+

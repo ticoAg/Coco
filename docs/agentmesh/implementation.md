@@ -103,6 +103,14 @@ Codex 也提供 `codex exec`（参见 `codex/codex-rs/exec/`）：
 
 这条路径的特点是：实现简单、无需长期后台服务，但“会话/turn”能力相对 `app-server` 更弱一些（更像一次性执行器）。
 
+对 AgentMesh 来说，它非常适合作为 **子代理（subagents）并发执行** 的 MVP：
+
+- 每个 subagent = 独立 `codex exec --json` 子进程（<=8）
+- Orchestrator 只需解析 stdout 的 JSONL 事件，就能驱动 GUI 的实时状态
+- 配合独立 `CODEX_HOME` + git worktree，可获得“独立上下文 + 并发隔离”的体验
+
+细节见：[`docs/agentmesh/subagents.md`](./subagents.md) 与 [`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)。
+
 Codex adapter 的具体交互与落盘细节见：[`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)。
 
 ## 4. 总体架构（Session 驱动 + 产物驱动）

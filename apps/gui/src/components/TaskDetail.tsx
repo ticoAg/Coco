@@ -1,418 +1,128 @@
-/**
- * TaskDetail Component
- * Displays detailed information about a selected task with tabs
- */
+import { useMemo, useState } from 'react'
+import type { AgentInstance, Gate, Milestone, Task, TaskEvent } from '../types/task'
+import { StatusBadge } from './TaskList'
 
-import { useState } from 'react';
-import type {
-  Task,
-  TaskEvent,
-  AgentInstance,
-  Milestone,
-  Gate,
-  GateDecisionRequest,
-} from '../types/task';
-import { StatusBadge } from './TaskList';
-
-// ============ Types ============
-
-type TabId = 'overview' | 'reports' | 'events' | 'sessions';
-
-interface Tab {
-  id: TabId;
-  label: string;
-}
-
-const TABS: Tab[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'reports', label: 'Reports' },
-  { id: 'events', label: 'Events' },
-  { id: 'sessions', label: 'Sessions' },
-];
-
-// ============ Helper Functions ============
+type TabId = 'overview' | 'events'
 
 function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleString();
+  const date = new Date(dateString)
+  return date.toLocaleString()
 }
 
-// ============ Milestone Component ============
-
-interface MilestoneItemProps {
-  milestone: Milestone;
-}
-
-function MilestoneItem({ milestone }: MilestoneItemProps) {
-  const statusIcon = {
+function MilestoneItem({ milestone }: { milestone: Milestone }) {
+  const icon = {
     pending: '○',
-    in_progress: '◐',
-    completed: '●',
-  }[milestone.status];
+    working: '◐',
+    done: '●',
+    blocked: '⚠',
+  }[milestone.state]
 
-  const statusClass = {
-    pending: 'milestone-pending',
-    in_progress: 'milestone-progress',
-    completed: 'milestone-completed',
-  }[milestone.status];
+  const color = {
+    pending: 'text-text-muted',
+    working: 'text-status-info',
+    done: 'text-status-success',
+    blocked: 'text-status-warning',
+  }[milestone.state]
 
   return (
-    <div className={`milestone-item ${statusClass}`}>
-      <span className="milestone-icon">{statusIcon}</span>
-      <div className="milestone-content">
-        <span className="milestone-title">{milestone.title}</span>
-        {milestone.description && (
-          <span className="milestone-desc">{milestone.description}</span>
-        )}
+    <div className="flex items-start gap-3 rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2">
+      <div className={`mt-[2px] font-mono ${color}`}>{icon}</div>
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{milestone.title}</div>
+        <div className="mt-1 text-xs text-text-muted">
+          {milestone.state}
+          {milestone.dependsOn?.length ? ` • deps: ${milestone.dependsOn.join(', ')}` : ''}
+        </div>
       </div>
     </div>
-  );
+  )
 }
 
-// ============ Gate Component ============
-
-interface GateItemProps {
-  gate: Gate;
-  onDecision: (gateId: string, decision: GateDecisionRequest) => void;
-}
-
-function GateItem({ gate, onDecision }: GateItemProps) {
-  const isPending = gate.status === 'pending';
+function AgentCard({ agent }: { agent: AgentInstance }) {
+  const color = {
+    pending: 'text-text-muted',
+    active: 'text-status-info',
+    awaiting: 'text-text-muted',
+    dormant: 'text-text-dim',
+    completed: 'text-status-success',
+    failed: 'text-status-error',
+  }[agent.state]
 
   return (
-    <div className={`gate-item gate-${gate.status}`}>
-      <div className="gate-header">
-        <span className="gate-type">{gate.type.toUpperCase()}</span>
-        <span className={`gate-status gate-status-${gate.status}`}>
-          {gate.status}
+    <div className="rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="truncate text-sm font-semibold">{agent.instance}</div>
+        <div className={`text-xs font-medium ${color}`}>{agent.state}</div>
+      </div>
+      <div className="mt-1 text-xs text-text-muted">{agent.agent}</div>
+      {agent.skills?.length ? (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {agent.skills.map((s) => (
+            <span
+              key={s}
+              className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-text-muted"
+            >
+              {s}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function GateItem({ gate }: { gate: Gate }) {
+  const badge = {
+    open: 'bg-white/10 text-text-muted',
+    blocked: 'bg-status-warning/15 text-status-warning',
+    approved: 'bg-status-success/15 text-status-success',
+    rejected: 'bg-status-error/15 text-status-error',
+  }[gate.state]
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs uppercase tracking-wide text-text-muted">{gate.type}</div>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge}`}>
+          {gate.state}
         </span>
       </div>
-      <h4 className="gate-title">{gate.title}</h4>
-      {gate.description && (
-        <p className="gate-description">{gate.description}</p>
-      )}
-      <div className="gate-meta">
-        <span>Requested: {formatDate(gate.requestedAt)}</span>
-        {gate.resolvedAt && <span>Resolved: {formatDate(gate.resolvedAt)}</span>}
+      {gate.reason ? <div className="mt-2 text-sm">{gate.reason}</div> : null}
+      <div className="mt-2 text-xs text-text-muted">
+        {gate.instructionsRef ? `instructions: ${gate.instructionsRef}` : null}
       </div>
-      {isPending && (
-        <div className="gate-actions">
-          <button
-            className="btn btn-approve"
-            onClick={() => onDecision(gate.id, { decision: 'approve' })}
-          >
-            Approve
-          </button>
-          <button
-            className="btn btn-deny"
-            onClick={() => onDecision(gate.id, { decision: 'deny' })}
-          >
-            Deny
-          </button>
-        </div>
-      )}
     </div>
-  );
+  )
 }
 
-// ============ Agent Card Component ============
-
-interface AgentCardProps {
-  agent: AgentInstance;
-}
-
-function AgentCard({ agent }: AgentCardProps) {
-  const stateClass = {
-    active: 'agent-active',
-    awaiting: 'agent-awaiting',
-    dormant: 'agent-dormant',
-  }[agent.state];
+function EventItem({ event }: { event: TaskEvent }) {
+  const payloadMessage = useMemo(() => {
+    if (!event.payload || typeof event.payload !== 'object') return null
+    const p = event.payload as Record<string, unknown>
+    if (typeof p.message === 'string') return p.message
+    return null
+  }, [event.payload])
 
   return (
-    <div className={`agent-card ${stateClass}`}>
-      <div className="agent-header">
-        <span className="agent-name">{agent.name}</span>
-        <span className={`agent-state agent-state-${agent.state}`}>
-          {agent.state}
-        </span>
-      </div>
-      <div className="agent-role">{agent.role}</div>
-      {agent.sessionId && (
-        <div className="agent-session">Session: {agent.sessionId.slice(0, 8)}...</div>
-      )}
-    </div>
-  );
-}
-
-// ============ Event Item Component ============
-
-interface EventItemProps {
-  event: TaskEvent;
-}
-
-function EventItem({ event }: EventItemProps) {
-  const eventTypeColors: Record<string, string> = {
-    'task.': 'var(--primary)',
-    'agent.': 'var(--accent)',
-    'gate.': 'var(--status-warning)',
-    'turn.': 'var(--status-info)',
-    'artifact.': 'var(--status-success)',
-    'milestone.': 'var(--status-success)',
-  };
-
-  const getEventColor = (type: string): string => {
-    for (const [prefix, color] of Object.entries(eventTypeColors)) {
-      if (type.startsWith(prefix)) return color;
-    }
-    return 'var(--text-muted)';
-  };
-
-  return (
-    <div className="event-item">
-      <div className="event-timestamp">
-        {formatDate(event.timestamp)}
-      </div>
-      <div className="event-content">
-        <span
-          className="event-type"
-          style={{ color: getEventColor(event.type) }}
-        >
-          [{event.type}]
-        </span>
-        {event.agentId && (
-          <span className="event-agent">@{event.agentId}</span>
-        )}
-        {'message' in event.payload && (
-          <span className="event-message">
-            {String(event.payload.message ?? '')}
-          </span>
-        )}
+    <div className="rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2">
+      <div className="text-xs text-text-dim">{formatDate(event.ts)}</div>
+      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+        <span className="font-mono text-xs text-accent">[{event.type}]</span>
+        {event.agentInstance ? <span className="text-xs text-text-muted">@{event.agentInstance}</span> : null}
+        {payloadMessage ? <span className="text-text-muted">{payloadMessage}</span> : null}
       </div>
     </div>
-  );
+  )
 }
-
-// ============ Tab Content Components ============
-
-interface OverviewTabProps {
-  task: Task;
-  onGateDecision: (gateId: string, decision: GateDecisionRequest) => void;
-}
-
-function OverviewTab({ task, onGateDecision }: OverviewTabProps) {
-  const pendingGates = task.gates?.filter((g) => g.status === 'pending') || [];
-
-  return (
-    <div className="tab-content overview-tab">
-      {/* Task Info */}
-      <div className="overview-section">
-        <h3>Task Information</h3>
-        <div className="info-grid">
-          <div className="info-item">
-            <span className="info-label">ID</span>
-            <span className="info-value">{task.id}</span>
-          </div>
-          <div className="info-item">
-            <span className="info-label">Topology</span>
-            <span className="info-value">{task.topology}</span>
-          </div>
-          <div className="info-item">
-            <span className="info-label">Created</span>
-            <span className="info-value">{formatDate(task.createdAt)}</span>
-          </div>
-          <div className="info-item">
-            <span className="info-label">Updated</span>
-            <span className="info-value">{formatDate(task.updatedAt)}</span>
-          </div>
-        </div>
-        {task.description && (
-          <p className="task-description">{task.description}</p>
-        )}
-      </div>
-
-      {/* Pending Gates (Priority) */}
-      {pendingGates.length > 0 && (
-        <div className="overview-section gates-section">
-          <h3>
-            <span className="section-icon">🚧</span>
-            Pending Gates ({pendingGates.length})
-          </h3>
-          <div className="gates-list">
-            {pendingGates.map((gate) => (
-              <GateItem
-                key={gate.id}
-                gate={gate}
-                onDecision={onGateDecision}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Milestones */}
-      {task.milestones && task.milestones.length > 0 && (
-        <div className="overview-section">
-          <h3>Milestones</h3>
-          <div className="milestones-list">
-            {task.milestones.map((milestone) => (
-              <MilestoneItem key={milestone.id} milestone={milestone} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Roster */}
-      {task.roster && task.roster.length > 0 && (
-        <div className="overview-section">
-          <h3>Agent Roster ({task.roster.length})</h3>
-          <div className="agents-grid">
-            {task.roster.map((agent) => (
-              <AgentCard key={agent.id} agent={agent} />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface ReportsTabProps {
-  task: Task;
-}
-
-function ReportsTab({ task }: ReportsTabProps) {
-  const reports = task.reports || [];
-
-  if (reports.length === 0) {
-    return (
-      <div className="tab-content tab-empty">
-        <div className="empty-icon">📄</div>
-        <p>No reports available yet.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="tab-content reports-tab">
-      {reports.map((report) => (
-        <div key={report.id} className="report-item card">
-          <div className="report-header">
-            <h4>{report.title}</h4>
-            <span className="report-type">{report.type}</span>
-          </div>
-          <div className="report-path">{report.path}</div>
-          <div className="report-meta">
-            Updated: {formatDate(report.updatedAt)}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-interface EventsTabProps {
-  events: TaskEvent[];
-  hasMore: boolean;
-  onLoadMore: () => void;
-}
-
-function EventsTab({ events, hasMore, onLoadMore }: EventsTabProps) {
-  if (events.length === 0) {
-    return (
-      <div className="tab-content tab-empty">
-        <div className="empty-icon">📋</div>
-        <p>No events recorded yet.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="tab-content events-tab">
-      <div className="events-list">
-        {events.map((event) => (
-          <EventItem key={event.id} event={event} />
-        ))}
-      </div>
-      {hasMore && (
-        <button className="btn btn-load-more" onClick={onLoadMore}>
-          Load More Events
-        </button>
-      )}
-    </div>
-  );
-}
-
-interface SessionsTabProps {
-  roster: AgentInstance[];
-}
-
-function SessionsTab({ roster }: SessionsTabProps) {
-  if (!roster || roster.length === 0) {
-    return (
-      <div className="tab-content tab-empty">
-        <div className="empty-icon">👥</div>
-        <p>No active sessions.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="tab-content sessions-tab">
-      <div className="sessions-list">
-        {roster.map((agent) => (
-          <div key={agent.id} className="session-card card">
-            <div className="session-header">
-              <h4>{agent.name}</h4>
-              <span className={`agent-state agent-state-${agent.state}`}>
-                {agent.state}
-              </span>
-            </div>
-            <div className="session-details">
-              <div className="session-detail">
-                <span className="detail-label">Role:</span>
-                <span className="detail-value">{agent.role}</span>
-              </div>
-              {agent.sessionId && (
-                <div className="session-detail">
-                  <span className="detail-label">Session ID:</span>
-                  <span className="detail-value mono">{agent.sessionId}</span>
-                </div>
-              )}
-              {agent.cwd && (
-                <div className="session-detail">
-                  <span className="detail-label">Working Dir:</span>
-                  <span className="detail-value mono">{agent.cwd}</span>
-                </div>
-              )}
-              {agent.artifacts && agent.artifacts.length > 0 && (
-                <div className="session-artifacts">
-                  <span className="detail-label">Artifacts:</span>
-                  <ul>
-                    {agent.artifacts.map((artifact, i) => (
-                      <li key={i}>{artifact}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ============ Main TaskDetail Component ============
 
 interface TaskDetailProps {
-  task: Task | null;
-  events: TaskEvent[];
-  loading: boolean;
-  error: string | null;
-  hasMoreEvents: boolean;
-  onLoadMoreEvents: () => void;
-  onGateDecision: (gateId: string, decision: GateDecisionRequest) => Promise<boolean>;
-  onClose: () => void;
+  task: Task | null
+  events: TaskEvent[]
+  loading: boolean
+  error: string | null
+  hasMoreEvents: boolean
+  onLoadMoreEvents: () => void
+  onClose: () => void
 }
 
 export function TaskDetail({
@@ -422,98 +132,172 @@ export function TaskDetail({
   error,
   hasMoreEvents,
   onLoadMoreEvents,
-  onGateDecision,
   onClose,
 }: TaskDetailProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [tab, setTab] = useState<TabId>('overview')
 
-  // No task selected
-  if (!task && !loading) {
+  if (loading) {
     return (
-      <div className="task-detail-placeholder glass-panel">
-        <div className="placeholder-content">
-          <div className="placeholder-icon">📋</div>
-          <h3>Select a task</h3>
-          <p>Choose a task from the list to view its details.</p>
-        </div>
-      </div>
-    );
+      <section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
+        <div className="text-sm text-text-muted">Loading…</div>
+      </section>
+    )
   }
 
-  // Loading state
-  if (loading && !task) {
-    return (
-      <div className="task-detail glass-panel">
-        <div className="task-detail-loading">
-          <div className="loading-spinner" />
-          <p>Loading task details...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Error state
   if (error) {
     return (
-      <div className="task-detail glass-panel">
-        <div className="task-detail-error">
-          <div className="error-icon">⚠️</div>
-          <h3>Error loading task</h3>
-          <p>{error}</p>
+      <section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
+        <div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
+          {error}
         </div>
-      </div>
-    );
+      </section>
+    )
   }
 
-  if (!task) return null;
-
-  const handleGateDecision = async (gateId: string, decision: GateDecisionRequest) => {
-    await onGateDecision(gateId, decision);
-  };
+  if (!task) {
+    return (
+      <section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
+        <div className="text-sm text-text-muted">Select a task to see details.</div>
+      </section>
+    )
+  }
 
   return (
-    <div className="task-detail glass-panel">
-      {/* Header */}
-      <div className="task-detail-header">
-        <div className="task-detail-header-left">
-          <h2 className="task-detail-title">{task.title}</h2>
-          <StatusBadge status={task.state} />
+    <section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <h2 className="truncate text-lg font-semibold">{task.title}</h2>
+            <StatusBadge state={task.state} />
+          </div>
+          <div className="mt-1 text-sm text-text-muted">{task.id}</div>
         </div>
-        <button className="btn btn-icon" onClick={onClose} title="Close">
-          ×
+        <button
+          type="button"
+          className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-sm hover:border-white/20"
+          onClick={onClose}
+          title="Close"
+        >
+          ✕
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="task-detail-tabs">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            className={`tab-btn ${activeTab === tab.id ? 'tab-btn-active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="mb-5 flex items-center gap-2 border-b border-white/10 pb-3">
+        <button
+          type="button"
+          className={[
+            'rounded-md px-3 py-1.5 text-sm',
+            tab === 'overview' ? 'bg-primary/15 text-primary' : 'text-text-muted hover:text-text-main',
+          ].join(' ')}
+          onClick={() => setTab('overview')}
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          className={[
+            'rounded-md px-3 py-1.5 text-sm',
+            tab === 'events' ? 'bg-primary/15 text-primary' : 'text-text-muted hover:text-text-main',
+          ].join(' ')}
+          onClick={() => setTab('events')}
+        >
+          Events
+        </button>
       </div>
 
-      {/* Tab Content */}
-      <div className="task-detail-content">
-        {activeTab === 'overview' && (
-          <OverviewTab task={task} onGateDecision={handleGateDecision} />
-        )}
-        {activeTab === 'reports' && <ReportsTab task={task} />}
-        {activeTab === 'events' && (
-          <EventsTab
-            events={events}
-            hasMore={hasMoreEvents}
-            onLoadMore={onLoadMoreEvents}
-          />
-        )}
-        {activeTab === 'sessions' && <SessionsTab roster={task.roster} />}
-      </div>
-    </div>
-  );
+      {tab === 'overview' && (
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold">Info</h3>
+            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-lg border border-white/10 bg-bg-panelHover p-3">
+                <div className="text-xs uppercase tracking-wide text-text-muted">Topology</div>
+                <div className="mt-1 font-mono">{task.topology}</div>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-bg-panelHover p-3">
+                <div className="text-xs uppercase tracking-wide text-text-muted">State</div>
+                <div className="mt-1 font-mono">{task.state}</div>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-bg-panelHover p-3">
+                <div className="text-xs uppercase tracking-wide text-text-muted">Created</div>
+                <div className="mt-1 font-mono">{formatDate(task.createdAt)}</div>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-bg-panelHover p-3">
+                <div className="text-xs uppercase tracking-wide text-text-muted">Updated</div>
+                <div className="mt-1 font-mono">{formatDate(task.updatedAt)}</div>
+              </div>
+            </div>
+            {task.description ? (
+              <div className="mt-4 rounded-lg border border-white/10 bg-bg-panelHover p-3 text-sm text-text-muted">
+                {task.description}
+              </div>
+            ) : null}
+          </div>
+
+          {task.gates?.length ? (
+            <div>
+              <h3 className="text-sm font-semibold">Gates</h3>
+              <div className="mt-3 space-y-3">
+                {task.gates.map((g) => (
+                  <GateItem key={g.id} gate={g} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {task.milestones?.length ? (
+            <div>
+              <h3 className="text-sm font-semibold">Milestones</h3>
+              <div className="mt-3 space-y-3">
+                {task.milestones.map((m) => (
+                  <MilestoneItem key={m.id} milestone={m} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {task.roster?.length ? (
+            <div>
+              <h3 className="text-sm font-semibold">Roster</h3>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                {task.roster.map((a) => (
+                  <AgentCard key={a.instance} agent={a} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {tab === 'events' && (
+        <div>
+          {events.length === 0 ? (
+            <div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">
+              No events yet.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {events.map((e, idx) => (
+                <EventItem key={`${e.ts}-${idx}`} event={e} />
+              ))}
+            </div>
+          )}
+          {hasMoreEvents ? (
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                className="rounded-md border border-white/10 bg-bg-panelHover px-4 py-2 text-sm hover:border-white/20"
+                onClick={onLoadMoreEvents}
+              >
+                Load more
+              </button>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </section>
+  )
 }
 
-export default TaskDetail;
+export default TaskDetail
+

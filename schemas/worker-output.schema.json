@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agentmesh.dev/schemas/worker-output.schema.json",
+  "title": "AgentMesh Worker Final Output",
+  "description": "子代理（worker）在一次 turn 结束时的结构化最终输出，用于 join/汇总与后续编排。",
+  "type": "object",
+  "required": ["status", "summary"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "blocked", "failed"],
+      "description": "执行结果：success（完成并可交付）、blocked（需要人类/主控补充输入）、failed（失败）。"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "1-3 句人类可读总结。"
+    },
+    "artifacts": {
+      "description": "本次 worker 的可交付产物指针（worktree/branch/diff 等）。",
+      "type": "object",
+      "properties": {
+        "worktreePath": {
+          "type": "string",
+          "description": "worker 运行所在 worktree 的绝对或相对路径。"
+        },
+        "branch": {
+          "type": "string",
+          "description": "建议合并的分支名（例如 agentmesh/<task_id>/<agent_id>）。"
+        },
+        "touchedFiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "本次修改涉及的文件列表（可选；可由 orchestrator 从事件流推导）。"
+        },
+        "diffStat": {
+          "type": "string",
+          "description": "简要 diff 统计（例如 '3 files changed, 20 insertions(+), 4 deletions(-)'）。"
+        }
+      }
+    },
+    "questions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "需要主控/人类回答的问题（用于 unblock）。"
+    },
+    "nextActions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "对主控的下一步建议（例如：运行哪些测试、再 spawn 哪个 subagent、合并策略）。"
+    },
+    "errors": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "失败/异常摘要（可选）。"
+    }
+  },
+  "additionalProperties": false
+}

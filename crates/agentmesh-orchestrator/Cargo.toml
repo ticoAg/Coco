@@ -1,0 +1,9 @@
+[package]
+name = "agentmesh-orchestrator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+agentmesh-core = { path = "../agentmesh-core" }
+tokio = { version = "1.43.0", features = ["process", "rt", "macros", "sync"] }
+

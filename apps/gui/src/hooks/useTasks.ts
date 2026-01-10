@@ -1,35 +1,18 @@
-/**
- * useTasks Hook
- * Custom hook for managing task data with real-time updates
- */
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { apiClient } from '../api/client'
+import type { ClusterStatus, CreateTaskRequest, Task, TaskEvent } from '../types/task'
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import type {
-  Task,
-  TaskEvent,
-  ClusterStatus,
-  CreateTaskRequest,
-  GateDecisionRequest,
-} from '../types/task';
-import {
-  apiClient,
-  ApiClientError,
-  createEventStream,
-  createPolling,
-} from '../api/client';
-
-// ============ useTasks Hook ============
+// ============ useTasks ============
 
 interface UseTasksState {
-  tasks: Task[];
-  loading: boolean;
-  error: string | null;
+  tasks: Task[]
+  loading: boolean
+  error: string | null
 }
 
 interface UseTasksReturn extends UseTasksState {
-  refresh: () => Promise<void>;
-  createTask: (data: CreateTaskRequest) => Promise<Task | null>;
-  deleteTask: (taskId: string) => Promise<boolean>;
+  refresh: () => Promise<void>
+  createTask: (data: CreateTaskRequest) => Promise<string | null>
 }
 
 export function useTasks(enablePolling: boolean = true): UseTasksReturn {
@@ -37,149 +20,64 @@ export function useTasks(enablePolling: boolean = true): UseTasksReturn {
     tasks: [],
     loading: true,
     error: null,
-  });
+  })
 
-  const cleanupRef = useRef<(() => void) | null>(null);
-
-  // Fetch tasks
   const fetchTasks = useCallback(async () => {
     try {
-      const response = await apiClient.getTasks();
-      setState((prev) => ({
-        ...prev,
-        tasks: response.tasks,
+      const tasks = await apiClient.listTasks()
+      setState({ tasks, loading: false, error: null })
+    } catch (err) {
+      setState({
+        tasks: [],
         loading: false,
-        error: null,
-      }));
-    } catch (error) {
-      const message =
-        error instanceof ApiClientError
-          ? error.message
-          : 'Failed to fetch tasks';
-      setState((prev) => ({
-        ...prev,
-        loading: false,
-        error: message,
-      }));
+        error: err instanceof Error ? err.message : 'Failed to load tasks',
+      })
     }
-  }, []);
+  }, [])
 
-  // Refresh tasks
   const refresh = useCallback(async () => {
-    setState((prev) => ({ ...prev, loading: true }));
-    await fetchTasks();
-  }, [fetchTasks]);
+    setState((prev) => ({ ...prev, loading: true }))
+    await fetchTasks()
+  }, [fetchTasks])
 
-  // Create task
-  const createTask = useCallback(async (data: CreateTaskRequest): Promise<Task | null> => {
+  const createTask = useCallback(async (data: CreateTaskRequest): Promise<string | null> => {
     try {
-      const task = await apiClient.createTask(data);
-      // Refresh task list after creation
-      await fetchTasks();
-      return task;
-    } catch (error) {
-      const message =
-        error instanceof ApiClientError
-          ? error.message
-          : 'Failed to create task';
-      setState((prev) => ({ ...prev, error: message }));
-      return null;
+      const res = await apiClient.createTask(data)
+      await fetchTasks()
+      return res.id
+    } catch (err) {
+      setState((prev) => ({
+        ...prev,
+        error: err instanceof Error ? err.message : 'Failed to create task',
+      }))
+      return null
     }
-  }, [fetchTasks]);
+  }, [fetchTasks])
 
-  // Delete task
-  const deleteTask = useCallback(async (taskId: string): Promise<boolean> => {
-    try {
-      await apiClient.deleteTask(taskId);
-      // Refresh task list after deletion
-      await fetchTasks();
-      return true;
-    } catch (error) {
-      const message =
-        error instanceof ApiClientError
-          ? error.message
-          : 'Failed to delete task';
-      setState((prev) => ({ ...prev, error: message }));
-      return false;
-    }
-  }, [fetchTasks]);
-
-  // Initial fetch and polling setup
   useEffect(() => {
-    fetchTasks();
+    fetchTasks()
+    if (!enablePolling) return
 
-    if (enablePolling) {
-      // Try SSE first, fall back to polling
-      try {
-        cleanupRef.current = createEventStream(
-          (event) => {
-            if (event.type === 'task.updated') {
-              fetchTasks();
-            }
-          },
-          () => {
-            // SSE failed, switch to polling
-            console.log('[useTasks] SSE failed, switching to polling');
-            cleanupRef.current = createPolling(
-              null,
-              (tasks) => {
-                setState((prev) => ({
-                  ...prev,
-                  tasks,
-                  loading: false,
-                }));
-              },
-              (error) => {
-                console.error('[useTasks] Polling error:', error);
-              },
-              5000
-            );
-          }
-        );
-      } catch {
-        // SSE not supported, use polling
-        cleanupRef.current = createPolling(
-          null,
-          (tasks) => {
-            setState((prev) => ({
-              ...prev,
-              tasks,
-              loading: false,
-            }));
-          },
-          undefined,
-          5000
-        );
-      }
-    }
+    const timer = setInterval(fetchTasks, 5000)
+    return () => clearInterval(timer)
+  }, [enablePolling, fetchTasks])
 
-    return () => {
-      cleanupRef.current?.();
-    };
-  }, [fetchTasks, enablePolling]);
-
-  return {
-    ...state,
-    refresh,
-    createTask,
-    deleteTask,
-  };
+  return { ...state, refresh, createTask }
 }
 
-// ============ useTaskDetail Hook ============
+// ============ useTaskDetail ============
 
 interface UseTaskDetailState {
-  task: Task | null;
-  events: TaskEvent[];
-  loading: boolean;
-  error: string | null;
+  task: Task | null
+  events: TaskEvent[]
+  loading: boolean
+  error: string | null
 }
 
 interface UseTaskDetailReturn extends UseTaskDetailState {
-  refresh: () => Promise<void>;
-  loadMoreEvents: () => Promise<void>;
-  hasMoreEvents: boolean;
-  submitGateDecision: (gateId: string, decision: GateDecisionRequest) => Promise<boolean>;
+  refresh: () => Promise<void>
+  loadMoreEvents: () => Promise<void>
+  hasMoreEvents: boolean
 }
 
 export function useTaskDetail(taskId: string | null): UseTaskDetailReturn {
@@ -188,164 +86,93 @@ export function useTaskDetail(taskId: string | null): UseTaskDetailReturn {
     events: [],
     loading: true,
     error: null,
-  });
-  const [hasMoreEvents, setHasMoreEvents] = useState(false);
-  const cursorRef = useRef<string | undefined>(undefined);
+  })
+  const [hasMoreEvents, setHasMoreEvents] = useState(false)
+  const offsetRef = useRef(0)
 
-  // Fetch task detail
   const fetchTask = useCallback(async () => {
     if (!taskId) {
-      setState({
-        task: null,
-        events: [],
-        loading: false,
-        error: null,
-      });
-      return;
+      setState({ task: null, events: [], loading: false, error: null })
+      return
     }
 
     try {
-      const response = await apiClient.getTask(taskId);
-      setState((prev) => ({
-        ...prev,
-        task: response.task,
-        events: response.events || [],
-        loading: false,
-        error: null,
-      }));
-    } catch (error) {
-      const message =
-        error instanceof ApiClientError
-          ? error.message
-          : 'Failed to fetch task details';
+      const task = await apiClient.getTask(taskId)
+      setState((prev) => ({ ...prev, task, loading: false, error: null }))
+    } catch (err) {
       setState((prev) => ({
         ...prev,
         loading: false,
-        error: message,
-      }));
+        error: err instanceof Error ? err.message : 'Failed to load task',
+      }))
     }
-  }, [taskId]);
+  }, [taskId])
 
-  // Fetch events
-  const fetchEvents = useCallback(async (append: boolean = false) => {
-    if (!taskId) return;
+  const fetchEvents = useCallback(async (append: boolean) => {
+    if (!taskId) return
+    const limit = 50
+    const offset = append ? offsetRef.current : 0
 
     try {
-      const response = await apiClient.getTaskEvents(taskId, {
-        cursor: append ? cursorRef.current : undefined,
-        limit: 50,
-      });
-
-      cursorRef.current = response.cursor;
-      setHasMoreEvents(response.hasMore);
-
-      setState((prev) => ({
-        ...prev,
-        events: append ? [...prev.events, ...response.events] : response.events,
-      }));
-    } catch (error) {
-      console.error('Failed to fetch events:', error);
+      const events = await apiClient.getTaskEvents(taskId, { limit, offset })
+      offsetRef.current = offset + events.length
+      setHasMoreEvents(events.length >= limit)
+      setState((prev) => ({ ...prev, events: append ? [...prev.events, ...events] : events }))
+    } catch (err) {
+      // keep task visible; just log events failures
+      console.error('Failed to fetch events:', err)
     }
-  }, [taskId]);
+  }, [taskId])
 
-  // Refresh
   const refresh = useCallback(async () => {
-    setState((prev) => ({ ...prev, loading: true }));
-    cursorRef.current = undefined;
-    await fetchTask();
-    await fetchEvents(false);
-  }, [fetchTask, fetchEvents]);
+    setState((prev) => ({ ...prev, loading: true }))
+    offsetRef.current = 0
+    await fetchTask()
+    await fetchEvents(false)
+  }, [fetchTask, fetchEvents])
 
-  // Load more events
   const loadMoreEvents = useCallback(async () => {
-    await fetchEvents(true);
-  }, [fetchEvents]);
+    await fetchEvents(true)
+  }, [fetchEvents])
 
-  // Submit gate decision
-  const submitGateDecision = useCallback(
-    async (gateId: string, decision: GateDecisionRequest): Promise<boolean> => {
-      if (!taskId) return false;
-
-      try {
-        await apiClient.submitGateDecision(taskId, gateId, decision);
-        await refresh();
-        return true;
-      } catch (error) {
-        const message =
-          error instanceof ApiClientError
-            ? error.message
-            : 'Failed to submit gate decision';
-        setState((prev) => ({ ...prev, error: message }));
-        return false;
-      }
-    },
-    [taskId, refresh]
-  );
-
-  // Initial fetch
   useEffect(() => {
-    fetchTask();
-    fetchEvents(false);
-  }, [fetchTask, fetchEvents]);
+    refresh()
+  }, [refresh])
 
-  return {
-    ...state,
-    refresh,
-    loadMoreEvents,
-    hasMoreEvents,
-    submitGateDecision,
-  };
+  return { ...state, refresh, loadMoreEvents, hasMoreEvents }
 }
 
-// ============ useClusterStatus Hook ============
+// ============ useClusterStatus ============
 
 interface UseClusterStatusReturn {
-  status: ClusterStatus | null;
-  loading: boolean;
-  error: string | null;
-  refresh: () => Promise<void>;
+  status: ClusterStatus | null
+  loading: boolean
+  error: string | null
 }
 
 export function useClusterStatus(pollInterval: number = 10000): UseClusterStatusReturn {
-  const [status, setStatus] = useState<ClusterStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<ClusterStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await apiClient.getClusterStatus();
-      setStatus(data);
-      setError(null);
+      const data = await apiClient.getClusterStatus()
+      setStatus(data)
+      setError(null)
     } catch (err) {
-      const message =
-        err instanceof ApiClientError
-          ? err.message
-          : 'Failed to fetch cluster status';
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Failed to fetch status')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  }, []);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    await fetchStatus();
-  }, [fetchStatus]);
+  }, [])
 
   useEffect(() => {
-    fetchStatus();
+    fetchStatus()
+    const timer = setInterval(fetchStatus, pollInterval)
+    return () => clearInterval(timer)
+  }, [fetchStatus, pollInterval])
 
-    const intervalId = setInterval(fetchStatus, pollInterval);
-    return () => clearInterval(intervalId);
-  }, [fetchStatus, pollInterval]);
-
-  return { status, loading, error, refresh };
+  return { status, loading, error }
 }
 
-// ============ Export ============
-
-export default {
-  useTasks,
-  useTaskDetail,
-  useClusterStatus,
-};

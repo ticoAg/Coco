@@ -1,180 +1,71 @@
-/**
- * TaskList Component
- * Displays a list of tasks with status badges and click-to-select functionality
- */
+import type { Task, TaskState } from '../types/task'
 
-import type { Task, TaskState } from '../types/task';
-
-// ============ Status Badge Component ============
-
-interface StatusBadgeProps {
-  status: TaskState;
-}
-
-const statusConfig: Record<TaskState, { label: string; className: string }> = {
-  created: { label: 'CREATED', className: 'status-waiting' },
-  working: { label: 'WORKING', className: 'status-active status-pulse' },
-  'gate.blocked': { label: 'BLOCKED', className: 'status-blocked' },
-  completed: { label: 'COMPLETED', className: 'status-completed' },
-  failed: { label: 'FAILED', className: 'status-error' },
-};
-
-export function StatusBadge({ status }: StatusBadgeProps) {
-  const config = statusConfig[status] || { label: status?.toUpperCase() || 'UNKNOWN', className: '' };
-  return (
-    <span className={`status-badge ${config.className}`}>
-      {config.label}
-    </span>
-  );
-}
-
-// ============ Task Card Component ============
-
-interface TaskCardProps {
-  task: Task;
-  isSelected: boolean;
-  onClick: () => void;
-}
-
-function getTaskIcon(state: TaskState): string {
+function statusBadgeStyle(state: TaskState): { label: string; className: string } {
   switch (state) {
     case 'working':
-      return '⚡';
-    case 'gate.blocked':
-      return '🚧';
+      return { label: 'WORKING', className: 'bg-status-info/15 text-status-info' }
+    case 'input-required':
+      return { label: 'BLOCKED', className: 'bg-status-warning/15 text-status-warning' }
     case 'completed':
-      return '✓';
+      return { label: 'DONE', className: 'bg-status-success/15 text-status-success' }
     case 'failed':
-      return '✕';
+      return { label: 'FAILED', className: 'bg-status-error/15 text-status-error' }
+    case 'canceled':
+      return { label: 'CANCELED', className: 'bg-white/10 text-text-muted' }
+    case 'created':
     default:
-      return '📋';
+      return { label: 'CREATED', className: 'bg-white/10 text-text-muted' }
+  }
+}
+
+function taskIcon(state: TaskState): string {
+  switch (state) {
+    case 'working':
+      return '⚡'
+    case 'input-required':
+      return '🚧'
+    case 'completed':
+      return '✓'
+    case 'failed':
+      return '✕'
+    default:
+      return '📋'
   }
 }
 
 function formatTimeAgo(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
 
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins} min${diffMins > 1 ? 's' : ''} ago`;
-  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-  return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+  if (diffMins < 1) return 'Just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  if (diffHours < 24) return `${diffHours}h ago`
+  return `${diffDays}d ago`
 }
 
-export function TaskCard({ task, isSelected, onClick }: TaskCardProps) {
-  const agentCount = task.roster?.length || 0;
-  const pendingGates = task.gates?.filter((g) => g.status === 'pending').length || 0;
-
+export function StatusBadge({ state }: { state: TaskState }) {
+  const config = statusBadgeStyle(state)
   return (
-    <div
-      className={`card task-card ${isSelected ? 'task-card-selected' : ''}`}
-      onClick={onClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onClick();
-        }
-      }}
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold tracking-wide ${config.className}`}
     >
-      <div className="task-card-content">
-        <div className="task-card-icon">
-          {getTaskIcon(task.state)}
-        </div>
-        <div className="task-card-info">
-          <h3 className="task-card-title">{task.title}</h3>
-          <div className="task-card-meta">
-            <span className="task-card-topology">{task.topology}</span>
-            {agentCount > 0 && (
-              <span className="task-card-agents">{agentCount} agent{agentCount > 1 ? 's' : ''}</span>
-            )}
-            {pendingGates > 0 && (
-              <span className="task-card-gates">{pendingGates} pending gate{pendingGates > 1 ? 's' : ''}</span>
-            )}
-          </div>
-        </div>
-      </div>
-      <div className="task-card-right">
-        <span className="task-card-time">{formatTimeAgo(task.updatedAt)}</span>
-        <StatusBadge status={task.state} />
-      </div>
-    </div>
-  );
+      {config.label}
+    </span>
+  )
 }
-
-// ============ Loading Skeleton ============
-
-function TaskCardSkeleton() {
-  return (
-    <div className="card task-card task-card-skeleton">
-      <div className="task-card-content">
-        <div className="skeleton skeleton-icon" />
-        <div className="task-card-info">
-          <div className="skeleton skeleton-title" />
-          <div className="skeleton skeleton-meta" />
-        </div>
-      </div>
-      <div className="task-card-right">
-        <div className="skeleton skeleton-badge" />
-      </div>
-    </div>
-  );
-}
-
-// ============ Empty State ============
-
-interface EmptyStateProps {
-  onCreateTask: () => void;
-}
-
-function EmptyState({ onCreateTask }: EmptyStateProps) {
-  return (
-    <div className="task-list-empty">
-      <div className="task-list-empty-icon">📭</div>
-      <h3>No tasks yet</h3>
-      <p>Create your first task to get started with AgentMesh.</p>
-      <button className="btn btn-primary" onClick={onCreateTask}>
-        + New Task
-      </button>
-    </div>
-  );
-}
-
-// ============ Error State ============
-
-interface ErrorStateProps {
-  message: string;
-  onRetry: () => void;
-}
-
-function ErrorState({ message, onRetry }: ErrorStateProps) {
-  return (
-    <div className="task-list-error">
-      <div className="task-list-error-icon">⚠️</div>
-      <h3>Failed to load tasks</h3>
-      <p>{message}</p>
-      <button className="btn" onClick={onRetry}>
-        Retry
-      </button>
-    </div>
-  );
-}
-
-// ============ Main TaskList Component ============
 
 interface TaskListProps {
-  tasks: Task[];
-  loading: boolean;
-  error: string | null;
-  selectedTaskId: string | null;
-  onSelectTask: (taskId: string) => void;
-  onCreateTask: () => void;
-  onRefresh: () => void;
+  tasks: Task[]
+  loading: boolean
+  error: string | null
+  selectedTaskId: string | null
+  onSelectTask: (taskId: string) => void
+  onCreateTask?: () => void
+  onRefresh: () => void
 }
 
 export function TaskList({
@@ -186,59 +77,97 @@ export function TaskList({
   onCreateTask,
   onRefresh,
 }: TaskListProps) {
-  // Calculate stats
-  const runningCount = tasks.filter((t) => t.state === 'working').length;
-
-  if (error) {
-    return (
-      <section className="glass-panel task-list-panel">
-        <ErrorState message={error} onRetry={onRefresh} />
-      </section>
-    );
-  }
+  const runningCount = tasks.filter((t) => t.state === 'working').length
 
   return (
-    <section className="glass-panel task-list-panel">
-      <div className="task-list-header">
-        <div className="task-list-header-left">
-          <h2>Active Tasks</h2>
-          <span className="task-list-count">
-            Running: {runningCount}
-          </span>
+    <section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">Tasks</h2>
+          <p className="mt-1 text-sm text-text-muted">Running: {runningCount}</p>
         </div>
-        <button
-          className="btn btn-icon"
-          onClick={onRefresh}
-          disabled={loading}
-          title="Refresh"
-        >
-          <span className={loading ? 'spin' : ''}>↻</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-sm hover:border-white/20"
+            onClick={onRefresh}
+            disabled={loading}
+            title="Refresh"
+          >
+            ↻
+          </button>
+          {onCreateTask ? (
+            <button
+              type="button"
+              className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-hover"
+              onClick={onCreateTask}
+            >
+              + New
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      <div className="task-list-content">
-        {loading && tasks.length === 0 ? (
-          // Show skeletons while loading
-          <>
-            <TaskCardSkeleton />
-            <TaskCardSkeleton />
-            <TaskCardSkeleton />
-          </>
-        ) : tasks.length === 0 ? (
-          <EmptyState onCreateTask={onCreateTask} />
-        ) : (
-          tasks.map((task) => (
-            <TaskCard
+      {error && (
+        <div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
+          {error}
+        </div>
+      )}
+
+      {!error && tasks.length === 0 && !loading && (
+        <div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center">
+          <div className="text-3xl">📭</div>
+          <div className="mt-2 text-sm text-text-muted">No tasks yet</div>
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-col gap-3">
+        {(loading ? tasks : tasks).map((task) => {
+          const isSelected = task.id === selectedTaskId
+          const blockedGates = task.gates?.filter((g) => g.state === 'blocked').length ?? 0
+
+          return (
+            <div
               key={task.id}
-              task={task}
-              isSelected={task.id === selectedTaskId}
+              role="button"
+              tabIndex={0}
               onClick={() => onSelectTask(task.id)}
-            />
-          ))
-        )}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onSelectTask(task.id)
+                }
+              }}
+              className={[
+                'group flex cursor-pointer items-center justify-between gap-4 rounded-xl border px-4 py-3 transition',
+                isSelected ? 'border-border-active bg-bg-panelHover' : 'border-white/10 bg-bg-panel',
+                'hover:border-white/20',
+              ].join(' ')}
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg">
+                  {taskIcon(task.state)}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold">{task.title}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
+                    <span className="uppercase tracking-wide">{task.topology}</span>
+                    {task.roster?.length ? <span>{task.roster.length} agents</span> : null}
+                    {blockedGates ? <span>{blockedGates} blocked gates</span> : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                <div className="text-xs text-text-muted">{formatTimeAgo(task.updatedAt)}</div>
+                <StatusBadge state={task.state} />
+              </div>
+            </div>
+          )
+        })}
       </div>
     </section>
-  );
+  )
 }
 
-export default TaskList;
+export default TaskList
