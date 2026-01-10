@@ -103,3 +103,26 @@ export interface ClusterStatus {
   maxAgents: number
 }
 
+// ============ Subagent / Sessions (GUI only) ============
+
+export type SubagentSessionStatus =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'blocked'
+  | 'unknown'
+
+export interface SubagentSessionSummary {
+  agentInstance: string
+  status: SubagentSessionStatus
+  lastUpdatedAtMs: number | null
+  adapter: string | null
+  hasFinal: boolean
+  hasEvents: boolean
+}
+
+export interface SubagentFinalOutput {
+  exists: boolean
+  json: unknown | null
+  parseError: string | null
+}

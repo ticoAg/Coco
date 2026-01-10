@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiClient } from '../api/client'
-import type { ClusterStatus, CreateTaskRequest, Task, TaskEvent } from '../types/task'
+import type {
+  ClusterStatus,
+  CreateTaskRequest,
+  SubagentFinalOutput,
+  SubagentSessionSummary,
+  Task,
+  TaskEvent,
+} from '../types/task'
 
 // ============ useTasks ============
 
@@ -176,3 +183,134 @@ export function useClusterStatus(pollInterval: number = 10000): UseClusterStatus
   return { status, loading, error }
 }
 
+// ============ useSubagentSessions ============
+
+interface UseSubagentSessionsState {
+  sessions: SubagentSessionSummary[]
+  selectedAgentInstance: string | null
+  finalOutput: SubagentFinalOutput | null
+  runtimeEvents: string[]
+  loading: boolean
+  error: string | null
+}
+
+interface UseSubagentSessionsReturn extends UseSubagentSessionsState {
+  refresh: () => Promise<void>
+  selectAgentInstance: (agentInstance: string) => void
+}
+
+export function useSubagentSessions(
+  taskId: string | null,
+  options?: {
+    enabled?: boolean
+    pollIntervalMs?: number
+    eventsTailLimit?: number
+  }
+): UseSubagentSessionsReturn {
+  const enabled = options?.enabled ?? true
+  const pollIntervalMs = options?.pollIntervalMs ?? 2000
+  const eventsTailLimit = options?.eventsTailLimit ?? 200
+
+  const [state, setState] = useState<UseSubagentSessionsState>({
+    sessions: [],
+    selectedAgentInstance: null,
+    finalOutput: null,
+    runtimeEvents: [],
+    loading: true,
+    error: null,
+  })
+
+  const fetchDetails = useCallback(async (agentInstance: string) => {
+    if (!taskId) return
+
+    const [finalOutput, runtimeEvents] = await Promise.all([
+      apiClient.getSubagentFinalOutput(taskId, agentInstance),
+      apiClient.tailSubagentEvents(taskId, agentInstance, eventsTailLimit),
+    ])
+
+    setState((prev) => ({ ...prev, finalOutput, runtimeEvents, error: null }))
+  }, [taskId, eventsTailLimit])
+
+  const refresh = useCallback(async (options?: { background?: boolean }) => {
+    if (!enabled) return
+    if (!taskId) return
+
+    if (!options?.background) {
+      setState((prev) => ({ ...prev, loading: true }))
+    }
+    try {
+      const sessions = await apiClient.listSubagentSessions(taskId)
+      const selectedStillValid =
+        state.selectedAgentInstance &&
+        sessions.some((s) => s.agentInstance === state.selectedAgentInstance)
+
+      const selectedAgentInstance = selectedStillValid
+        ? state.selectedAgentInstance
+        : sessions[0]?.agentInstance ?? null
+
+      setState((prev) => ({
+        ...prev,
+        sessions,
+        selectedAgentInstance,
+        loading: false,
+        error: null,
+      }))
+
+      if (!selectedAgentInstance) {
+        setState((prev) => ({ ...prev, finalOutput: null, runtimeEvents: [] }))
+        return
+      }
+
+      await fetchDetails(selectedAgentInstance)
+    } catch (err) {
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error: err instanceof Error ? err.message : 'Failed to load subagent sessions',
+      }))
+    }
+  }, [enabled, taskId, state.selectedAgentInstance, fetchDetails])
+
+  const selectAgentInstance = useCallback((agentInstance: string) => {
+    setState((prev) => ({
+      ...prev,
+      selectedAgentInstance: agentInstance,
+      finalOutput: null,
+      runtimeEvents: [],
+    }))
+
+    fetchDetails(agentInstance).catch(() => {
+      // ignore selection details fetch errors; keep last successful state
+    })
+  }, [fetchDetails])
+
+  useEffect(() => {
+    if (!enabled || !taskId) {
+      setState({
+        sessions: [],
+        selectedAgentInstance: null,
+        finalOutput: null,
+        runtimeEvents: [],
+        loading: false,
+        error: null,
+      })
+      return
+    }
+
+    refresh()
+  }, [enabled, taskId, refresh])
+
+  useEffect(() => {
+    if (!enabled || !taskId) return
+
+    const timer = setInterval(() => {
+      refresh({ background: true }).catch(() => {
+        // ignore polling errors; keep last successful state
+      })
+    }, pollIntervalMs)
+
+    return () => clearInterval(timer)
+  }, [enabled, taskId, pollIntervalMs, refresh])
+
+  return { ...state, refresh, selectAgentInstance }
+}

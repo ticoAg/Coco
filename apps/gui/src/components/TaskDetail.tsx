@@ -1,12 +1,18 @@
 import { useMemo, useState } from 'react'
 import type { AgentInstance, Gate, Milestone, Task, TaskEvent } from '../types/task'
+import { useSubagentSessions } from '../hooks/useTasks'
 import { StatusBadge } from './TaskList'
 
-type TabId = 'overview' | 'events'
+type TabId = 'overview' | 'events' | 'sessions'
 
 function formatDate(dateString: string): string {
   const date = new Date(dateString)
   return date.toLocaleString()
+}
+
+function formatEpochMs(value: number | null): string {
+  if (value == null) return '—'
+  return new Date(value).toLocaleString()
 }
 
 function MilestoneItem({ milestone }: { milestone: Milestone }) {
@@ -136,6 +142,34 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const [tab, setTab] = useState<TabId>('overview')
 
+  const sessionsEnabled = tab === 'sessions' && Boolean(task) && !loading && !error
+  const {
+    sessions,
+    selectedAgentInstance,
+    finalOutput,
+    runtimeEvents,
+    loading: sessionsLoading,
+    error: sessionsError,
+    refresh: refreshSessions,
+    selectAgentInstance,
+  } = useSubagentSessions(task?.id ?? null, {
+    enabled: sessionsEnabled,
+    pollIntervalMs: 2000,
+    eventsTailLimit: 200,
+  })
+
+  const finalStatus = useMemo(() => {
+    if (!finalOutput?.json || typeof finalOutput.json !== 'object') return null
+    const obj = finalOutput.json as Record<string, unknown>
+    return typeof obj.status === 'string' ? obj.status : null
+  }, [finalOutput])
+
+  const finalSummary = useMemo(() => {
+    if (!finalOutput?.json || typeof finalOutput.json !== 'object') return null
+    const obj = finalOutput.json as Record<string, unknown>
+    return typeof obj.summary === 'string' ? obj.summary : null
+  }, [finalOutput])
+
   if (loading) {
     return (
       <section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
@@ -202,6 +236,16 @@ export function TaskDetail({
           onClick={() => setTab('events')}
         >
           Events
+        </button>
+        <button
+          type="button"
+          className={[
+            'rounded-md px-3 py-1.5 text-sm',
+            tab === 'sessions' ? 'bg-primary/15 text-primary' : 'text-text-muted hover:text-text-main',
+          ].join(' ')}
+          onClick={() => setTab('sessions')}
+        >
+          Sessions
         </button>
       </div>
 
@@ -295,9 +339,134 @@ export function TaskDetail({
           ) : null}
         </div>
       )}
+
+      {tab === 'sessions' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-semibold">Subagents / Sessions</div>
+            <button
+              type="button"
+              className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-sm hover:border-white/20"
+              onClick={() => void refreshSessions()}
+            >
+              Refresh
+            </button>
+          </div>
+
+          {sessionsError ? (
+            <div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
+              {sessionsError}
+            </div>
+          ) : null}
+
+          {sessionsLoading && sessions.length === 0 ? (
+            <div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">
+              Loading sessions…
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">
+              No subagent sessions yet.
+            </div>
+          ) : (
+            <div className="grid grid-cols-[320px_1fr] gap-4">
+              <div className="space-y-2">
+                {sessions.map((s) => {
+                  const badge = {
+                    running: 'bg-status-info/15 text-status-info',
+                    completed: 'bg-status-success/15 text-status-success',
+                    failed: 'bg-status-error/15 text-status-error',
+                    blocked: 'bg-status-warning/15 text-status-warning',
+                    unknown: 'bg-white/10 text-text-muted',
+                  }[s.status]
+
+                  const isSelected = s.agentInstance === selectedAgentInstance
+
+                  return (
+                    <button
+                      key={s.agentInstance}
+                      type="button"
+                      className={[
+                        'w-full rounded-lg border px-3 py-2 text-left',
+                        isSelected
+                          ? 'border-primary/40 bg-primary/10'
+                          : 'border-white/10 bg-bg-panelHover hover:border-white/20',
+                      ].join(' ')}
+                      onClick={() => selectAgentInstance(s.agentInstance)}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="truncate text-sm font-semibold">{s.agentInstance}</div>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge}`}>
+                          {s.status}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-text-muted">
+                        updated: {formatEpochMs(s.lastUpdatedAtMs)}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="min-w-0 space-y-4">
+                {selectedAgentInstance ? (
+                  <>
+                    <div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-semibold">{selectedAgentInstance}</div>
+                        <div className="text-xs text-text-muted">auto-refresh: 2s</div>
+                      </div>
+                      {finalStatus ? (
+                        <div className="mt-2 text-xs text-text-muted">
+                          final.status: <span className="font-mono">{finalStatus}</span>
+                        </div>
+                      ) : null}
+                      {finalSummary ? (
+                        <div className="mt-2 text-sm text-text-muted">{finalSummary}</div>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
+                      <div className="mb-2 text-sm font-semibold">Final Output</div>
+                      {!finalOutput ? (
+                        <div className="text-sm text-text-muted">Loading…</div>
+                      ) : !finalOutput.exists ? (
+                        <div className="text-sm text-text-muted">
+                          `artifacts/final.json` not found yet.
+                        </div>
+                      ) : finalOutput.parseError ? (
+                        <div className="text-sm text-status-warning">{finalOutput.parseError}</div>
+                      ) : finalOutput.json ? (
+                        <pre className="max-h-[260px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">
+                          {JSON.stringify(finalOutput.json, null, 2)}
+                        </pre>
+                      ) : (
+                        <div className="text-sm text-text-muted">No structured output.</div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
+                      <div className="mb-2 text-sm font-semibold">Runtime Events (tail)</div>
+                      {runtimeEvents.length === 0 ? (
+                        <div className="text-sm text-text-muted">No runtime events yet.</div>
+                      ) : (
+                        <pre className="max-h-[260px] overflow-auto rounded-md bg-black/20 p-3 text-[11px] text-text-muted">
+                          {runtimeEvents.join('\n')}
+                        </pre>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">
+                    Select a session to view details.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   )
 }
 
 export default TaskDetail
-

@@ -3,6 +3,8 @@ import type {
   ClusterStatus,
   CreateTaskRequest,
   CreateTaskResponse,
+  SubagentFinalOutput,
+  SubagentSessionSummary,
   Task,
   TaskEvent,
 } from '../types/task'
@@ -46,13 +48,41 @@ export async function getClusterStatus(): Promise<ClusterStatus> {
   return invoke<ClusterStatus>('cluster_status')
 }
 
+export async function listSubagentSessions(taskId: string): Promise<SubagentSessionSummary[]> {
+  return invoke<SubagentSessionSummary[]>('list_subagent_sessions', { task_id: taskId })
+}
+
+export async function getSubagentFinalOutput(
+  taskId: string,
+  agentInstance: string
+): Promise<SubagentFinalOutput> {
+  return invoke<SubagentFinalOutput>('get_subagent_final_output', {
+    task_id: taskId,
+    agent_instance: agentInstance,
+  })
+}
+
+export async function tailSubagentEvents(
+  taskId: string,
+  agentInstance: string,
+  limit: number
+): Promise<string[]> {
+  return invoke<string[]>('tail_subagent_events', {
+    task_id: taskId,
+    agent_instance: agentInstance,
+    limit,
+  })
+}
+
 export const apiClient = {
   listTasks,
   getTask,
   getTaskEvents,
   createTask,
   getClusterStatus,
+  listSubagentSessions,
+  getSubagentFinalOutput,
+  tailSubagentEvents,
 }
 
 export default apiClient
-
