@@ -20,13 +20,17 @@ use tokio::process::ChildStdin;
 use tokio::process::Command;
 use tokio::sync::Mutex;
 use tokio::sync::oneshot;
+use tokio::sync::OnceCell;
 use tokio::time::timeout;
 
 const EVENT_NAME: &str = "codex_app_server";
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const CODEX_BIN_ENV: &str = "AGENTMESH_CODEX_BIN";
-const SHELL_PATH_TIMEOUT_SECS: u64 = 2;
-const PATH_SENTINEL: &str = "__AGENTMESH_PATH__=";
+const SHELL_ENV_TIMEOUT_SECS: u64 = 2;
+const ENV_BEGIN_SENTINEL: &[u8] = b"__AGENTMESH_ENV_BEGIN__\0";
+const ENV_END_SENTINEL: &[u8] = b"__AGENTMESH_ENV_END__\0";
+
+static SHELL_ENV_CACHE: OnceCell<ShellEnvSnapshot> = OnceCell::const_new();
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,7 +75,7 @@ struct CodexAppServerInner {
 
 impl CodexAppServer {
     pub async fn spawn(app: tauri::AppHandle, cwd: &Path) -> Result<Self, String> {
-        let (codex_bin, path_env) = resolve_codex_bin_and_path().await?;
+        let (codex_bin, env, env_source) = resolve_codex_bin_and_env().await?;
 
         let mut cmd = Command::new(codex_bin);
         cmd.arg("app-server")
@@ -79,7 +83,9 @@ impl CodexAppServer {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .env("PATH", path_env)
+            .env_clear()
+            .envs(env)
+            .env("AGENTMESH_CODEX_ENV_SOURCE", env_source)
             .current_dir(cwd);
 
         let mut child = cmd.spawn().map_err(|e| e.to_string())?;
@@ -191,6 +197,8 @@ pub struct CodexDiagnostics {
     pub env_override: Option<String>,
     pub path_source: String,
     pub shell: Option<String>,
+    pub env_source: String,
+    pub env_count: usize,
 }
 
 pub async fn codex_diagnostics() -> CodexDiagnostics {
@@ -198,10 +206,9 @@ pub async fn codex_diagnostics() -> CodexDiagnostics {
         .map(|v| v.to_string_lossy().to_string())
         .filter(|v| !v.trim().is_empty());
 
-    let (path_env, path_source, shell) = preferred_path_env().await;
+    let (path_env, path_source, shell, env_source, env_count) = preferred_shell_env().await;
     let path_str = path_env.to_string_lossy().to_string();
-    let search_paths = std::env::split_paths(&path_env).collect::<Vec<_>>();
-    let resolved_codex_bin = find_executable_in_paths("codex", &search_paths)
+    let resolved_codex_bin = find_executable_in_paths("codex", &std::env::split_paths(&path_env).collect::<Vec<_>>())
         .map(|p| p.to_string_lossy().to_string());
 
     CodexDiagnostics {
@@ -210,16 +217,19 @@ pub async fn codex_diagnostics() -> CodexDiagnostics {
         env_override,
         path_source,
         shell,
+        env_source,
+        env_count,
     }
 }
 
-async fn resolve_codex_bin_and_path() -> Result<(PathBuf, OsString), String> {
-    let (path_env, _path_source, _shell) = preferred_path_env().await;
+async fn resolve_codex_bin_and_env() -> Result<(PathBuf, HashMap<OsString, OsString>, String), String> {
+    let (path_env, _path_source, _shell, env_source, _env_count) = preferred_shell_env().await;
 
     if let Some(bin) = std::env::var_os(CODEX_BIN_ENV) {
         let path = PathBuf::from(bin);
         if path.is_file() {
-            return Ok((path, path_env));
+            let env = merged_env_with_path(&path_env);
+            return Ok((path, env, env_source));
         }
         return Err(format!(
             "{CODEX_BIN_ENV} points to a missing file: {}",
@@ -229,7 +239,8 @@ async fn resolve_codex_bin_and_path() -> Result<(PathBuf, OsString), String> {
 
     let search_paths = std::env::split_paths(&path_env).collect::<Vec<_>>();
     if let Some(found) = find_executable_in_paths("codex", &search_paths) {
-        return Ok((found, path_env));
+        let env = merged_env_with_path(&path_env);
+        return Ok((found, env, env_source));
     }
 
     Err(format!(
@@ -237,17 +248,36 @@ async fn resolve_codex_bin_and_path() -> Result<(PathBuf, OsString), String> {
     ))
 }
 
-async fn preferred_path_env() -> (OsString, String, Option<String>) {
-    if let Ok((path, shell)) = compute_shell_path_env().await {
-        let source = "shell".to_string();
-        return (path, source, Some(shell));
+async fn preferred_shell_env() -> (OsString, String, Option<String>, String, usize) {
+    if let Ok(snapshot) = shell_env_snapshot().await {
+        return (
+            snapshot.path.clone(),
+            "shell".to_string(),
+            Some(snapshot.shell.clone()),
+            "shell".to_string(),
+            snapshot.env.len(),
+        );
     }
 
-    let source = "fallback".to_string();
-    (ensure_codex_path_env(), source, None)
+    let path = ensure_codex_path_env();
+    (path, "fallback".to_string(), None, "fallback".to_string(), std::env::vars_os().count())
 }
 
-async fn compute_shell_path_env() -> Result<(OsString, String), String> {
+#[derive(Debug, Clone)]
+struct ShellEnvSnapshot {
+    shell: String,
+    path: OsString,
+    env: HashMap<OsString, OsString>,
+}
+
+async fn shell_env_snapshot() -> Result<ShellEnvSnapshot, String> {
+    SHELL_ENV_CACHE
+        .get_or_try_init(|| async { compute_shell_env_snapshot().await })
+        .await
+        .map(Clone::clone)
+}
+
+async fn compute_shell_env_snapshot() -> Result<ShellEnvSnapshot, String> {
     let shell = std::env::var_os("SHELL")
         .map(|v| v.to_string_lossy().to_string())
         .unwrap_or_else(|| {
@@ -265,39 +295,81 @@ async fn compute_shell_path_env() -> Result<(OsString, String), String> {
 
     let flag = match shell_name {
         "zsh" | "bash" => "-lic",
-        _ => return Err(format!("unsupported shell for PATH sync: {shell}")),
+        _ => return Err(format!("unsupported shell for env sync: {shell}")),
     };
 
-    let cmd = format!("printf '{PATH_SENTINEL}%s\\n' \"$PATH\"");
+    // Use NUL-separated output so values are unambiguous. Surround with sentinels so we can
+    // ignore any stray stdout from shell init plugins.
+    let cmd = format!(
+        "printf '__AGENTMESH_ENV_BEGIN__\\0'; /usr/bin/env -0; printf '__AGENTMESH_ENV_END__\\0'"
+    );
+
     let mut proc = Command::new(&shell);
-    proc.arg(flag).arg(cmd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    proc.arg(flag)
+        .arg(cmd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     let child = proc.spawn().map_err(|e| e.to_string())?;
     let output = timeout(
-        std::time::Duration::from_secs(SHELL_PATH_TIMEOUT_SECS),
+        std::time::Duration::from_secs(SHELL_ENV_TIMEOUT_SECS),
         child.wait_with_output(),
     )
     .await
-    .map_err(|_| format!("shell PATH sync timed out after {SHELL_PATH_TIMEOUT_SECS}s"))?
+    .map_err(|_| format!("shell env sync timed out after {SHELL_ENV_TIMEOUT_SECS}s"))?
     .map_err(|e| e.to_string())?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut last_path: Option<String> = None;
-    for line in stdout.lines() {
-        if let Some(rest) = line.strip_prefix(PATH_SENTINEL) {
-            let value = rest.trim();
-            if !value.is_empty() {
-                last_path = Some(value.to_string());
-            }
+    let stdout = output.stdout;
+    let start = find_bytes(&stdout, ENV_BEGIN_SENTINEL)
+        .map(|pos| pos + ENV_BEGIN_SENTINEL.len())
+        .ok_or_else(|| "shell env sync did not include begin sentinel".to_string())?;
+    let end = find_bytes(&stdout[start..], ENV_END_SENTINEL)
+        .map(|pos| start + pos)
+        .ok_or_else(|| "shell env sync did not include end sentinel".to_string())?;
+
+    let mut env = HashMap::new();
+    for record in stdout[start..end].split(|b| *b == 0) {
+        if record.is_empty() {
+            continue;
+        }
+        let Some(eq_pos) = record.iter().position(|b| *b == b'=') else {
+            continue;
+        };
+        if eq_pos == 0 {
+            continue;
+        }
+        let key = OsString::from(String::from_utf8_lossy(&record[..eq_pos]).to_string());
+        let value = OsString::from(String::from_utf8_lossy(&record[eq_pos + 1..]).to_string());
+        env.insert(key, value);
+    }
+
+    let path = env
+        .get(&OsString::from("PATH"))
+        .cloned()
+        .unwrap_or_else(ensure_codex_path_env);
+
+    Ok(ShellEnvSnapshot { shell, path, env })
+}
+
+fn merged_env_with_path(path: &OsString) -> HashMap<OsString, OsString> {
+    let mut out = std::env::vars_os().collect::<HashMap<_, _>>();
+    out.insert(OsString::from("PATH"), path.clone());
+
+    if let Some(snapshot) = SHELL_ENV_CACHE.get() {
+        for (k, v) in snapshot.env.iter() {
+            out.insert(k.clone(), v.clone());
         }
     }
 
-    let path_str = last_path.ok_or_else(|| {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        format!("shell PATH sync failed to parse PATH. stdout={stdout:?} stderr={stderr:?}")
-    })?;
+    out
+}
 
-    Ok((OsString::from(path_str), shell))
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 fn ensure_codex_path_env() -> OsString {

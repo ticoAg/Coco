@@ -260,6 +260,8 @@ export function CodexChat() {
     envOverride: string | null
     pathSource?: string
     shell?: string | null
+    envSource?: string
+    envCount?: number
   } | null>(null)
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null)
 
@@ -1226,6 +1228,10 @@ export function CodexChat() {
                     <div className="truncate">
                       PATH source: {diagnostics.pathSource ?? '(unknown)'}
                       {diagnostics.shell ? ` · shell: ${diagnostics.shell}` : ''}
+                    </div>
+                    <div className="truncate">
+                      env source: {diagnostics.envSource ?? '(unknown)'}
+                      {typeof diagnostics.envCount === 'number' ? ` · vars: ${diagnostics.envCount}` : ''}
                     </div>
                     <div className="break-all rounded-lg bg-black/20 p-2">
                       <div className="mb-1 text-text-dim">PATH</div>

@@ -169,6 +169,8 @@ export async function codexDiagnostics(): Promise<{
   envOverride: string | null
   pathSource: string
   shell: string | null
+  envSource: string
+  envCount: number
 }> {
   return invoke<{
     path: string
@@ -176,6 +178,8 @@ export async function codexDiagnostics(): Promise<{
     envOverride: string | null
     pathSource: string
     shell: string | null
+    envSource: string
+    envCount: number
   }>('codex_diagnostics')
 }
 
