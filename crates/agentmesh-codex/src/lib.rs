@@ -1,14 +1,13 @@
-//! Codex adapter implementation (WIP).
+//! Codex adapter implementation.
 //!
-//! This crate will own:
-//! - spawning `codex exec --json` workers
-//! - parsing JSONL thread events
-//! - emitting structured events/artifacts for AgentMesh
+//! Current MVP scope: spawn `codex exec --json` workers and persist raw runtime
+//! recordings + structured final output into the Task Directory.
 
-pub struct CodexAdapter;
+mod exec_runner;
 
-impl CodexAdapter {
-    pub fn new() -> Self {
-        Self
-    }
-}
+pub use exec_runner::CodexExecError;
+pub use exec_runner::CodexExecStartRequest;
+pub use exec_runner::CodexExecWorker;
+pub use exec_runner::CodexExecWorkerResult;
+pub use exec_runner::WorkerFinalOutput;
+pub use exec_runner::WorkerFinalStatus;

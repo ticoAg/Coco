@@ -41,6 +41,7 @@
       runtime/                  # 工具侧原始记录（常见）
         requests.jsonl          # （可选）向工具发送的请求（JSONL）
         events.jsonl            # 工具产生的事件流（JSONL）
+        stderr.log              # （可选）工具 stderr 原样记录（排障）
         rollout.jsonl           # （可选）工具自身落盘的会话/rollout 拷贝或引用
       artifacts/
         ...                     # 该 agent 产物（md/json/png/...）
@@ -59,11 +60,13 @@
     "tool": "codex",
     "threadId": "thr_123",
     "cwd": "/path/to/repo",
+    "codexHome": "./codex_home",
     "rolloutPath": "/Users/me/.codex/rollouts/thr_123.jsonl"
   },
   "recording": {
     "requests": "./runtime/requests.jsonl",
     "events": "./runtime/events.jsonl",
+    "stderr": "./runtime/stderr.log",
     "rollout": "./runtime/rollout.jsonl"
   },
   "startedAt": "2025-12-14T15:01:10Z",
