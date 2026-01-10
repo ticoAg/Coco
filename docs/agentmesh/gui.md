@@ -2,19 +2,23 @@
 
 > 目标：用户感知到的入口是 **GUI**。GUI 不需要嵌入/复刻各家 TUI，只需要把“任务产物 + 事件流 + 状态”呈现清楚。
 >
-> 你当前选择的落地方式是：**CLI 负责编排与执行，GUI 只做可视化/读取任务目录**；审批/补充/重跑等“写操作”可以先由主控（主 Codex TUI）通过 CLI 完成，后续再逐步把交互搬进 GUI。
+> 你当前选择的落地方式是：**GUI 作为统一入口**；编排器能力以内置 Rust 后端（Tauri）提供，并写入任务目录 `.agentmesh/tasks/<task_id>/...`。
+> `agentmesh` CLI 可以作为可选 wrapper（脚本/自动化/内部 helper），但不是必须入口。
+
+> 注：当前仓库内 `agentmesh` CLI 的实现为 MVP，先覆盖 `task create|list|show|events` 与 `--json`；
+> subagent 的 spawn/resume/cancel/join 等编排命令在后续 changes 中补齐。
 
 ## 1. 一种可行形态：macOS `.app`（Tauri：Rust 后端 + Web UI）
 
 ### 组件拆分（语言无关）
 
-- **Rust Orchestrator（CLI，短进程）**
-  - 形式：一个 `agentmesh` 可执行文件（可被主 Codex 会话通过 `shell` 调用）
-  - 职责：spawn/resume/cancel/join，写入任务目录 `.agentmesh/tasks/<task_id>/...`
+- **Rust Orchestrator（内置后端，可选 CLI）**
+  - 形式：Rust crate（Tauri 后端内置）；也可提供 `agentmesh` 可执行文件作为可选 wrapper
+  - 职责：写入任务目录 `.agentmesh/tasks/<task_id>/...`（规划：spawn/resume/cancel/join；当前 MVP：task/events）
   - 执行：Codex-first 先用 `codex exec --json`；后续可接 `codex app-server`
   - 依赖：`codex` 可执行文件只依赖 PATH（不随 `.app` 打包）
 - **GUI（macOS `.app`，Web UI）**
-  - 只读：读取并展示任务目录的结构化产物（报告/契约/决策/事件、subagents events）
+  - 以只读展示为主：读取并展示任务目录的结构化产物（报告/契约/决策/事件、subagents events）
   - 实时：用文件系统 watcher/轮询刷新状态（无需常驻后端服务）
 
 > 说明：这种拆分里，“任务目录”就是稳定、可迁移、可离线查看的最终交付物；GUI 不需要承载编排器，也不需要在本机额外跑 HTTP 服务。
@@ -23,7 +27,7 @@
 
 以下是常见的拆分方式与可选实现（不影响“任务目录 = 最终产物”这一点）：
 
-- **后端（orchestrator）：Rust CLI**
+- **后端（orchestrator）：Rust crate（Tauri 内置；可选 CLI wrapper）**
   - 用途：对接 `codex exec --json`（子进程 + JSONL），负责任务目录落盘与并发控制。
 - **前端（GUI）：React + Vite + TypeScript + Tailwind**
   - 用途：实现任务列表/任务详情/审批弹窗/事件流等信息密集型页面。
@@ -70,12 +74,12 @@ macOS-only 的 `.app` 里可以包含：
 当 Codex 需要人类输入/审批（例如 applyPatch / execCommand）时：
 
 - MVP：GUI 只展示 `gate.blocked` 的原因与指引（例如指向 `shared/human-notes.md`）
-- 决策执行：由主控（主 Codex TUI）通过 `agentmesh` CLI 完成 allow/deny/resume
+- 决策执行：由主控通过 `agentmesh` 控制面完成 allow/deny/resume（可选 CLI wrapper；也可通过 GUI 内置后端暴露为接口）
 - Phase 2+：再把 allow/deny 交互迁移到 GUI（届时更适合切到 `codex app-server`）
 
 ## 3. GUI ↔ 任务目录：最小读接口（建议：Tauri + 文件 watcher）
 
-GUI 不需要直接控制 orchestrator；它只需要读任务目录并做到“实时刷新”。
+GUI 的核心职责是读任务目录并做到“实时刷新”；写操作可由内置 orchestrator 接口（或可选 CLI wrapper）承担。
 
 建议最小能力：
 
@@ -99,7 +103,7 @@ GUI 不需要直接控制 orchestrator；它只需要读任务目录并做到“
   - 正在执行的命令（command_execution）
   - 最近文件变更（file_change）
   - todo_list 当前步骤
-- **（可选）快捷指令**：GUI 复制出 `agentmesh` CLI 命令（cancel/resume/open-worktree 等），由主控去执行
+- **（可选）快捷指令**：GUI 复制出可执行指令（例如 `agentmesh` CLI wrapper 命令：cancel/resume/open-worktree 等），由主控去执行
 - **完成即提示**：文件 watcher 观测到 terminal 状态时 toast，并将该 subagent 置顶
 
 > 备注：`codex exec --json` 约定 stdout 只输出 JSONL 事件，适合 GUI/Orchestrator “只读 stdout”实现稳定解析。

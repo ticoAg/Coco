@@ -21,7 +21,7 @@
 ## Phase 1：本地编排器（产物驱动、可暂停/可恢复、可并发）
 
 **目标**
-- 实现一个最小 Orchestrator（优先 CLI 短进程），只要能：
+- 实现一个最小 Orchestrator（优先内置库接口；CLI 作为可选 wrapper），只要能：
   - 创建 task 目录
   - 执行 `fork/join`（并发跑 N 个 agent）
   - 写入结构化产物 + `events.jsonl`
