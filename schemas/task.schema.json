@@ -130,7 +130,7 @@
           "description": "Agent 状态"
         },
         "assignedMilestone": {
-          "type": "string",
+          "type": ["string", "null"],
           "description": "所属里程碑 ID（仅 squad 拓扑）"
         },
         "skills": {
@@ -163,21 +163,21 @@
           "description": "阻塞原因"
         },
         "instructionsRef": {
-          "type": "string",
+          "type": ["string", "null"],
           "description": "人工指导文件路径（如 ./shared/human-notes.md）"
         },
         "blockedAt": {
-          "type": "string",
+          "type": ["string", "null"],
           "format": "date-time",
           "description": "阻塞时间"
         },
         "resolvedAt": {
-          "type": "string",
+          "type": ["string", "null"],
           "format": "date-time",
           "description": "解决时间"
         },
         "resolvedBy": {
-          "type": "string",
+          "type": ["string", "null"],
           "description": "解决者（human / auto）"
         }
       }

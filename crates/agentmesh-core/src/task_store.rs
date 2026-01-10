@@ -178,9 +178,23 @@ impl TaskStore {
         };
 
         let task_dir = self.task_dir(&task_id);
-        fs::create_dir_all(task_dir.join("shared"))?;
+        let shared_dir = task_dir.join("shared");
+        fs::create_dir_all(&shared_dir)?;
         fs::create_dir_all(task_dir.join("agents"))?;
         self.write_task(&task)?;
+
+        let human_notes_path = shared_dir.join("human-notes.md");
+        if !human_notes_path.exists() {
+            fs::write(
+                human_notes_path,
+                "# Human Notes\n\n- 在这里记录人工补充、约束与纠错。\n",
+            )?;
+        }
+
+        let context_manifest_path = shared_dir.join("context-manifest.yaml");
+        if !context_manifest_path.exists() {
+            fs::write(context_manifest_path, "attachments: []\n")?;
+        }
 
         let readme_path = self.task_dir(&task_id).join("README.md");
         if !readme_path.exists() {
@@ -240,4 +254,39 @@ fn validate_task_id(task_id: &str) -> Result<(), TaskStoreError> {
 
 fn generate_task_id() -> String {
     format!("task-{}", uuid::Uuid::new_v4().simple())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::CreateTaskRequest;
+    use crate::task::TaskTopology;
+
+    #[test]
+    fn create_task_scaffolds_human_notes_and_context_manifest() {
+        let workspace_root = std::env::temp_dir().join(format!(
+            "agentmesh-core-test-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let store = TaskStore::new(workspace_root.clone());
+        let resp = store
+            .create_task(CreateTaskRequest {
+                title: "Test".to_string(),
+                description: String::new(),
+                topology: TaskTopology::Swarm,
+                milestones: Vec::new(),
+                roster: Vec::new(),
+                config: None,
+            })
+            .unwrap();
+
+        let task_dir = store.task_dir(&resp.id);
+        assert!(task_dir.join("shared").join("human-notes.md").exists());
+        assert!(task_dir
+            .join("shared")
+            .join("context-manifest.yaml")
+            .exists());
+
+        fs::remove_dir_all(workspace_root).unwrap();
+    }
 }
