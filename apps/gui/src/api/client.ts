@@ -122,13 +122,15 @@ export async function codexTurnStart(
   threadId: string,
   text: string,
   model?: string | null,
-  effort?: string | null
+  effort?: string | null,
+  approvalPolicy?: string | null
 ): Promise<unknown> {
   return invoke<unknown>('codex_turn_start', {
     thread_id: threadId,
     text,
     model: model ?? null,
     effort: effort ?? null,
+    approval_policy: approvalPolicy ?? null,
   })
 }
 

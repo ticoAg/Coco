@@ -662,6 +662,7 @@ async fn codex_turn_start(
     text: String,
     model: Option<String>,
     effort: Option<String>,
+    approval_policy: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let codex = get_or_start_codex(&state, app).await?;
 
@@ -671,6 +672,18 @@ async fn codex_turn_start(
         Some(v) => Some(v.to_string()),
     };
 
+    let approval_policy = match approval_policy.as_deref() {
+        None => None,
+        Some("") => None,
+        Some(v) => {
+            let v = v.to_string();
+            match v.as_str() {
+                "untrusted" | "on-failure" | "on-request" | "never" => Some(v),
+                _ => return Err(format!("invalid approval_policy: {v}")),
+            }
+        }
+    };
+
     let params = serde_json::json!({
         "threadId": thread_id,
         "input": [
@@ -678,6 +691,7 @@ async fn codex_turn_start(
         ],
         "model": model,
         "effort": effort,
+        "approvalPolicy": approval_policy,
     });
 
     codex.request("turn/start", Some(params)).await

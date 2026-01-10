@@ -74,6 +74,7 @@ type CodexChatSettings = {
 }
 
 const SETTINGS_STORAGE_KEY = 'agentmesh.codexChat.settings.v1'
+const APPROVAL_POLICY_STORAGE_KEY = 'agentmesh.codexChat.approvalPolicy.v1'
 
 function loadCodexChatSettings(): CodexChatSettings {
   const defaults: CodexChatSettings = {
@@ -105,6 +106,33 @@ function persistCodexChatSettings(next: CodexChatSettings) {
 
 function isCollapsibleEntry(entry: ChatEntry): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' }> {
   return entry.kind === 'command' || entry.kind === 'fileChange'
+}
+
+type ApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never'
+
+function loadApprovalPolicy(): ApprovalPolicy {
+  if (typeof window === 'undefined') return 'untrusted'
+  const raw = window.localStorage.getItem(APPROVAL_POLICY_STORAGE_KEY)
+  if (raw === 'untrusted' || raw === 'on-failure' || raw === 'on-request' || raw === 'never') return raw
+  return 'untrusted'
+}
+
+function persistApprovalPolicy(next: ApprovalPolicy) {
+  try {
+    window.localStorage.setItem(APPROVAL_POLICY_STORAGE_KEY, next)
+  } catch {
+    // ignore
+  }
+}
+
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) return err.message || fallback
+  if (typeof err === 'string') return err || fallback
+  try {
+    return JSON.stringify(err)
+  } catch {
+    return fallback
+  }
 }
 
 function formatEpochSeconds(value: number): string {
@@ -217,9 +245,11 @@ export function CodexChat() {
 
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [selectedEffort, setSelectedEffort] = useState<ReasoningEffort | null>(null)
+  const [approvalPolicy, setApprovalPolicy] = useState<ApprovalPolicy>(() => loadApprovalPolicy())
 
   const [isConfigOpen, setIsConfigOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false)
   const [configText, setConfigText] = useState('')
   const [configSaving, setConfigSaving] = useState(false)
   const [configError, setConfigError] = useState<string | null>(null)
@@ -229,6 +259,10 @@ export function CodexChat() {
     persistCodexChatSettings(settings)
   }, [settings])
 
+  useEffect(() => {
+    persistApprovalPolicy(approvalPolicy)
+  }, [approvalPolicy])
+
   const listSessions = useCallback(async () => {
     setSessionsLoading(true)
     setSessionsError(null)
@@ -236,7 +270,7 @@ export function CodexChat() {
       const res = await apiClient.codexThreadList(null, 200)
       setSessions(res.data)
     } catch (err) {
-      setSessionsError(err instanceof Error ? err.message : 'Failed to list sessions')
+      setSessionsError(errorMessage(err, 'Failed to list sessions'))
     } finally {
       setSessionsLoading(false)
     }
@@ -251,7 +285,7 @@ export function CodexChat() {
       setSelectedModel(defaultModel ? defaultModel.model : null)
       setSelectedEffort(defaultModel ? defaultModel.defaultReasoningEffort : null)
     } catch (err) {
-      setModelsError(err instanceof Error ? err.message : 'Failed to load models')
+      setModelsError(errorMessage(err, 'Failed to load models'))
     }
   }, [])
 
@@ -262,7 +296,7 @@ export function CodexChat() {
       const content = await apiClient.codexReadConfig()
       setConfigText(content)
     } catch (err) {
-      setConfigError(err instanceof Error ? err.message : 'Failed to read config')
+      setConfigError(errorMessage(err, 'Failed to read config'))
     }
   }, [])
 
@@ -272,7 +306,7 @@ export function CodexChat() {
     try {
       await apiClient.codexWriteConfig(configText)
     } catch (err) {
-      setConfigError(err instanceof Error ? err.message : 'Failed to write config')
+      setConfigError(errorMessage(err, 'Failed to write config'))
     } finally {
       setConfigSaving(false)
     }
@@ -315,7 +349,7 @@ export function CodexChat() {
       })
     } catch (err) {
       setEntries([
-        { kind: 'system', id: 'system-error', tone: 'error', text: err instanceof Error ? err.message : 'Failed to load thread' },
+        { kind: 'system', id: 'system-error', tone: 'error', text: errorMessage(err, 'Failed to load thread') },
       ])
     }
   }, [settings.defaultCollapseDetails])
@@ -336,7 +370,7 @@ export function CodexChat() {
       await listSessions()
     } catch (err) {
       setEntries([
-        { kind: 'system', id: 'system-new', tone: 'error', text: err instanceof Error ? err.message : 'Failed to start thread' },
+        { kind: 'system', id: 'system-new', tone: 'error', text: errorMessage(err, 'Failed to start thread') },
       ])
     }
   }, [listSessions, selectedModel])
@@ -360,16 +394,16 @@ export function CodexChat() {
 
       setEntries((prev) => [...prev, { kind: 'user', id: `user-${crypto.randomUUID()}`, text }])
       setInput('')
-      await apiClient.codexTurnStart(threadId, text, selectedModel, selectedEffort)
+      await apiClient.codexTurnStart(threadId, text, selectedModel, selectedEffort, approvalPolicy)
     } catch (err) {
       setEntries((prev) => [
         ...prev,
-        { kind: 'system', id: `system-send-${crypto.randomUUID()}`, tone: 'error', text: err instanceof Error ? err.message : 'Failed to send' },
+        { kind: 'system', id: `system-send-${crypto.randomUUID()}`, tone: 'error', text: errorMessage(err, 'Failed to send') },
       ])
     } finally {
       setSending(false)
     }
-  }, [input, listSessions, selectedEffort, selectedModel, selectedThreadId])
+  }, [approvalPolicy, input, listSessions, selectedEffort, selectedModel, selectedThreadId])
 
   const approve = useCallback(async (requestId: number, decision: 'accept' | 'decline') => {
     await apiClient.codexRespondApproval(requestId, decision)
@@ -545,53 +579,110 @@ export function CodexChat() {
   }, [entries, settings.showReasoning])
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-bg-panel/70 px-6 py-4 backdrop-blur">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">
-            {selectedThreadId ? `Thread: ${selectedThreadId}` : 'New session'}
-          </div>
-          {activeThread ? (
-            <div className="mt-1 text-xs text-text-muted">created: {formatEpochSeconds(activeThread.createdAt)}</div>
-          ) : (
-            <div className="mt-1 text-xs text-text-muted">Start a session and talk to Codex.</div>
-          )}
-        </div>
+    <div className="flex h-full min-h-0">
+      <aside className="flex w-[72px] shrink-0 flex-col items-center gap-4 border-r border-white/10 bg-bg-panel/40 py-6">
+        <button
+          type="button"
+          className="flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/40 bg-primary/10 text-lg text-text-main"
+          title="Codex"
+        >
+          ✷
+        </button>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="mt-auto flex flex-col items-center gap-3">
           <button
             type="button"
-            className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
-            onClick={() => setIsSessionsOpen(true)}
-          >
-            Sessions
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
-            onClick={() => setIsSettingsOpen(true)}
-          >
-            Settings
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
-            onClick={openConfig}
-            title="Edit ~/.codex/config.toml"
-          >
-            Config
-          </button>
-          <button
-            type="button"
-            className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary-hover"
+            className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-bg-panelHover text-lg text-text-main hover:border-white/20"
             onClick={() => void createNewSession()}
+            title="New session"
           >
-            + New
+            +
           </button>
         </div>
-      </div>
+      </aside>
 
-      <div ref={scrollRef} className="mt-6 min-h-0 flex-1 space-y-3 overflow-auto">
+      <div className="relative flex min-h-0 flex-1 flex-col px-8 py-6">
+        <div className="relative flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <div className="truncate text-xl font-semibold">Codex</div>
+              <div className="text-sm text-text-dim">· AgentMesh</div>
+            </div>
+            <div className="mt-1 truncate text-xs text-text-muted">
+              {selectedThreadId ? `Thread ${selectedThreadId}` : 'New session'}
+              {activeThread ? ` · created ${formatEpochSeconds(activeThread.createdAt)}` : ''}
+            </div>
+          </div>
+
+          <div className="relative flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-bg-panelHover text-sm hover:border-white/20"
+              onClick={() => {
+                setIsSettingsMenuOpen(false)
+                setIsSessionsOpen(true)
+              }}
+              title="Sessions"
+            >
+              ☰
+            </button>
+
+            <button
+              type="button"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-bg-panelHover text-sm hover:border-white/20"
+              onClick={() => setIsSettingsMenuOpen((v) => !v)}
+              title="Menu"
+            >
+              ⛭
+            </button>
+
+            {isSettingsMenuOpen ? (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setIsSettingsMenuOpen(false)}
+                  role="button"
+                  tabIndex={0}
+                />
+                <div className="absolute right-0 top-[44px] z-50 w-[220px] rounded-2xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
+                  <div className="px-3 py-2 text-[11px] uppercase tracking-wide text-text-dim">Menu</div>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
+                    onClick={() => {
+                      setIsSettingsMenuOpen(false)
+                      setIsSettingsOpen(true)
+                    }}
+                  >
+                    Settings
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
+                    onClick={() => {
+                      setIsSettingsMenuOpen(false)
+                      void openConfig()
+                    }}
+                  >
+                    Edit config.toml
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
+                    onClick={() => {
+                      setIsSettingsMenuOpen(false)
+                      void createNewSession()
+                    }}
+                  >
+                    New session
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        <div ref={scrollRef} className="mt-6 min-h-0 flex-1 space-y-3 overflow-auto">
         {visibleEntries.length === 0 ? (
           <div className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 text-center text-sm text-text-muted backdrop-blur">
             {selectedThreadId ? 'No messages yet.' : 'Start a new session and say hello.'}
@@ -774,15 +865,18 @@ export function CodexChat() {
 
             return null
           })}
-      </div>
+        </div>
 
-      <div className="mt-4 rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
+        <div className="mt-4 rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-bg-panelHover text-sm hover:border-white/20"
-              onClick={() => setIsSessionsOpen(true)}
+              onClick={() => {
+                setIsSettingsMenuOpen(false)
+                setIsSessionsOpen(true)
+              }}
               title="Open sessions"
             >
               +
@@ -800,6 +894,20 @@ export function CodexChat() {
             >
               Auto context
             </button>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-text-muted">Approval</span>
+              <select
+                className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-xs"
+                value={approvalPolicy}
+                onChange={(e) => setApprovalPolicy(e.target.value as ApprovalPolicy)}
+              >
+                <option value="untrusted">Always Ask</option>
+                <option value="on-request">On Request</option>
+                <option value="on-failure">On Failure</option>
+                <option value="never">Never</option>
+              </select>
+            </div>
 
             <div className="flex items-center gap-2">
               <span className="text-xs text-text-muted">Model</span>
@@ -878,9 +986,9 @@ export function CodexChat() {
             Send
           </button>
         </div>
-      </div>
+        </div>
 
-      {isConfigOpen ? (
+        {isConfigOpen ? (
         <div className="fixed inset-0 z-50 flex">
           <div
             className="flex-1 bg-black/60"
@@ -939,7 +1047,7 @@ export function CodexChat() {
         </div>
       ) : null}
 
-      {isSessionsOpen ? (
+        {isSessionsOpen ? (
         <div className="fixed inset-0 z-50 flex">
           <div
             className="flex-1 bg-black/60"
@@ -1014,7 +1122,7 @@ export function CodexChat() {
         </div>
       ) : null}
 
-      {isSettingsOpen ? (
+        {isSettingsOpen ? (
         <div className="fixed inset-0 z-50 flex">
           <div
             className="flex-1 bg-black/60"
@@ -1069,6 +1177,7 @@ export function CodexChat() {
           </div>
         </div>
       ) : null}
+      </div>
     </div>
   )
 }
