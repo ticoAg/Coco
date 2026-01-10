@@ -224,6 +224,49 @@ function normalizeThreadFromResponse(res: unknown): CodexThread | null {
   return thread as CodexThread
 }
 
+type TurnBlockStatus = 'inProgress' | 'completed' | 'failed' | 'interrupted' | 'unknown'
+
+type TurnBlock = {
+  id: string
+  status: TurnBlockStatus
+  entries: ChatEntry[]
+}
+
+const PENDING_TURN_ID = '__pending__'
+
+function isActivityEntry(entry: ChatEntry): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'mcp' | 'webSearch' }> {
+  return (
+    entry.kind === 'command' ||
+    entry.kind === 'fileChange' ||
+    entry.kind === 'mcp' ||
+    entry.kind === 'webSearch'
+  )
+}
+
+function parseTurnStatus(value: unknown): TurnBlockStatus {
+  if (typeof value !== 'string') return 'unknown'
+  if (value === 'inProgress') return 'inProgress'
+  if (value === 'completed') return 'completed'
+  if (value === 'failed') return 'failed'
+  if (value === 'interrupted') return 'interrupted'
+  return 'unknown'
+}
+
+function turnStatusLabel(status: TurnBlockStatus): string {
+  switch (status) {
+    case 'inProgress':
+      return 'Working…'
+    case 'completed':
+      return 'Finished working'
+    case 'failed':
+      return 'Failed'
+    case 'interrupted':
+      return 'Interrupted'
+    default:
+      return 'Turn'
+  }
+}
+
 export function CodexChat() {
   const [settings, setSettings] = useState<CodexChatSettings>(() => loadCodexChatSettings())
   const [sessions, setSessions] = useState<CodexThreadSummary[]>([])
@@ -236,7 +279,10 @@ export function CodexChat() {
 
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [activeThread, setActiveThread] = useState<CodexThread | null>(null)
-  const [entries, setEntries] = useState<ChatEntry[]>([])
+  const [turnOrder, setTurnOrder] = useState<string[]>([])
+  const [turnsById, setTurnsById] = useState<Record<string, TurnBlock>>({})
+  const [collapsedActivityByTurnId, setCollapsedActivityByTurnId] = useState<Record<string, boolean>>({})
+  const [_itemToTurnId, setItemToTurnId] = useState<Record<string, string>>({})
   const [collapsedByEntryId, setCollapsedByEntryId] = useState<Record<string, boolean>>({})
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null)
 
@@ -264,6 +310,7 @@ export function CodexChat() {
     envCount?: number
   } | null>(null)
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null)
+  const itemToTurnRef = useRef<Record<string, string>>({})
 
   useEffect(() => {
     persistCodexChatSettings(settings)
@@ -334,7 +381,11 @@ export function CodexChat() {
 
   const selectSession = useCallback(async (threadId: string) => {
     setSelectedThreadId(threadId)
-    setEntries([])
+    setTurnOrder([])
+    setTurnsById({})
+    setCollapsedActivityByTurnId({})
+    setItemToTurnId({})
+    itemToTurnRef.current = {}
     setCollapsedByEntryId({})
     setActiveThread(null)
     setActiveTurnId(null)
@@ -344,38 +395,81 @@ export function CodexChat() {
       const res = await apiClient.codexThreadResume(threadId)
       const thread = normalizeThreadFromResponse(res)
       if (!thread) {
-        setEntries([
-          { kind: 'system', id: 'system-parse', tone: 'error', text: 'Failed to parse thread response.' },
-        ])
+        const turnId = PENDING_TURN_ID
+        setTurnOrder([turnId])
+        setTurnsById({
+          [turnId]: {
+            id: turnId,
+            status: 'unknown',
+            entries: [{ kind: 'system', id: 'system-parse', tone: 'error', text: 'Failed to parse thread response.' }],
+          },
+        })
+        setCollapsedActivityByTurnId({ [turnId]: true })
         return
       }
 
       setActiveThread(thread)
-      const historyEntries: ChatEntry[] = []
+      const nextOrder: string[] = []
+      const nextTurns: Record<string, TurnBlock> = {}
+      const nextEntryCollapse: Record<string, boolean> = {}
+      const nextItemToTurn: Record<string, string> = {}
+      const nextActivityCollapse: Record<string, boolean> = {}
+
       for (const turn of thread.turns ?? []) {
+        const turnId = turn.id
+        if (!turnId) continue
+        nextOrder.push(turnId)
+        nextActivityCollapse[turnId] = true
+
+        const turnEntries: ChatEntry[] = []
         for (const item of turn.items ?? []) {
           const entry = entryFromThreadItem(item)
-          if (entry) historyEntries.push(entry)
+          if (!entry) continue
+          turnEntries.push(entry)
+          nextItemToTurn[entry.id] = turnId
+          if (isCollapsibleEntry(entry)) nextEntryCollapse[entry.id] = settings.defaultCollapseDetails
+        }
+
+        nextTurns[turnId] = {
+          id: turnId,
+          status: parseTurnStatus(turn.status),
+          entries: turnEntries,
         }
       }
-      setEntries(historyEntries)
-      setCollapsedByEntryId(() => {
-        const out: Record<string, boolean> = {}
-        for (const entry of historyEntries) {
-          if (!isCollapsibleEntry(entry)) continue
-          out[entry.id] = settings.defaultCollapseDetails
-        }
-        return out
-      })
+
+      if (nextOrder.length === 0) {
+        const turnId = PENDING_TURN_ID
+        nextOrder.push(turnId)
+        nextActivityCollapse[turnId] = true
+        nextTurns[turnId] = { id: turnId, status: 'unknown', entries: [] }
+      }
+
+      setTurnOrder(nextOrder)
+      setTurnsById(nextTurns)
+      setCollapsedActivityByTurnId(nextActivityCollapse)
+      setCollapsedByEntryId(nextEntryCollapse)
+      setItemToTurnId(nextItemToTurn)
+      itemToTurnRef.current = nextItemToTurn
     } catch (err) {
-      setEntries([
-        { kind: 'system', id: 'system-error', tone: 'error', text: errorMessage(err, 'Failed to load thread') },
-      ])
+      const turnId = PENDING_TURN_ID
+      setTurnOrder([turnId])
+      setTurnsById({
+        [turnId]: {
+          id: turnId,
+          status: 'failed',
+          entries: [{ kind: 'system', id: 'system-error', tone: 'error', text: errorMessage(err, 'Failed to load thread') }],
+        },
+      })
+      setCollapsedActivityByTurnId({ [turnId]: true })
     }
   }, [settings.defaultCollapseDetails])
 
   const createNewSession = useCallback(async () => {
-    setEntries([])
+    setTurnOrder([])
+    setTurnsById({})
+    setCollapsedActivityByTurnId({})
+    setItemToTurnId({})
+    itemToTurnRef.current = {}
     setCollapsedByEntryId({})
     setActiveThread(null)
     setActiveTurnId(null)
@@ -389,9 +483,16 @@ export function CodexChat() {
       }
       await listSessions()
     } catch (err) {
-      setEntries([
-        { kind: 'system', id: 'system-new', tone: 'error', text: errorMessage(err, 'Failed to start thread') },
-      ])
+      const turnId = PENDING_TURN_ID
+      setTurnOrder([turnId])
+      setTurnsById({
+        [turnId]: {
+          id: turnId,
+          status: 'failed',
+          entries: [{ kind: 'system', id: 'system-new', tone: 'error', text: errorMessage(err, 'Failed to start thread') }],
+        },
+      })
+      setCollapsedActivityByTurnId({ [turnId]: true })
     }
   }, [listSessions, selectedModel])
 
@@ -412,14 +513,38 @@ export function CodexChat() {
         await listSessions()
       }
 
-      setEntries((prev) => [...prev, { kind: 'user', id: `user-${crypto.randomUUID()}`, text }])
+      const userEntry: ChatEntry = { kind: 'user', id: `user-${crypto.randomUUID()}`, text }
+      setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]))
+      setCollapsedActivityByTurnId((prev) =>
+        Object.prototype.hasOwnProperty.call(prev, PENDING_TURN_ID) ? prev : { ...prev, [PENDING_TURN_ID]: true }
+      )
+      setTurnsById((prev) => {
+        const existing = prev[PENDING_TURN_ID] ?? { id: PENDING_TURN_ID, status: 'inProgress' as const, entries: [] }
+        return {
+          ...prev,
+          [PENDING_TURN_ID]: { ...existing, status: 'inProgress', entries: [...existing.entries, userEntry] },
+        }
+      })
       setInput('')
       await apiClient.codexTurnStart(threadId, text, selectedModel, selectedEffort, approvalPolicy)
     } catch (err) {
-      setEntries((prev) => [
-        ...prev,
-        { kind: 'system', id: `system-send-${crypto.randomUUID()}`, tone: 'error', text: errorMessage(err, 'Failed to send') },
-      ])
+      const systemEntry: ChatEntry = {
+        kind: 'system',
+        id: `system-send-${crypto.randomUUID()}`,
+        tone: 'error',
+        text: errorMessage(err, 'Failed to send'),
+      }
+      setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]))
+      setCollapsedActivityByTurnId((prev) =>
+        Object.prototype.hasOwnProperty.call(prev, PENDING_TURN_ID) ? prev : { ...prev, [PENDING_TURN_ID]: true }
+      )
+      setTurnsById((prev) => {
+        const existing = prev[PENDING_TURN_ID] ?? { id: PENDING_TURN_ID, status: 'failed' as const, entries: [] }
+        return {
+          ...prev,
+          [PENDING_TURN_ID]: { ...existing, status: existing.status, entries: [...existing.entries, systemEntry] },
+        }
+      })
     } finally {
       setSending(false)
     }
@@ -438,6 +563,10 @@ export function CodexChat() {
     },
     [settings.defaultCollapseDetails]
   )
+
+  const toggleTurnActivity = useCallback((turnId: string) => {
+    setCollapsedActivityByTurnId((prev) => ({ ...prev, [turnId]: !(prev[turnId] ?? true) }))
+  }, [])
 
   useEffect(() => {
     listSessions()
@@ -465,13 +594,44 @@ export function CodexChat() {
 
         if (method === 'turn/started') {
           const turnId = safeString(params?.turn?.id ?? params?.turnId)
-          if (turnId) setActiveTurnId(turnId)
+          if (!turnId) return
+
+          setActiveTurnId(turnId)
+          setTurnOrder((prev) => {
+            const withoutPending = prev.filter((id) => id !== PENDING_TURN_ID)
+            if (withoutPending.includes(turnId)) return withoutPending
+            return [...withoutPending, turnId]
+          })
+          setCollapsedActivityByTurnId((prev) => {
+            const next: Record<string, boolean> = { ...prev, [turnId]: prev[turnId] ?? true }
+            delete next[PENDING_TURN_ID]
+            return next
+          })
+          setTurnsById((prev) => {
+            const pending = prev[PENDING_TURN_ID]
+            const existing = prev[turnId]
+            const mergedEntries = [...(pending?.entries ?? []), ...(existing?.entries ?? [])]
+
+            const next: Record<string, TurnBlock> = {
+              ...prev,
+              [turnId]: { id: turnId, status: 'inProgress', entries: mergedEntries },
+            }
+            delete next[PENDING_TURN_ID]
+            return next
+          })
           return
         }
 
         if (method === 'turn/completed') {
           const turnId = safeString(params?.turn?.id ?? params?.turnId)
-          if (turnId && activeTurnId === turnId) setActiveTurnId(null)
+          if (!turnId) return
+
+          const status = parseTurnStatus(params?.turn?.status ?? 'completed')
+          setTurnsById((prev) => {
+            const existing = prev[turnId] ?? { id: turnId, status: 'unknown' as const, entries: [] }
+            return { ...prev, [turnId]: { ...existing, status } }
+          })
+          if (activeTurnId === turnId) setActiveTurnId(null)
           return
         }
 
@@ -480,7 +640,20 @@ export function CodexChat() {
           if (!item) return
           const entry = entryFromThreadItem(item)
           if (!entry) return
-          setEntries((prev) => mergeEntry(prev, entry))
+          const explicitTurnId = safeString(params?.turnId ?? params?.turn_id ?? params?.turn?.id)
+          const turnId = explicitTurnId || activeTurnId || PENDING_TURN_ID
+
+          itemToTurnRef.current = { ...itemToTurnRef.current, [entry.id]: turnId }
+          setItemToTurnId(itemToTurnRef.current)
+
+          setTurnOrder((prev) => (prev.includes(turnId) ? prev : [...prev, turnId]))
+          setCollapsedActivityByTurnId((prev) =>
+            Object.prototype.hasOwnProperty.call(prev, turnId) ? prev : { ...prev, [turnId]: true }
+          )
+          setTurnsById((prev) => {
+            const existing = prev[turnId] ?? { id: turnId, status: 'inProgress' as const, entries: [] }
+            return { ...prev, [turnId]: { ...existing, entries: mergeEntry(existing.entries, entry) } }
+          })
           setCollapsedByEntryId((prev) => {
             if (!isCollapsibleEntry(entry)) return prev
             if (Object.prototype.hasOwnProperty.call(prev, entry.id)) return prev
@@ -493,7 +666,12 @@ export function CodexChat() {
           const itemId = safeString(params?.itemId)
           const delta = safeString(params?.delta)
           if (!itemId || !delta) return
-          setEntries((prev) => appendDelta(prev, itemId, 'message', delta))
+          const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID
+          setTurnsById((prev) => {
+            const existing = prev[turnId]
+            if (!existing) return prev
+            return { ...prev, [turnId]: { ...existing, entries: appendDelta(existing.entries, itemId, 'message', delta) } }
+          })
           return
         }
 
@@ -501,7 +679,12 @@ export function CodexChat() {
           const itemId = safeString(params?.itemId)
           const delta = safeString(params?.delta)
           if (!itemId || !delta) return
-          setEntries((prev) => appendDelta(prev, itemId, 'reasoning', delta))
+          const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID
+          setTurnsById((prev) => {
+            const existing = prev[turnId]
+            if (!existing) return prev
+            return { ...prev, [turnId]: { ...existing, entries: appendDelta(existing.entries, itemId, 'reasoning', delta) } }
+          })
           return
         }
 
@@ -509,13 +692,16 @@ export function CodexChat() {
           const itemId = safeString(params?.itemId)
           const progress = safeString(params?.message)
           if (!itemId || !progress) return
-          setEntries((prev) => {
-            const idx = prev.findIndex((e) => e.kind === 'mcp' && e.id === itemId)
+          const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID
+          setTurnsById((prev) => {
+            const existing = prev[turnId]
+            if (!existing) return prev
+            const idx = existing.entries.findIndex((e) => e.kind === 'mcp' && e.id === itemId)
             if (idx === -1) return prev
-            const copy = [...prev]
-            const e = copy[idx] as Extract<ChatEntry, { kind: 'mcp' }>
-            copy[idx] = { ...e, message: progress }
-            return copy
+            const entriesCopy = [...existing.entries]
+            const e = entriesCopy[idx] as Extract<ChatEntry, { kind: 'mcp' }>
+            entriesCopy[idx] = { ...e, message: progress }
+            return { ...prev, [turnId]: { ...existing, entries: entriesCopy } }
           })
           return
         }
@@ -523,10 +709,13 @@ export function CodexChat() {
         if (method === 'error') {
           const errMsg = safeString(params?.error?.message)
           if (!errMsg) return
-          setEntries((prev) => [
-            ...prev,
-            { kind: 'system', id: `system-err-${crypto.randomUUID()}`, tone: 'error', text: errMsg },
-          ])
+          const turnId = activeTurnId ?? PENDING_TURN_ID
+          const entry: ChatEntry = { kind: 'system', id: `system-err-${crypto.randomUUID()}`, tone: 'error', text: errMsg }
+          setTurnOrder((prev) => (prev.includes(turnId) ? prev : [...prev, turnId]))
+          setTurnsById((prev) => {
+            const existing = prev[turnId] ?? { id: turnId, status: 'unknown' as const, entries: [] }
+            return { ...prev, [turnId]: { ...existing, entries: [...existing.entries, entry] } }
+          })
           return
         }
       }
@@ -543,13 +732,17 @@ export function CodexChat() {
           const itemId = safeString(params?.itemId)
           const reason = params?.reason ? String(params.reason) : null
           if (!itemId) return
-
-          setEntries((prev) =>
-            prev.map((e) => {
+          const explicitTurnId = safeString(params?.turnId ?? params?.turn_id)
+          const turnId = explicitTurnId || itemToTurnRef.current[itemId] || activeTurnId || PENDING_TURN_ID
+          setTurnsById((prev) => {
+            const existing = prev[turnId]
+            if (!existing) return prev
+            const updated = existing.entries.map((e) => {
               if (e.kind !== 'command' || e.id !== itemId) return e
               return { ...e, approval: { requestId, reason } }
             })
-          )
+            return { ...prev, [turnId]: { ...existing, entries: updated } }
+          })
           return
         }
 
@@ -557,13 +750,17 @@ export function CodexChat() {
           const itemId = safeString(params?.itemId)
           const reason = params?.reason ? String(params.reason) : null
           if (!itemId) return
-
-          setEntries((prev) =>
-            prev.map((e) => {
+          const explicitTurnId = safeString(params?.turnId ?? params?.turn_id)
+          const turnId = explicitTurnId || itemToTurnRef.current[itemId] || activeTurnId || PENDING_TURN_ID
+          setTurnsById((prev) => {
+            const existing = prev[turnId]
+            if (!existing) return prev
+            const updated = existing.entries.map((e) => {
               if (e.kind !== 'fileChange' || e.id !== itemId) return e
               return { ...e, approval: { requestId, reason } }
             })
-          )
+            return { ...prev, [turnId]: { ...existing, entries: updated } }
+          })
           return
         }
       }
@@ -587,16 +784,42 @@ export function CodexChat() {
   }, [selectedModelInfo])
 
   const scrollRef = useRef<HTMLDivElement>(null)
+  const turnBlocks = useMemo(() => {
+    const out: TurnBlock[] = []
+    for (const id of turnOrder) {
+      const turn = turnsById[id]
+      if (turn) out.push(turn)
+    }
+    return out
+  }, [turnOrder, turnsById])
+
+  const renderTurns = useMemo(() => {
+    return turnBlocks.map((turn) => {
+      const visible = settings.showReasoning
+        ? turn.entries
+        : turn.entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning')
+
+      const chatEntries = visible.filter((e) => !isActivityEntry(e))
+      const activityEntries = visible.filter(isActivityEntry)
+
+      return {
+        id: turn.id,
+        status: turn.status,
+        chatEntries,
+        activityEntries,
+      }
+    })
+  }, [settings.showReasoning, turnBlocks])
+
+  const renderCount = useMemo(() => {
+    return renderTurns.reduce((acc, t) => acc + t.chatEntries.length + t.activityEntries.length, 0)
+  }, [renderTurns])
+
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-  }, [entries.length])
-
-  const visibleEntries = useMemo(() => {
-    if (settings.showReasoning) return entries
-    return entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning')
-  }, [entries, settings.showReasoning])
+  }, [renderCount])
 
   return (
     <div className="flex h-full min-h-0">
@@ -702,188 +925,225 @@ export function CodexChat() {
           </div>
         </div>
 
-        <div ref={scrollRef} className="mt-6 min-h-0 flex-1 space-y-3 overflow-auto">
-        {visibleEntries.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 text-center text-sm text-text-muted backdrop-blur">
-            {selectedThreadId ? 'No messages yet.' : 'Start a new session and say hello.'}
-          </div>
-        ) : null}
+        <div ref={scrollRef} className="mt-6 min-h-0 flex-1 space-y-6 overflow-auto">
+          {renderCount === 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 text-center text-sm text-text-muted backdrop-blur">
+              {selectedThreadId ? 'No messages yet.' : 'Start a new session and say hello.'}
+            </div>
+          ) : null}
 
-        {visibleEntries.map((e) => {
-            if (e.kind === 'user') {
-              return (
-                <div key={e.id} className="flex justify-end">
-                  <div className="max-w-[75%] rounded-2xl bg-primary/15 px-4 py-3 text-sm text-text-main">
-                    <div className="whitespace-pre-wrap">{e.text}</div>
+          {renderTurns.map((turn) => {
+            const activityCollapsed = collapsedActivityByTurnId[turn.id] ?? true
+            const hasActivity = turn.activityEntries.length > 0
+
+            return (
+              <div key={turn.id} className="space-y-3">
+                <div className="flex items-center justify-between gap-3 text-xs text-text-dim">
+                  <div className="truncate">
+                    {turnStatusLabel(turn.status)}
+                    {turn.id === PENDING_TURN_ID ? ' (pending)' : ''}
                   </div>
+                  {hasActivity ? (
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-full border border-white/10 bg-bg-panelHover px-3 py-1 text-[11px] hover:border-white/20"
+                      onClick={() => toggleTurnActivity(turn.id)}
+                    >
+                      Activity ({turn.activityEntries.length}) {activityCollapsed ? '▸' : '▾'}
+                    </button>
+                  ) : (
+                    <div className="shrink-0 text-[11px] text-text-dim">No activity</div>
+                  )}
                 </div>
-              )
-            }
 
-            if (e.kind === 'assistant') {
-              return (
-                <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
-                  <div className="text-xs text-text-dim">Assistant{e.streaming ? ' (streaming)' : ''}</div>
-                  <div className="mt-2 whitespace-pre-wrap text-sm text-text-main">{e.text}</div>
-                </div>
-              )
-            }
-
-            if (e.kind === 'command') {
-              const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails
-              return (
-                <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-xs text-text-dim">Run</div>
-                      <div className="mt-1 font-mono text-xs text-text-main">{e.command}</div>
-                      {e.cwd ? <div className="mt-1 text-[11px] text-text-dim">cwd: {e.cwd}</div> : null}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <div className="text-xs text-text-muted">{e.status}</div>
-                      <button
-                        type="button"
-                        className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-[11px] hover:border-white/20"
-                        onClick={() => toggleEntryCollapse(e.id)}
-                      >
-                        {collapsed ? 'Expand' : 'Collapse'}
-                      </button>
-                    </div>
-                  </div>
-                  {e.approval ? (
-                    <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                      <div className="min-w-0 text-xs text-text-muted">
-                        Approval required{e.approval.reason ? `: ${e.approval.reason}` : ''}.
-                      </div>
-                      <div className="flex shrink-0 gap-2">
-                        <button
-                          type="button"
-                          className="rounded-md bg-status-success/20 px-3 py-1 text-xs font-semibold text-status-success"
-                          onClick={() => void approve(e.approval!.requestId, 'accept')}
-                        >
-                          批准
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-md bg-status-error/15 px-3 py-1 text-xs font-semibold text-status-error"
-                          onClick={() => void approve(e.approval!.requestId, 'decline')}
-                        >
-                          拒绝
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                  {!collapsed && e.output ? (
-                    <pre className="mt-3 max-h-[220px] overflow-auto rounded-lg bg-black/20 p-3 text-[11px] text-text-muted">
-                      {e.output}
-                    </pre>
-                  ) : null}
-                </div>
-              )
-            }
-
-            if (e.kind === 'fileChange') {
-              const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails
-              return (
-                <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-xs text-text-dim">Edited</div>
-                      <div className="mt-1 text-xs text-text-muted">{e.changes.map((c) => c.path).join(', ')}</div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <div className="text-xs text-text-muted">{e.status}</div>
-                      <button
-                        type="button"
-                        className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-[11px] hover:border-white/20"
-                        onClick={() => toggleEntryCollapse(e.id)}
-                      >
-                        {collapsed ? 'Expand' : 'Collapse'}
-                      </button>
-                    </div>
-                  </div>
-                  {!collapsed ? (
-                    <div className="mt-3 space-y-2">
-                      {e.changes.map((c, idx) => (
-                        <div key={`${e.id}-${idx}`} className="rounded-lg border border-white/10 bg-black/20 p-3">
-                          <div className="truncate text-xs font-semibold">{c.path}</div>
-                          {c.diff ? (
-                            <pre className="mt-2 max-h-[220px] overflow-auto text-[11px] text-text-muted">
-                              {c.diff}
-                            </pre>
-                          ) : null}
+                <div className="space-y-3">
+                  {turn.chatEntries.map((e) => {
+                    if (e.kind === 'user') {
+                      return (
+                        <div key={e.id} className="flex justify-end">
+                          <div className="max-w-[75%] rounded-2xl bg-primary/15 px-4 py-3 text-sm text-text-main">
+                            <div className="whitespace-pre-wrap">{e.text}</div>
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  {e.approval ? (
-                    <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                      <div className="min-w-0 text-xs text-text-muted">
-                        Approval required{e.approval.reason ? `: ${e.approval.reason}` : ''}.
-                      </div>
-                      <div className="flex shrink-0 gap-2">
-                        <button
-                          type="button"
-                          className="rounded-md bg-status-success/20 px-3 py-1 text-xs font-semibold text-status-success"
-                          onClick={() => void approve(e.approval!.requestId, 'accept')}
-                        >
-                          批准
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-md bg-status-error/15 px-3 py-1 text-xs font-semibold text-status-error"
-                          onClick={() => void approve(e.approval!.requestId, 'decline')}
-                        >
-                          拒绝
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              )
-            }
+                      )
+                    }
 
-            if (e.kind === 'webSearch') {
-              return (
-                <div key={e.id} className="rounded-xl border border-white/10 bg-bg-panelHover p-4">
-                  <div className="text-xs text-text-dim">Web search</div>
-                  <div className="mt-2 text-sm text-text-main">{e.query}</div>
-                </div>
-              )
-            }
+                    if (e.kind === 'assistant') {
+                      return (
+                        <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
+                          <div className="text-xs text-text-dim">Assistant{e.streaming ? ' (streaming)' : ''}</div>
+                          <div className="mt-2 whitespace-pre-wrap text-sm text-text-main">{e.text}</div>
+                        </div>
+                      )
+                    }
 
-            if (e.kind === 'mcp') {
-              return (
-                <div key={e.id} className="rounded-xl border border-white/10 bg-bg-panelHover p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs text-text-dim">MCP tool call</div>
-                    <div className="text-xs text-text-muted">{e.status}</div>
+                    if (e.kind === 'system') {
+                      const tone = e.tone ?? 'info'
+                      const color =
+                        tone === 'error'
+                          ? 'border-status-error/30 bg-status-error/10 text-status-error'
+                          : tone === 'warning'
+                            ? 'border-status-warning/30 bg-status-warning/10 text-status-warning'
+                            : 'border-white/10 bg-bg-panelHover text-text-muted'
+
+                      return (
+                        <div key={e.id} className={`rounded-xl border p-4 text-sm ${color}`}>
+                          {e.text}
+                        </div>
+                      )
+                    }
+
+                    return null
+                  })}
+                </div>
+
+                {!activityCollapsed && hasActivity ? (
+                  <div className="space-y-3">
+                    {turn.activityEntries.map((e) => {
+                      if (e.kind === 'command') {
+                        const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails
+                        return (
+                          <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-xs text-text-dim">Run</div>
+                                <div className="mt-1 font-mono text-xs text-text-main">{e.command}</div>
+                                {e.cwd ? <div className="mt-1 text-[11px] text-text-dim">cwd: {e.cwd}</div> : null}
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <div className="text-xs text-text-muted">{e.status}</div>
+                                <button
+                                  type="button"
+                                  className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-[11px] hover:border-white/20"
+                                  onClick={() => toggleEntryCollapse(e.id)}
+                                >
+                                  {collapsed ? 'Expand' : 'Collapse'}
+                                </button>
+                              </div>
+                            </div>
+                            {e.approval ? (
+                              <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                                <div className="min-w-0 text-xs text-text-muted">
+                                  Approval required{e.approval.reason ? `: ${e.approval.reason}` : ''}.
+                                </div>
+                                <div className="flex shrink-0 gap-2">
+                                  <button
+                                    type="button"
+                                    className="rounded-md bg-status-success/20 px-3 py-1 text-xs font-semibold text-status-success"
+                                    onClick={() => void approve(e.approval!.requestId, 'accept')}
+                                  >
+                                    批准
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-md bg-status-error/15 px-3 py-1 text-xs font-semibold text-status-error"
+                                    onClick={() => void approve(e.approval!.requestId, 'decline')}
+                                  >
+                                    拒绝
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                            {!collapsed && e.output ? (
+                              <pre className="mt-3 max-h-[220px] overflow-auto rounded-lg bg-black/20 p-3 text-[11px] text-text-muted">
+                                {e.output}
+                              </pre>
+                            ) : null}
+                          </div>
+                        )
+                      }
+
+                      if (e.kind === 'fileChange') {
+                        const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails
+                        return (
+                          <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-xs text-text-dim">Edited</div>
+                                <div className="mt-1 text-xs text-text-muted">{e.changes.map((c) => c.path).join(', ')}</div>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <div className="text-xs text-text-muted">{e.status}</div>
+                                <button
+                                  type="button"
+                                  className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-[11px] hover:border-white/20"
+                                  onClick={() => toggleEntryCollapse(e.id)}
+                                >
+                                  {collapsed ? 'Expand' : 'Collapse'}
+                                </button>
+                              </div>
+                            </div>
+                            {!collapsed ? (
+                              <div className="mt-3 space-y-2">
+                                {e.changes.map((c, idx) => (
+                                  <div key={`${e.id}-${idx}`} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                                    <div className="truncate text-xs font-semibold">{c.path}</div>
+                                    {c.diff ? (
+                                      <pre className="mt-2 max-h-[220px] overflow-auto text-[11px] text-text-muted">
+                                        {c.diff}
+                                      </pre>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                            {e.approval ? (
+                              <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                                <div className="min-w-0 text-xs text-text-muted">
+                                  Approval required{e.approval.reason ? `: ${e.approval.reason}` : ''}.
+                                </div>
+                                <div className="flex shrink-0 gap-2">
+                                  <button
+                                    type="button"
+                                    className="rounded-md bg-status-success/20 px-3 py-1 text-xs font-semibold text-status-success"
+                                    onClick={() => void approve(e.approval!.requestId, 'accept')}
+                                  >
+                                    批准
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-md bg-status-error/15 px-3 py-1 text-xs font-semibold text-status-error"
+                                    onClick={() => void approve(e.approval!.requestId, 'decline')}
+                                  >
+                                    拒绝
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        )
+                      }
+
+                      if (e.kind === 'webSearch') {
+                        return (
+                          <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
+                            <div className="text-xs text-text-dim">Web search</div>
+                            <div className="mt-2 text-sm text-text-main">{e.query}</div>
+                          </div>
+                        )
+                      }
+
+                      if (e.kind === 'mcp') {
+                        return (
+                          <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-xs text-text-dim">MCP tool call</div>
+                              <div className="text-xs text-text-muted">{e.status}</div>
+                            </div>
+                            <div className="mt-2 text-sm text-text-main">
+                              <span className="font-mono text-xs">{e.server}.{e.tool}</span>
+                            </div>
+                            {e.message ? <div className="mt-2 text-xs text-text-muted">{e.message}</div> : null}
+                          </div>
+                        )
+                      }
+
+                      return null
+                    })}
                   </div>
-                  <div className="mt-2 text-sm text-text-main">
-                    <span className="font-mono text-xs">{e.server}.{e.tool}</span>
-                  </div>
-                  {e.message ? <div className="mt-2 text-xs text-text-muted">{e.message}</div> : null}
-                </div>
-              )
-            }
-
-            if (e.kind === 'system') {
-              const tone = e.tone ?? 'info'
-              const color =
-                tone === 'error'
-                  ? 'border-status-error/30 bg-status-error/10 text-status-error'
-                  : tone === 'warning'
-                    ? 'border-status-warning/30 bg-status-warning/10 text-status-warning'
-                    : 'border-white/10 bg-bg-panelHover text-text-muted'
-
-              return (
-                <div key={e.id} className={`rounded-xl border p-4 text-sm ${color}`}>
-                  {e.text}
-                </div>
-              )
-            }
-
-            return null
+                ) : null}
+              </div>
+            )
           })}
         </div>
 
