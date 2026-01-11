@@ -52,6 +52,7 @@ import type {
 	FileAttachment,
 	FileInfo,
 	ReasoningEffort,
+	SkillMetadata,
 } from '../types/codex';
 
 type ChatEntry =
@@ -279,10 +280,10 @@ const MENU_STYLES = {
 	popoverTitle: 'px-2 py-1 text-[11px] text-text-dim',
 	// 弹出菜单选项
 	popoverItem:
-		'flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] text-text-main hover:bg-bg-panelHover',
-	// 弹出菜单选项（高亮）
+		'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11px] text-text-main hover:bg-white/5',
+	// 弹出菜单选项（高亮/聚焦）- 与 hover 样式一致
 	popoverItemActive:
-		'flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] bg-primary/20 text-text-main',
+		'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11px] bg-white/5 text-text-main',
 	// 弹出菜单选项描述
 	popoverItemDesc: 'text-[10px] text-text-dim',
 	// 图标尺寸
@@ -659,8 +660,23 @@ export function CodexChat() {
 	const [isSlashMenuOpen, setIsSlashMenuOpen] = useState(false);
 	const [slashSearchQuery, setSlashSearchQuery] = useState('');
 	const [slashHighlightIndex, setSlashHighlightIndex] = useState(0);
+	// Skills state
+	const [skills, setSkills] = useState<SkillMetadata[]>([]);
+	const [isSkillMenuOpen, setIsSkillMenuOpen] = useState(false);
+	const [skillSearchQuery, setSkillSearchQuery] = useState('');
+	const [skillHighlightIndex, setSkillHighlightIndex] = useState(0);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+	// Load skills on mount
+	const loadSkills = useCallback(async () => {
+		try {
+			const res = await apiClient.codexSkillList();
+			setSkills(res.skills);
+		} catch {
+			setSkills([]);
+		}
+	}, []);
 
 	useEffect(() => {
 		persistCodexChatSettings(settings);
@@ -1318,6 +1334,80 @@ export function CodexChat() {
 		return results.sort((a, b) => a.score - b.score);
 	}, [slashSearchQuery]);
 
+	// Filtered skills with fuzzy matching
+	type FilteredSkill = {
+		skill: SkillMetadata;
+		indices: number[] | null;
+		score: number;
+	};
+
+	const filteredSkills: FilteredSkill[] = useMemo(() => {
+		const query = skillSearchQuery.trim();
+		if (!query) {
+			return skills.map((skill) => ({ skill, indices: null, score: 0 }));
+		}
+
+		const results: FilteredSkill[] = [];
+
+		for (const skill of skills) {
+			const matchName = fuzzyMatch(skill.name, query);
+			const matchDesc = fuzzyMatch(skill.description, query);
+
+			const candidates = [matchName, matchDesc].filter((m): m is NonNullable<typeof m> => m !== null);
+			if (candidates.length > 0) {
+				const best = candidates.sort((a, b) => a.score - b.score)[0];
+				results.push({ skill, indices: best.indices, score: best.score });
+			}
+		}
+
+		return results.sort((a, b) => a.score - b.score);
+	}, [skillSearchQuery, skills]);
+
+	// Execute skill selection - insert $skillname into input
+	const executeSkillSelection = useCallback(
+		(skillName: string) => {
+			setIsSkillMenuOpen(false);
+			setSkillSearchQuery('');
+			setSkillHighlightIndex(0);
+
+			// Insert $skillname at cursor position or replace existing $query
+			const textarea = textareaRef.current;
+			if (!textarea) {
+				setInput((prev) => `$${skillName} ${prev}`);
+				return;
+			}
+
+			const cursorPos = textarea.selectionStart ?? 0;
+			const text = input;
+
+			// Find the $ that triggered the menu
+			let dollarPos = -1;
+			for (let i = cursorPos - 1; i >= 0; i--) {
+				if (text[i] === '$') {
+					dollarPos = i;
+					break;
+				}
+				if (/\s/.test(text[i])) break;
+			}
+
+			if (dollarPos >= 0) {
+				// Replace from $ to cursor with $skillname
+				const before = text.slice(0, dollarPos);
+				const after = text.slice(cursorPos);
+				setInput(`${before}$${skillName} ${after}`);
+			} else {
+				// Just insert at cursor
+				const before = text.slice(0, cursorPos);
+				const after = text.slice(cursorPos);
+				setInput(`${before}$${skillName} ${after}`);
+			}
+
+			// Focus back to textarea
+			setTimeout(() => textarea.focus(), 0);
+		},
+		[input]
+	);
+
 	const executeSlashCommand = useCallback(
 		(cmdId: string) => {
 			setIsSlashMenuOpen(false);
@@ -1358,7 +1448,10 @@ export function CodexChat() {
 					setOpenStatusPopover('approval_policy');
 					break;
 				case 'skills':
-					addSystemMessage('Skills 功能暂未实现', 'warning');
+					// 打开 skills 菜单
+					setIsSkillMenuOpen(true);
+					setSkillSearchQuery('');
+					setSkillHighlightIndex(0);
 					break;
 				case 'review':
 					setInput('/review ');
@@ -1439,6 +1532,41 @@ export function CodexChat() {
 
 	const handleTextareaKeyDown = useCallback(
 		(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+			// Skill menu navigation
+			if (isSkillMenuOpen) {
+				if (e.key === 'ArrowDown') {
+					e.preventDefault();
+					setSkillHighlightIndex((i) => Math.min(i + 1, filteredSkills.length - 1));
+					return;
+				}
+				if (e.key === 'ArrowUp') {
+					e.preventDefault();
+					setSkillHighlightIndex((i) => Math.max(i - 1, 0));
+					return;
+				}
+				// Tab 键补全
+				if (e.key === 'Tab') {
+					e.preventDefault();
+					const selected = filteredSkills[skillHighlightIndex];
+					if (selected) {
+						executeSkillSelection(selected.skill.name);
+					}
+					return;
+				}
+				if (e.key === 'Enter' && !e.shiftKey) {
+					e.preventDefault();
+					const selected = filteredSkills[skillHighlightIndex];
+					if (selected) executeSkillSelection(selected.skill.name);
+					return;
+				}
+				if (e.key === 'Escape') {
+					e.preventDefault();
+					setIsSkillMenuOpen(false);
+					setSkillSearchQuery('');
+					return;
+				}
+			}
+
 			// Slash menu navigation
 			if (isSlashMenuOpen) {
 				if (e.key === 'ArrowDown') {
@@ -1476,16 +1604,31 @@ export function CodexChat() {
 				}
 			}
 
-			// Open slash menu when typing / (不要求输入框为空)
+			// Open slash menu when typing / (隐藏 / 字符，直接打开搜索框)
 			if (e.key === '/') {
 				const target = e.target as HTMLTextAreaElement;
 				const cursorPos = target.selectionStart ?? 0;
 				const textBeforeCursor = input.slice(0, cursorPos);
 				// 只在行首或空白后输入 / 时触发
 				if (cursorPos === 0 || /\s$/.test(textBeforeCursor)) {
+					e.preventDefault(); // 阻止 / 字符出现在输入框中
 					setIsSlashMenuOpen(true);
 					setSlashHighlightIndex(0);
 					setSlashSearchQuery('');
+				}
+			}
+
+			// Open skill menu when typing $ (隐藏 $ 字符，直接打开搜索框)
+			if (e.key === '$') {
+				const target = e.target as HTMLTextAreaElement;
+				const cursorPos = target.selectionStart ?? 0;
+				const textBeforeCursor = input.slice(0, cursorPos);
+				// 只在行首或空白后输入 $ 时触发
+				if (cursorPos === 0 || /\s$/.test(textBeforeCursor)) {
+					e.preventDefault(); // 阻止 $ 字符出现在输入框中
+					setIsSkillMenuOpen(true);
+					setSkillHighlightIndex(0);
+					setSkillSearchQuery('');
 				}
 			}
 
@@ -1495,7 +1638,7 @@ export function CodexChat() {
 				void sendMessage();
 			}
 		},
-		[executeSlashCommand, filteredSlashCommands, input, isSlashMenuOpen, sendMessage, slashHighlightIndex]
+		[executeSlashCommand, executeSkillSelection, filteredSlashCommands, filteredSkills, input, isSlashMenuOpen, isSkillMenuOpen, sendMessage, slashHighlightIndex, skillHighlightIndex]
 	);
 
 	// Load auto context when enabled or thread changes
@@ -1508,7 +1651,8 @@ export function CodexChat() {
 		loadModelsAndChatDefaults();
 		void loadWorkspaceRoot();
 		void loadRecentWorkspaces();
-	}, [listSessions, loadModelsAndChatDefaults, loadWorkspaceRoot, loadRecentWorkspaces]);
+		void loadSkills();
+	}, [listSessions, loadModelsAndChatDefaults, loadWorkspaceRoot, loadRecentWorkspaces, loadSkills]);
 
 	useEffect(() => {
 		let mounted = true;
@@ -2440,8 +2584,8 @@ export function CodexChat() {
 					</div>
 
 					<div className="relative -mx-6 mt-3 rounded-xl border border-white/10 bg-bg-panel/70 px-4 py-1 backdrop-blur">
-						{/* Popup Menu - shared container for both + and / menus */}
-						{isSlashMenuOpen || isAddContextOpen ? (
+						{/* Popup Menu - shared container for +, / and $ menus */}
+						{isSlashMenuOpen || isAddContextOpen || isSkillMenuOpen ? (
 							<>
 								<div
 									className="fixed inset-0 z-40"
@@ -2456,6 +2600,11 @@ export function CodexChat() {
 											setFileSearchQuery('');
 											setFileSearchResults([]);
 										}
+										if (isSkillMenuOpen) {
+											setIsSkillMenuOpen(false);
+											setSkillSearchQuery('');
+											setSkillHighlightIndex(0);
+										}
 									}}
 									role="button"
 									tabIndex={0}
@@ -2465,21 +2614,122 @@ export function CodexChat() {
 									<input
 										type="text"
 										className={`mb-2 ${MENU_STYLES.searchInput}`}
-										placeholder={isSlashMenuOpen ? 'Search commands...' : 'Search files...'}
-										value={isSlashMenuOpen ? slashSearchQuery : fileSearchQuery}
+										placeholder={isSlashMenuOpen ? 'Search commands...' : isSkillMenuOpen ? 'Search skills...' : 'Search files...'}
+										value={isSlashMenuOpen ? slashSearchQuery : isSkillMenuOpen ? skillSearchQuery : fileSearchQuery}
 										onChange={(e) => {
 											if (isSlashMenuOpen) {
 												setSlashSearchQuery(e.target.value);
 												setSlashHighlightIndex(0);
+											} else if (isSkillMenuOpen) {
+												setSkillSearchQuery(e.target.value);
+												setSkillHighlightIndex(0);
 											} else {
 												void searchFiles(e.target.value);
+											}
+										}}
+										onKeyDown={(e) => {
+											// 处理方向键导航
+											if (e.key === 'ArrowDown') {
+												e.preventDefault();
+												if (isSlashMenuOpen) {
+													setSlashHighlightIndex((i) => Math.min(i + 1, filteredSlashCommands.length - 1));
+												} else if (isSkillMenuOpen) {
+													setSkillHighlightIndex((i) => Math.min(i + 1, filteredSkills.length - 1));
+												}
+												return;
+											}
+											if (e.key === 'ArrowUp') {
+												e.preventDefault();
+												if (isSlashMenuOpen) {
+													setSlashHighlightIndex((i) => Math.max(i - 1, 0));
+												} else if (isSkillMenuOpen) {
+													setSkillHighlightIndex((i) => Math.max(i - 1, 0));
+												}
+												return;
+											}
+											// Tab 键补全
+											if (e.key === 'Tab') {
+												e.preventDefault();
+												if (isSlashMenuOpen) {
+													const selected = filteredSlashCommands[slashHighlightIndex];
+													if (selected) {
+														setInput(`/${selected.cmd.id} `);
+														setIsSlashMenuOpen(false);
+														setSlashSearchQuery('');
+														textareaRef.current?.focus();
+													}
+												} else if (isSkillMenuOpen) {
+													const selected = filteredSkills[skillHighlightIndex];
+													if (selected) {
+														executeSkillSelection(selected.skill.name);
+													}
+												}
+												return;
+											}
+											// Enter 键执行
+											if (e.key === 'Enter') {
+												e.preventDefault();
+												if (isSlashMenuOpen) {
+													const selected = filteredSlashCommands[slashHighlightIndex];
+													if (selected) executeSlashCommand(selected.cmd.id);
+												} else if (isSkillMenuOpen) {
+													const selected = filteredSkills[skillHighlightIndex];
+													if (selected) executeSkillSelection(selected.skill.name);
+												}
+												return;
+											}
+											// Escape 键关闭菜单
+											if (e.key === 'Escape') {
+												e.preventDefault();
+												if (isSlashMenuOpen) {
+													setIsSlashMenuOpen(false);
+													setSlashSearchQuery('');
+												} else if (isSkillMenuOpen) {
+													setIsSkillMenuOpen(false);
+													setSkillSearchQuery('');
+												} else if (isAddContextOpen) {
+													setIsAddContextOpen(false);
+													setFileSearchQuery('');
+													setFileSearchResults([]);
+												}
+												textareaRef.current?.focus();
+												return;
 											}
 										}}
 										autoFocus
 									/>
 									{/* Content list */}
 									<div className={MENU_STYLES.listContainer}>
-										{isSlashMenuOpen ? (
+										{isSkillMenuOpen ? (
+											// Skills list
+											filteredSkills.length > 0 ? (
+												filteredSkills.map(({ skill, indices }, idx) => (
+													<button
+														key={skill.name}
+														type="button"
+														className={
+															idx === skillHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
+														}
+														onClick={() => executeSkillSelection(skill.name)}
+														onMouseEnter={() => setSkillHighlightIndex(idx)}
+													>
+														<Zap className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+														<span>
+															{indices && indices.length > 0
+																? highlightMatches(skill.name, indices)
+																: skill.name}
+														</span>
+														<span className={MENU_STYLES.popoverItemDesc}>
+															{skill.shortDescription || skill.description}
+														</span>
+													</button>
+												))
+											) : (
+												<div className={`${MENU_STYLES.popoverItemDesc} px-2 py-1`}>
+													{skills.length === 0 ? 'No skills available' : 'No matching skills'}
+												</div>
+											)
+										) : isSlashMenuOpen ? (
 											// Slash commands list
 											filteredSlashCommands.map(({ cmd, indices }, idx) => {
 												const IconComponent =
@@ -2626,22 +2876,8 @@ export function CodexChat() {
 								const newValue = e.target.value;
 								setInput(newValue);
 
-								// 处理 slash 命令菜单
-								const firstLine = newValue.split('\n')[0] ?? '';
-								const match = firstLine.match(/^\s*\/(\S*)/);
-
-								if (match) {
-									// 输入以 / 开头，打开菜单并更新过滤文本
-									if (!isSlashMenuOpen) {
-										setIsSlashMenuOpen(true);
-									}
-									setSlashSearchQuery(match[1] ?? '');
-									setSlashHighlightIndex(0);
-								} else if (isSlashMenuOpen) {
-									// 不再是 slash 命令，关闭菜单
-									setIsSlashMenuOpen(false);
-									setSlashSearchQuery('');
-								}
+								// 注意：slash 命令菜单和 skill 菜单现在都通过 keyDown 的 preventDefault 触发
+								// 输入框中不会出现 / 或 $ 字符，所以这里不需要处理这些菜单
 
 								// Auto-resize textarea
 								const textarea = e.target;

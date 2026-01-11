@@ -92,6 +92,7 @@ pub fn run() {
             codex_read_config,
             codex_write_config,
             codex_diagnostics,
+            codex_skill_list,
             // Context management commands
             search_workspace_files,
             read_file_content,
@@ -1063,6 +1064,79 @@ fn codex_write_config(content: String) -> Result<(), String> {
 #[tauri::command]
 async fn codex_diagnostics() -> CodexDiagnostics {
     codex_app_server::codex_diagnostics().await
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillMetadata {
+    name: String,
+    description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    short_description: Option<String>,
+    path: String,
+    scope: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillsListResponse {
+    skills: Vec<SkillMetadata>,
+}
+
+#[tauri::command]
+async fn codex_skill_list(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<SkillsListResponse, String> {
+    let codex = get_or_start_codex(&state, app).await?;
+    let params = serde_json::json!({});
+
+    let result = codex.request("skills/list", Some(params)).await?;
+    let data = result
+        .get("data")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "invalid skills/list response: data".to_string())?;
+
+    let mut skills = Vec::new();
+    for entry in data {
+        let Some(entry_skills) = entry.get("skills").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for skill in entry_skills {
+            let Some(name) = skill.get("name").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let description = skill
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let short_description = skill
+                .get("shortDescription")
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string());
+            let path = skill
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let scope = skill
+                .get("scope")
+                .and_then(|v| v.as_str())
+                .unwrap_or("user")
+                .to_string();
+
+            skills.push(SkillMetadata {
+                name: name.to_string(),
+                description,
+                short_description,
+                path,
+                scope,
+            });
+        }
+    }
+
+    Ok(SkillsListResponse { skills })
 }
 
 // ============================================================================

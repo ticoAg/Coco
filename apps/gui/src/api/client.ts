@@ -16,6 +16,7 @@ import type {
   CodexModelListResponse,
   CodexThreadListResponse,
   FileInfo,
+  SkillsListResponse,
 } from "../types/codex";
 
 export async function listTasks(): Promise<Task[]> {
@@ -267,6 +268,10 @@ export async function getAutoContext(cwd: string): Promise<AutoContextInfo> {
   return invoke<AutoContextInfo>("get_auto_context", { cwd });
 }
 
+export async function codexSkillList(): Promise<SkillsListResponse> {
+  return invoke<SkillsListResponse>("codex_skill_list");
+}
+
 export const apiClient = {
   listTasks,
   getTask,
@@ -290,6 +295,7 @@ export const apiClient = {
   codexReadConfig,
   codexWriteConfig,
   codexDiagnostics,
+  codexSkillList,
   workspaceRootGet,
   workspaceRootSet,
   workspaceRecentList,

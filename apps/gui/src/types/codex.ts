@@ -141,3 +141,16 @@ export interface FileAttachment {
   name: string;
   content?: string;
 }
+
+// Skills types
+export interface SkillMetadata {
+  name: string;
+  description: string;
+  shortDescription?: string;
+  path: string;
+  scope: "user" | "repo" | "system" | "admin";
+}
+
+export interface SkillsListResponse {
+  skills: SkillMetadata[];
+}
