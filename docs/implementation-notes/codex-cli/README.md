@@ -4,4 +4,8 @@
 
 ## 目录索引
 
+- [app-server-api.md](app-server-api.md)：Codex App-Server JSON-RPC API 文档（已接入/待接入方法、参数说明）
 - `compact/`：`/compact`（上下文压缩/总结）实现机制与差异说明
+- [slash-menu.md](slash-menu.md)：`/` 命令菜单实现（Commands、Prompts、Skills 支持）
+- [skills-implementation.md](skills-implementation.md)：Skills 选择、发送与注入机制
+

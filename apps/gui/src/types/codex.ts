@@ -154,3 +154,15 @@ export interface SkillMetadata {
 export interface SkillsListResponse {
   skills: SkillMetadata[];
 }
+
+// Prompts types (custom prompts from ~/.codex/prompts/)
+export interface CustomPrompt {
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  path: string;
+}
+
+export interface PromptsListResponse {
+  prompts: CustomPrompt[];
+}

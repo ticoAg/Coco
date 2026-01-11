@@ -93,6 +93,7 @@ pub fn run() {
             codex_write_config,
             codex_diagnostics,
             codex_skill_list,
+            codex_prompt_list,
             // Context management commands
             search_workspace_files,
             read_file_content,
@@ -890,7 +891,7 @@ async fn codex_turn_start(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
     thread_id: String,
-    text: String,
+    input: Vec<serde_json::Value>,
     model: Option<String>,
     effort: Option<String>,
     approval_policy: Option<String>,
@@ -917,9 +918,7 @@ async fn codex_turn_start(
 
     let params = serde_json::json!({
         "threadId": thread_id,
-        "input": [
-            { "type": "text", "text": text }
-        ],
+        "input": input,
         "model": model,
         "effort": effort,
         "approvalPolicy": approval_policy,
@@ -1083,6 +1082,23 @@ struct SkillsListResponse {
     skills: Vec<SkillMetadata>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PromptMetadata {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    argument_hint: Option<String>,
+    path: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PromptsListResponse {
+    prompts: Vec<PromptMetadata>,
+}
+
 #[tauri::command]
 async fn codex_skill_list(
     state: tauri::State<'_, AppState>,
@@ -1137,6 +1153,96 @@ async fn codex_skill_list(
     }
 
     Ok(SkillsListResponse { skills })
+}
+
+#[tauri::command]
+fn codex_prompt_list() -> Result<PromptsListResponse, String> {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .ok_or_else(|| "HOME directory not found".to_string())?;
+
+    let prompts_dir = std::path::PathBuf::from(home).join(".codex").join("prompts");
+
+    if !prompts_dir.exists() {
+        return Ok(PromptsListResponse { prompts: vec![] });
+    }
+
+    let mut prompts = Vec::new();
+
+    let read_dir = match std::fs::read_dir(&prompts_dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(PromptsListResponse { prompts: vec![] }),
+    };
+
+    for entry in read_dir {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let extension = path.extension().and_then(|e| e.to_str());
+        if extension != Some("md") {
+            continue;
+        }
+
+        let name = match path.file_stem().and_then(|s| s.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        // Parse YAML frontmatter
+        let (description, argument_hint) = parse_prompt_frontmatter(&content);
+
+        prompts.push(PromptMetadata {
+            name,
+            description,
+            argument_hint,
+            path: path.to_string_lossy().to_string(),
+        });
+    }
+
+    // Sort by name
+    prompts.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(PromptsListResponse { prompts })
+}
+
+fn parse_prompt_frontmatter(content: &str) -> (Option<String>, Option<String>) {
+    let trimmed = content.trim_start();
+    if !trimmed.starts_with("---") {
+        return (None, None);
+    }
+
+    let after_start = &trimmed[3..];
+    let end_pos = after_start.find("\n---");
+    let frontmatter = match end_pos {
+        Some(pos) => &after_start[..pos],
+        None => return (None, None),
+    };
+
+    let mut description = None;
+    let mut argument_hint = None;
+
+    for line in frontmatter.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("description:") {
+            description = Some(rest.trim().trim_matches('"').trim_matches('\'').to_string());
+        } else if let Some(rest) = line.strip_prefix("argument-hint:") {
+            argument_hint = Some(rest.trim().trim_matches('"').trim_matches('\'').to_string());
+        }
+    }
+
+    (description, argument_hint)
 }
 
 // ============================================================================

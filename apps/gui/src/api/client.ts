@@ -15,7 +15,9 @@ import type {
   AutoContextInfo,
   CodexModelListResponse,
   CodexThreadListResponse,
+  CodexUserInput,
   FileInfo,
+  PromptsListResponse,
   SkillsListResponse,
 } from "../types/codex";
 
@@ -134,14 +136,14 @@ export async function codexThreadResume(threadId: string): Promise<unknown> {
 
 export async function codexTurnStart(
   threadId: string,
-  text: string,
+  input: CodexUserInput[],
   model?: string | null,
   effort?: string | null,
   approvalPolicy?: string | null,
 ): Promise<unknown> {
   return invoke<unknown>("codex_turn_start", {
     threadId,
-    text,
+    input,
     model: model ?? null,
     effort: effort ?? null,
     approvalPolicy: approvalPolicy ?? null,
@@ -272,6 +274,10 @@ export async function codexSkillList(): Promise<SkillsListResponse> {
   return invoke<SkillsListResponse>("codex_skill_list");
 }
 
+export async function codexPromptList(): Promise<PromptsListResponse> {
+  return invoke<PromptsListResponse>("codex_prompt_list");
+}
+
 export const apiClient = {
   listTasks,
   getTask,
@@ -296,6 +302,7 @@ export const apiClient = {
   codexWriteConfig,
   codexDiagnostics,
   codexSkillList,
+  codexPromptList,
   workspaceRootGet,
   workspaceRootSet,
   workspaceRecentList,

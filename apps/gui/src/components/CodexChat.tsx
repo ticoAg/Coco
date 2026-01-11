@@ -49,17 +49,25 @@ import type {
 	CodexThreadItem,
 	CodexThreadSummary,
 	CodexUserInput,
+	CustomPrompt,
 	FileAttachment,
 	FileInfo,
 	ReasoningEffort,
 	SkillMetadata,
 } from '../types/codex';
 
+// 附加内容类型
+type AttachmentItem =
+	| { type: 'file'; path: string; name: string }
+	| { type: 'skill'; name: string }
+	| { type: 'prompt'; name: string };
+
 type ChatEntry =
 	| {
 			kind: 'user';
 			id: string;
 			text: string;
+			attachments?: AttachmentItem[];
 	  }
 	| {
 			kind: 'assistant';
@@ -665,6 +673,10 @@ export function CodexChat() {
 	const [isSkillMenuOpen, setIsSkillMenuOpen] = useState(false);
 	const [skillSearchQuery, setSkillSearchQuery] = useState('');
 	const [skillHighlightIndex, setSkillHighlightIndex] = useState(0);
+	const [selectedSkill, setSelectedSkill] = useState<SkillMetadata | null>(null);
+	// Prompts state
+	const [prompts, setPrompts] = useState<CustomPrompt[]>([]);
+	const [selectedPrompt, setSelectedPrompt] = useState<CustomPrompt | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -675,6 +687,16 @@ export function CodexChat() {
 			setSkills(res.skills);
 		} catch {
 			setSkills([]);
+		}
+	}, []);
+
+	// Load prompts on mount
+	const loadPrompts = useCallback(async () => {
+		try {
+			const res = await apiClient.codexPromptList();
+			setPrompts(res.prompts);
+		} catch {
+			setPrompts([]);
 		}
 	}, []);
 
@@ -1077,7 +1099,20 @@ export function CodexChat() {
 	const sendMessage = useCallback(async () => {
 		const userInput = input;
 		const trimmedInput = userInput.trim();
-		if (!trimmedInput) return;
+		// Allow sending if there's text, or if a skill/prompt is selected
+		if (!trimmedInput && !selectedSkill && !selectedPrompt) return;
+
+		// Build attachments list for UI display
+		const attachments: AttachmentItem[] = [];
+		for (const f of fileAttachments) {
+			attachments.push({ type: 'file', path: f.path, name: f.name });
+		}
+		if (selectedSkill) {
+			attachments.push({ type: 'skill', name: selectedSkill.name });
+		}
+		if (selectedPrompt) {
+			attachments.push({ type: 'prompt', name: selectedPrompt.name });
+		}
 
 		setSending(true);
 		try {
@@ -1102,11 +1137,25 @@ export function CodexChat() {
 				  })
 				: userInput;
 
+			// Build CodexUserInput array for API
+			const codexInput: CodexUserInput[] = [];
+
+			// Add text input
+			codexInput.push({ type: 'text', text: outgoingText });
+
+			// Add skill with name and path
+			if (selectedSkill) {
+				codexInput.push({ type: 'skill', name: selectedSkill.name, path: selectedSkill.path });
+			}
+
+			// Create user entry with attachments
 			const userEntry: ChatEntry = {
 				kind: 'user',
 				id: `user-${crypto.randomUUID()}`,
-				text: userInput,
+				text: trimmedInput,
+				attachments: attachments.length > 0 ? attachments : undefined,
 			};
+
 			setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]));
 			setCollapsedActivityByTurnId((prev) =>
 				Object.prototype.hasOwnProperty.call(prev, PENDING_TURN_ID) ? prev : { ...prev, [PENDING_TURN_ID]: true }
@@ -1127,7 +1176,9 @@ export function CodexChat() {
 				};
 			});
 			setInput('');
-			await apiClient.codexTurnStart(threadId, outgoingText, selectedModel, selectedEffort, approvalPolicy);
+			setSelectedSkill(null);
+			setSelectedPrompt(null);
+			await apiClient.codexTurnStart(threadId, codexInput, selectedModel, selectedEffort, approvalPolicy);
 		} catch (err) {
 			const systemEntry: ChatEntry = {
 				kind: 'system',
@@ -1167,6 +1218,9 @@ export function CodexChat() {
 		autoContextEnabled,
 		activeThread?.cwd,
 		relatedRepoPaths,
+		fileAttachments,
+		selectedSkill,
+		selectedPrompt,
 	]);
 
 	const approve = useCallback(async (requestId: number, decision: 'accept' | 'decline') => {
@@ -1334,6 +1388,64 @@ export function CodexChat() {
 		return results.sort((a, b) => a.score - b.score);
 	}, [slashSearchQuery]);
 
+	// Skills filtered for slash menu (using slashSearchQuery)
+	const filteredSkillsForSlashMenu: FilteredSkill[] = useMemo(() => {
+		const query = slashSearchQuery.trim().replace(/^\/+/, '');
+		if (!query) {
+			return skills.map((skill) => ({ skill, indices: null, score: 0 }));
+		}
+
+		const results: FilteredSkill[] = [];
+
+		for (const skill of skills) {
+			const matchName = fuzzyMatch(skill.name, query);
+			const matchDesc = fuzzyMatch(skill.description, query);
+
+			const candidates = [matchName, matchDesc].filter((m): m is NonNullable<typeof m> => m !== null);
+			if (candidates.length > 0) {
+				const best = candidates.sort((a, b) => a.score - b.score)[0];
+				results.push({ skill, indices: best.indices, score: best.score });
+			}
+		}
+
+		return results.sort((a, b) => a.score - b.score);
+	}, [slashSearchQuery, skills]);
+
+	// Prompts filtered for slash menu (using slashSearchQuery)
+	type FilteredPrompt = {
+		prompt: CustomPrompt;
+		indices: number[] | null;
+		score: number;
+	};
+
+	const filteredPromptsForSlashMenu: FilteredPrompt[] = useMemo(() => {
+		const query = slashSearchQuery.trim().replace(/^\/+/, '');
+		if (!query) {
+			return prompts.map((prompt) => ({ prompt, indices: null, score: 0 }));
+		}
+
+		const results: FilteredPrompt[] = [];
+
+		for (const prompt of prompts) {
+			// Match against "prompts:name" format or just "name"
+			const displayName = `prompts:${prompt.name}`;
+			const matchDisplay = fuzzyMatch(displayName, query);
+			const matchName = fuzzyMatch(prompt.name, query);
+			const matchDesc = prompt.description ? fuzzyMatch(prompt.description, query) : null;
+
+			const candidates = [matchDisplay, matchName, matchDesc].filter((m): m is NonNullable<typeof m> => m !== null);
+			if (candidates.length > 0) {
+				const best = candidates.sort((a, b) => a.score - b.score)[0];
+				results.push({ prompt, indices: best.indices, score: best.score });
+			}
+		}
+
+		return results.sort((a, b) => a.score - b.score);
+	}, [slashSearchQuery, prompts]);
+
+	// Total items count for slash menu (commands + prompts + skills)
+	const slashMenuTotalItems = filteredSlashCommands.length + filteredPromptsForSlashMenu.length + filteredSkillsForSlashMenu.length;
+
 	// Filtered skills with fuzzy matching
 	type FilteredSkill = {
 		skill: SkillMetadata;
@@ -1363,47 +1475,51 @@ export function CodexChat() {
 		return results.sort((a, b) => a.score - b.score);
 	}, [skillSearchQuery, skills]);
 
-	// Execute skill selection - insert $skillname into input
+	// Execute skill selection - insert $skill-name into input (like TUI2)
 	const executeSkillSelection = useCallback(
-		(skillName: string) => {
+		(skill: SkillMetadata) => {
 			setIsSkillMenuOpen(false);
+			setIsSlashMenuOpen(false);
 			setSkillSearchQuery('');
+			setSlashSearchQuery('');
 			setSkillHighlightIndex(0);
+			setSlashHighlightIndex(0);
+			setSelectedSkill(skill);
 
-			// Insert $skillname at cursor position or replace existing $query
+			// Insert $skill-name at cursor position (like TUI2's insert_selected_skill)
 			const textarea = textareaRef.current;
-			if (!textarea) {
-				setInput((prev) => `$${skillName} ${prev}`);
-				return;
-			}
-
-			const cursorPos = textarea.selectionStart ?? 0;
-			const text = input;
-
-			// Find the $ that triggered the menu
-			let dollarPos = -1;
-			for (let i = cursorPos - 1; i >= 0; i--) {
-				if (text[i] === '$') {
-					dollarPos = i;
-					break;
-				}
-				if (/\s/.test(text[i])) break;
-			}
-
-			if (dollarPos >= 0) {
-				// Replace from $ to cursor with $skillname
-				const before = text.slice(0, dollarPos);
-				const after = text.slice(cursorPos);
-				setInput(`${before}$${skillName} ${after}`);
-			} else {
-				// Just insert at cursor
-				const before = text.slice(0, cursorPos);
-				const after = text.slice(cursorPos);
-				setInput(`${before}$${skillName} ${after}`);
+			if (textarea) {
+				const cursorPos = textarea.selectionStart ?? input.length;
+				const before = input.slice(0, cursorPos);
+				const after = input.slice(cursorPos);
+				const inserted = `$${skill.name} `;
+				setInput(before + inserted + after);
 			}
 
 			// Focus back to textarea
-			setTimeout(() => textarea.focus(), 0);
+			setTimeout(() => textareaRef.current?.focus(), 0);
+		},
+		[input]
+	);
+
+	// Execute prompt selection - insert /prompts:name into input (like TUI2)
+	const executePromptSelection = useCallback(
+		(prompt: CustomPrompt) => {
+			setIsSlashMenuOpen(false);
+			setIsSkillMenuOpen(false);
+			setSlashSearchQuery('');
+			setSkillSearchQuery('');
+			setSlashHighlightIndex(0);
+			setSkillHighlightIndex(0);
+			setSelectedPrompt(prompt);
+
+			// Insert /prompts:name at the beginning of input (like TUI2's prompt_selection_action)
+			// For prompts with arguments, we'd need to add placeholders, but for now just insert the command
+			const promptCmd = `/prompts:${prompt.name} `;
+			setInput(promptCmd + input.trim());
+
+			// Focus back to textarea
+			setTimeout(() => textareaRef.current?.focus(), 0);
 		},
 		[input]
 	);
@@ -1549,14 +1665,14 @@ export function CodexChat() {
 					e.preventDefault();
 					const selected = filteredSkills[skillHighlightIndex];
 					if (selected) {
-						executeSkillSelection(selected.skill.name);
+						executeSkillSelection(selected.skill);
 					}
 					return;
 				}
 				if (e.key === 'Enter' && !e.shiftKey) {
 					e.preventDefault();
 					const selected = filteredSkills[skillHighlightIndex];
-					if (selected) executeSkillSelection(selected.skill.name);
+					if (selected) executeSkillSelection(selected.skill);
 					return;
 				}
 				if (e.key === 'Escape') {
@@ -1567,11 +1683,11 @@ export function CodexChat() {
 				}
 			}
 
-			// Slash menu navigation
+			// Slash menu navigation (commands + prompts + skills)
 			if (isSlashMenuOpen) {
 				if (e.key === 'ArrowDown') {
 					e.preventDefault();
-					setSlashHighlightIndex((i) => Math.min(i + 1, filteredSlashCommands.length - 1));
+					setSlashHighlightIndex((i) => Math.min(i + 1, slashMenuTotalItems - 1));
 					return;
 				}
 				if (e.key === 'ArrowUp') {
@@ -1582,19 +1698,46 @@ export function CodexChat() {
 				// Tab 键补全
 				if (e.key === 'Tab') {
 					e.preventDefault();
-					const selected = filteredSlashCommands[slashHighlightIndex];
-					if (selected) {
-						// 补全命令名称到输入框，添加空格
-						setInput(`/${selected.cmd.id} `);
-						setIsSlashMenuOpen(false);
-						setSlashSearchQuery('');
+					if (slashHighlightIndex < filteredSlashCommands.length) {
+						const selected = filteredSlashCommands[slashHighlightIndex];
+						if (selected) {
+							setInput(`/${selected.cmd.id} `);
+							setIsSlashMenuOpen(false);
+							setSlashSearchQuery('');
+						}
+					} else if (slashHighlightIndex < filteredSlashCommands.length + filteredPromptsForSlashMenu.length) {
+						const promptIdx = slashHighlightIndex - filteredSlashCommands.length;
+						const selected = filteredPromptsForSlashMenu[promptIdx];
+						if (selected) {
+							executePromptSelection(selected.prompt);
+						}
+					} else {
+						const skillIdx = slashHighlightIndex - filteredSlashCommands.length - filteredPromptsForSlashMenu.length;
+						const selected = filteredSkillsForSlashMenu[skillIdx];
+						if (selected) {
+							executeSkillSelection(selected.skill);
+						}
 					}
 					return;
 				}
 				if (e.key === 'Enter' && !e.shiftKey) {
 					e.preventDefault();
-					const selected = filteredSlashCommands[slashHighlightIndex];
-					if (selected) executeSlashCommand(selected.cmd.id);
+					if (slashHighlightIndex < filteredSlashCommands.length) {
+						const selected = filteredSlashCommands[slashHighlightIndex];
+						if (selected) executeSlashCommand(selected.cmd.id);
+					} else if (slashHighlightIndex < filteredSlashCommands.length + filteredPromptsForSlashMenu.length) {
+						const promptIdx = slashHighlightIndex - filteredSlashCommands.length;
+						const selected = filteredPromptsForSlashMenu[promptIdx];
+						if (selected) {
+							executePromptSelection(selected.prompt);
+						}
+					} else {
+						const skillIdx = slashHighlightIndex - filteredSlashCommands.length - filteredPromptsForSlashMenu.length;
+						const selected = filteredSkillsForSlashMenu[skillIdx];
+						if (selected) {
+							executeSkillSelection(selected.skill);
+						}
+					}
 					return;
 				}
 				if (e.key === 'Escape') {
@@ -1638,7 +1781,7 @@ export function CodexChat() {
 				void sendMessage();
 			}
 		},
-		[executeSlashCommand, executeSkillSelection, filteredSlashCommands, filteredSkills, input, isSlashMenuOpen, isSkillMenuOpen, sendMessage, slashHighlightIndex, skillHighlightIndex]
+		[executeSlashCommand, executeSkillSelection, executePromptSelection, filteredSlashCommands, filteredSkills, filteredPromptsForSlashMenu, filteredSkillsForSlashMenu, input, isSlashMenuOpen, isSkillMenuOpen, sendMessage, slashHighlightIndex, skillHighlightIndex, slashMenuTotalItems]
 	);
 
 	// Load auto context when enabled or thread changes
@@ -1652,7 +1795,8 @@ export function CodexChat() {
 		void loadWorkspaceRoot();
 		void loadRecentWorkspaces();
 		void loadSkills();
-	}, [listSessions, loadModelsAndChatDefaults, loadWorkspaceRoot, loadRecentWorkspaces, loadSkills]);
+		void loadPrompts();
+	}, [listSessions, loadModelsAndChatDefaults, loadWorkspaceRoot, loadRecentWorkspaces, loadSkills, loadPrompts]);
 
 	useEffect(() => {
 		let mounted = true;
@@ -2330,6 +2474,35 @@ export function CodexChat() {
 												className="flex justify-end"
 											>
 												<div className="max-w-[75%] rounded-xl bg-primary/15 px-3 py-2 text-sm text-text-main">
+													{/* Attachments in message bubble */}
+													{e.attachments && e.attachments.length > 0 ? (
+														<div className="mb-2 flex flex-wrap gap-1">
+															{e.attachments.map((att, idx) => (
+																<div
+																	key={`${e.id}-att-${idx}`}
+																	className={[
+																		'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]',
+																		att.type === 'file'
+																			? 'bg-white/10 text-text-muted'
+																			: att.type === 'skill'
+																				? 'bg-primary/20 text-primary'
+																				: 'bg-blue-500/20 text-blue-400',
+																	].join(' ')}
+																>
+																	{att.type === 'file' ? (
+																		<File className="h-3 w-3" />
+																	) : att.type === 'skill' ? (
+																		<Zap className="h-3 w-3" />
+																	) : (
+																		<FileText className="h-3 w-3" />
+																	)}
+																	<span className="max-w-[100px] truncate">
+																		{att.type === 'prompt' ? `prompts:${att.name}` : att.name}
+																	</span>
+																</div>
+															))}
+														</div>
+													) : null}
 													<div className="whitespace-pre-wrap">{e.text}</div>
 												</div>
 											</div>
@@ -2632,7 +2805,7 @@ export function CodexChat() {
 											if (e.key === 'ArrowDown') {
 												e.preventDefault();
 												if (isSlashMenuOpen) {
-													setSlashHighlightIndex((i) => Math.min(i + 1, filteredSlashCommands.length - 1));
+													setSlashHighlightIndex((i) => Math.min(i + 1, slashMenuTotalItems - 1));
 												} else if (isSkillMenuOpen) {
 													setSkillHighlightIndex((i) => Math.min(i + 1, filteredSkills.length - 1));
 												}
@@ -2651,17 +2824,31 @@ export function CodexChat() {
 											if (e.key === 'Tab') {
 												e.preventDefault();
 												if (isSlashMenuOpen) {
-													const selected = filteredSlashCommands[slashHighlightIndex];
-													if (selected) {
-														setInput(`/${selected.cmd.id} `);
-														setIsSlashMenuOpen(false);
-														setSlashSearchQuery('');
-														textareaRef.current?.focus();
+													if (slashHighlightIndex < filteredSlashCommands.length) {
+														const selected = filteredSlashCommands[slashHighlightIndex];
+														if (selected) {
+															setInput(`/${selected.cmd.id} `);
+															setIsSlashMenuOpen(false);
+															setSlashSearchQuery('');
+															textareaRef.current?.focus();
+														}
+													} else if (slashHighlightIndex < filteredSlashCommands.length + filteredPromptsForSlashMenu.length) {
+														const promptIdx = slashHighlightIndex - filteredSlashCommands.length;
+														const selected = filteredPromptsForSlashMenu[promptIdx];
+														if (selected) {
+															executePromptSelection(selected.prompt);
+														}
+													} else {
+														const skillIdx = slashHighlightIndex - filteredSlashCommands.length - filteredPromptsForSlashMenu.length;
+														const selected = filteredSkillsForSlashMenu[skillIdx];
+														if (selected) {
+															executeSkillSelection(selected.skill);
+														}
 													}
 												} else if (isSkillMenuOpen) {
 													const selected = filteredSkills[skillHighlightIndex];
 													if (selected) {
-														executeSkillSelection(selected.skill.name);
+														executeSkillSelection(selected.skill);
 													}
 												}
 												return;
@@ -2670,11 +2857,25 @@ export function CodexChat() {
 											if (e.key === 'Enter') {
 												e.preventDefault();
 												if (isSlashMenuOpen) {
-													const selected = filteredSlashCommands[slashHighlightIndex];
-													if (selected) executeSlashCommand(selected.cmd.id);
+													if (slashHighlightIndex < filteredSlashCommands.length) {
+														const selected = filteredSlashCommands[slashHighlightIndex];
+														if (selected) executeSlashCommand(selected.cmd.id);
+													} else if (slashHighlightIndex < filteredSlashCommands.length + filteredPromptsForSlashMenu.length) {
+														const promptIdx = slashHighlightIndex - filteredSlashCommands.length;
+														const selected = filteredPromptsForSlashMenu[promptIdx];
+														if (selected) {
+															executePromptSelection(selected.prompt);
+														}
+													} else {
+														const skillIdx = slashHighlightIndex - filteredSlashCommands.length - filteredPromptsForSlashMenu.length;
+														const selected = filteredSkillsForSlashMenu[skillIdx];
+														if (selected) {
+															executeSkillSelection(selected.skill);
+														}
+													}
 												} else if (isSkillMenuOpen) {
 													const selected = filteredSkills[skillHighlightIndex];
-													if (selected) executeSkillSelection(selected.skill.name);
+													if (selected) executeSkillSelection(selected.skill);
 												}
 												return;
 											}
@@ -2701,7 +2902,7 @@ export function CodexChat() {
 									{/* Content list */}
 									<div className={MENU_STYLES.listContainer}>
 										{isSkillMenuOpen ? (
-											// Skills list
+											// Skills list (triggered by $)
 											filteredSkills.length > 0 ? (
 												filteredSkills.map(({ skill, indices }, idx) => (
 													<button
@@ -2710,7 +2911,7 @@ export function CodexChat() {
 														className={
 															idx === skillHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
 														}
-														onClick={() => executeSkillSelection(skill.name)}
+														onClick={() => executeSkillSelection(skill)}
 														onMouseEnter={() => setSkillHighlightIndex(idx)}
 													>
 														<Zap className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
@@ -2730,64 +2931,136 @@ export function CodexChat() {
 												</div>
 											)
 										) : isSlashMenuOpen ? (
-											// Slash commands list
-											filteredSlashCommands.map(({ cmd, indices }, idx) => {
-												const IconComponent =
-													cmd.icon === 'cpu'
-														? Cpu
-														: cmd.icon === 'shield'
-															? Shield
-															: cmd.icon === 'zap'
-																? Zap
-																: cmd.icon === 'search'
-																	? Search
-																	: cmd.icon === 'plus'
-																		? Plus
-																		: cmd.icon === 'play'
-																			? Play
-																			: cmd.icon === 'file-plus'
-																				? FilePlus
-																				: cmd.icon === 'minimize'
-																					? Minimize2
-																					: cmd.icon === 'git-branch'
-																						? GitBranch
-																						: cmd.icon === 'at-sign'
-																							? AtSign
-																							: cmd.icon === 'info'
-																								? Info
-																								: cmd.icon === 'tool'
-																									? Wrench
-																									: cmd.icon === 'log-out'
-																										? LogOut
-																										: cmd.icon === 'x'
-																											? X
-																											: cmd.icon === 'message'
-																												? FileText
-																												: cmd.icon === 'trash'
-																													? Trash2
-																													: cmd.icon === 'paperclip'
-																														? Paperclip
-																														: Search;
-												return (
-													<button
-														key={cmd.id}
-														type="button"
-														className={
-															idx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
-														}
-														onClick={() => executeSlashCommand(cmd.id)}
-														onMouseEnter={() => setSlashHighlightIndex(idx)}
-													>
-														<IconComponent className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
-														<span>
-															{indices && indices.length > 0
-																? highlightMatches(cmd.label, indices)
-																: cmd.label}
-														</span>
-														<span className={MENU_STYLES.popoverItemDesc}>{cmd.description}</span>
-													</button>
-												);
-											})
+											// Slash menu: Commands + Prompts + Skills
+											<>
+												{/* Commands section */}
+												{filteredSlashCommands.length > 0 && (
+													<>
+														<div className={MENU_STYLES.popoverTitle}>Commands</div>
+														{filteredSlashCommands.map(({ cmd, indices }, idx) => {
+															const IconComponent =
+																cmd.icon === 'cpu'
+																	? Cpu
+																	: cmd.icon === 'shield'
+																		? Shield
+																		: cmd.icon === 'zap'
+																			? Zap
+																			: cmd.icon === 'search'
+																				? Search
+																				: cmd.icon === 'plus'
+																					? Plus
+																					: cmd.icon === 'play'
+																						? Play
+																						: cmd.icon === 'file-plus'
+																							? FilePlus
+																							: cmd.icon === 'minimize'
+																								? Minimize2
+																								: cmd.icon === 'git-branch'
+																									? GitBranch
+																									: cmd.icon === 'at-sign'
+																										? AtSign
+																										: cmd.icon === 'info'
+																											? Info
+																											: cmd.icon === 'tool'
+																												? Wrench
+																												: cmd.icon === 'log-out'
+																													? LogOut
+																													: cmd.icon === 'x'
+																														? X
+																														: cmd.icon === 'message'
+																															? FileText
+																															: cmd.icon === 'trash'
+																																? Trash2
+																																: cmd.icon === 'paperclip'
+																																	? Paperclip
+																																	: Search;
+															return (
+																<button
+																	key={cmd.id}
+																	type="button"
+																	className={
+																		idx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
+																	}
+																	onClick={() => executeSlashCommand(cmd.id)}
+																	onMouseEnter={() => setSlashHighlightIndex(idx)}
+																>
+																	<IconComponent className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+																	<span>
+																		{indices && indices.length > 0
+																			? highlightMatches(cmd.label, indices)
+																			: cmd.label}
+																	</span>
+																	<span className={MENU_STYLES.popoverItemDesc}>{cmd.description}</span>
+																</button>
+															);
+														})}
+													</>
+												)}
+												{/* Prompts section */}
+												{filteredPromptsForSlashMenu.length > 0 && (
+													<>
+														<div className={`${MENU_STYLES.popoverTitle} ${filteredSlashCommands.length > 0 ? 'mt-2 border-t border-white/10 pt-2' : ''}`}>Prompts</div>
+														{filteredPromptsForSlashMenu.map(({ prompt, indices }, idx) => {
+															const globalIdx = filteredSlashCommands.length + idx;
+															return (
+																<button
+																	key={prompt.name}
+																	type="button"
+																	className={
+																		globalIdx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
+																	}
+																	onClick={() => executePromptSelection(prompt)}
+																	onMouseEnter={() => setSlashHighlightIndex(globalIdx)}
+																>
+																	<FileText className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+																	<span>
+																		{indices && indices.length > 0
+																			? highlightMatches(`prompts:${prompt.name}`, indices)
+																			: `prompts:${prompt.name}`}
+																	</span>
+																	<span className={MENU_STYLES.popoverItemDesc}>
+																		{prompt.description || 'send saved prompt'}
+																	</span>
+																</button>
+															);
+														})}
+													</>
+												)}
+												{/* Skills section */}
+												{filteredSkillsForSlashMenu.length > 0 && (
+													<>
+														<div className={`${MENU_STYLES.popoverTitle} ${(filteredSlashCommands.length > 0 || filteredPromptsForSlashMenu.length > 0) ? 'mt-2 border-t border-white/10 pt-2' : ''}`}>Skills</div>
+														{filteredSkillsForSlashMenu.map(({ skill, indices }, idx) => {
+															const globalIdx = filteredSlashCommands.length + filteredPromptsForSlashMenu.length + idx;
+															return (
+																<button
+																	key={skill.name}
+																	type="button"
+																	className={
+																		globalIdx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
+																	}
+																	onClick={() => executeSkillSelection(skill)}
+																	onMouseEnter={() => setSlashHighlightIndex(globalIdx)}
+																>
+																	<Zap className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+																	<span>
+																		{indices && indices.length > 0
+																			? highlightMatches(skill.name, indices)
+																			: skill.name}
+																	</span>
+																	<span className={MENU_STYLES.popoverItemDesc}>
+																		{skill.shortDescription || skill.description}
+																	</span>
+																</button>
+															);
+														})}
+													</>
+												)}
+												{/* Empty state */}
+												{filteredSlashCommands.length === 0 && filteredPromptsForSlashMenu.length === 0 && filteredSkillsForSlashMenu.length === 0 && (
+													<div className={`${MENU_STYLES.popoverItemDesc} px-2 py-1`}>No matching commands, prompts or skills</div>
+												)}
+											</>
 										) : (
 											// File search results
 											<>
@@ -2830,9 +3103,10 @@ export function CodexChat() {
 							</>
 						) : null}
 
-						{/* File attachments display */}
-						{fileAttachments.length > 0 ? (
+						{/* Attachments display: files, skills, prompts */}
+						{(fileAttachments.length > 0 || selectedSkill || selectedPrompt) ? (
 							<div className="mb-2 flex flex-wrap gap-1.5">
+								{/* File attachments */}
 								{fileAttachments.map((f) => (
 									<div
 										key={f.path}
@@ -2853,6 +3127,34 @@ export function CodexChat() {
 										</button>
 									</div>
 								))}
+								{/* Selected skill */}
+								{selectedSkill ? (
+									<div className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2 py-1 text-xs text-primary">
+										<Zap className="h-3.5 w-3.5" />
+										<span className="max-w-[120px] truncate">{selectedSkill.name}</span>
+										<button
+											type="button"
+											className="rounded p-0.5 hover:bg-primary/20"
+											onClick={() => setSelectedSkill(null)}
+										>
+											<X className="h-3 w-3" />
+										</button>
+									</div>
+								) : null}
+								{/* Selected prompt */}
+								{selectedPrompt ? (
+									<div className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-xs text-blue-400">
+										<FileText className="h-3.5 w-3.5" />
+										<span className="max-w-[120px] truncate">prompts:{selectedPrompt.name}</span>
+										<button
+											type="button"
+											className="rounded p-0.5 hover:bg-blue-500/20"
+											onClick={() => setSelectedPrompt(null)}
+										>
+											<X className="h-3 w-3" />
+										</button>
+									</div>
+								) : null}
 							</div>
 						) : null}
 
@@ -2938,17 +3240,30 @@ export function CodexChat() {
 								</button>
 							</div>
 
-							{/* Send button */}
-							<button
-								type="button"
-								className="flex h-7 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-50"
-								onClick={() => void sendMessage()}
-								disabled={sending || input.trim().length === 0}
-								title="Send (Ctrl/Cmd+Enter)"
-							>
-								<ArrowUp className="h-4 w-4" />
-								<span>Send</span>
-							</button>
+							{/* Send/Stop button */}
+							{activeTurnId && selectedThreadId ? (
+								<button
+									type="button"
+									className="relative flex h-8 w-8 items-center justify-center rounded-full bg-bg-panelHover"
+									onClick={() => void apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId)}
+									title="Stop"
+								>
+									{/* Spinning ring */}
+									<div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-text-muted" />
+									{/* Stop icon (red rounded square) */}
+									<div className="h-3 w-3 rounded-sm bg-status-error" />
+								</button>
+							) : (
+								<button
+									type="button"
+									className="flex h-8 w-8 items-center justify-center rounded-full bg-text-muted text-bg-panel hover:bg-text-main disabled:opacity-50"
+									onClick={() => void sendMessage()}
+									disabled={sending || (input.trim().length === 0 && !selectedSkill && !selectedPrompt)}
+									title="Send (Ctrl/Cmd+Enter)"
+								>
+									<ArrowUp className="h-5 w-5" />
+								</button>
+							)}
 						</div>
 					</div>
 
@@ -3180,21 +3495,6 @@ export function CodexChat() {
 						</div>
 
 						<div className="flex items-center gap-3">
-							{activeTurnId ? (
-								<div className="flex items-center gap-1">
-									<Loader2 className="h-4 w-4 animate-spin text-text-dim" />
-									{selectedThreadId ? (
-										<button
-											type="button"
-											className="inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] text-text-muted transition hover:bg-bg-panelHover hover:text-text-main"
-											onClick={() => void apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId)}
-										>
-											Interrupt
-										</button>
-									) : null}
-								</div>
-							) : null}
-
 							<div className="shrink-0">{contextUsageLabel}</div>
 						</div>
 					</div>
