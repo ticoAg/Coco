@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
@@ -140,6 +141,28 @@ function isCollapsibleEntry(
 
 type ApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
 
+function repoNameFromPath(path: string): string {
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : path;
+}
+
+function wrapUserInputWithRepoContext(options: {
+  userInput: string;
+  currentRepoPath: string | null;
+  relatedRepoPaths: string[];
+}): string {
+  const lines: string[] = ["# Context from my IDE setup:", ""];
+  if (options.currentRepoPath) {
+    lines.push(`## Current repo: ${options.currentRepoPath}`);
+  }
+  for (const path of options.relatedRepoPaths) {
+    lines.push(`## Related repo: ${path}`);
+  }
+  lines.push("", "## My request for Codex:", options.userInput);
+  return lines.join("\n");
+}
+
 function reasoningEffortLabelEn(effort: ReasoningEffort): string {
   switch (effort) {
     case "none":
@@ -266,10 +289,6 @@ function errorMessage(err: unknown, fallback: string): string {
   } catch {
     return fallback;
   }
-}
-
-function formatEpochSeconds(value: number): string {
-  return new Date(value * 1000).toLocaleString();
 }
 
 function safeString(value: unknown): string {
@@ -485,6 +504,9 @@ export function CodexChat() {
   const [collapsedActivityByTurnId, setCollapsedActivityByTurnId] = useState<
     Record<string, boolean>
   >({});
+  const [collapsedRepliesByTurnId, setCollapsedRepliesByTurnId] = useState<
+    Record<string, boolean>
+  >({});
   const [_itemToTurnId, setItemToTurnId] = useState<Record<string, string>>({});
   const [collapsedByEntryId, setCollapsedByEntryId] = useState<
     Record<string, boolean>
@@ -524,10 +546,16 @@ export function CodexChat() {
     envCount?: number;
   } | null>(null);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
+  const [workspaceRootError, setWorkspaceRootError] = useState<string | null>(
+    null,
+  );
   const itemToTurnRef = useRef<Record<string, string>>({});
+  const relatedRepoPathsByThreadIdRef = useRef<Record<string, string[]>>({});
 
   // Context management state
   const [autoContext, setAutoContext] = useState<AutoContextInfo | null>(null);
+  const [relatedRepoPaths, setRelatedRepoPaths] = useState<string[]>([]);
   const [fileAttachments, setFileAttachments] = useState<FileAttachment[]>([]);
   const [isAddContextOpen, setIsAddContextOpen] = useState(false);
   const [fileSearchQuery, setFileSearchQuery] = useState("");
@@ -542,6 +570,16 @@ export function CodexChat() {
     persistCodexChatSettings(settings);
   }, [settings]);
 
+  useEffect(() => {
+    if (!selectedThreadId) {
+      setRelatedRepoPaths([]);
+      return;
+    }
+    setRelatedRepoPaths(
+      relatedRepoPathsByThreadIdRef.current[selectedThreadId] ?? [],
+    );
+  }, [selectedThreadId]);
+
   const loadDiagnostics = useCallback(async () => {
     setDiagnosticsError(null);
     try {
@@ -549,6 +587,16 @@ export function CodexChat() {
       setDiagnostics(res);
     } catch (err) {
       setDiagnosticsError(errorMessage(err, "Failed to load diagnostics"));
+    }
+  }, []);
+
+  const loadWorkspaceRoot = useCallback(async () => {
+    setWorkspaceRootError(null);
+    try {
+      const root = await apiClient.workspaceRootGet();
+      setWorkspaceRoot(root);
+    } catch (err) {
+      setWorkspaceRootError(errorMessage(err, "Failed to load workspace root"));
     }
   }, []);
 
@@ -856,27 +904,63 @@ export function CodexChat() {
     }
   }, [listSessions, selectedModel]);
 
+  const switchWorkspaceRoot = useCallback(async () => {
+    setWorkspaceRootError(null);
+    let selection: string | string[] | null;
+    try {
+      selection = await openDialog({ directory: true, multiple: false });
+    } catch (err) {
+      setWorkspaceRootError(
+        errorMessage(err, "Directory picker is unavailable in this build"),
+      );
+      return;
+    }
+    const selectedPath = Array.isArray(selection) ? selection[0] : selection;
+    if (typeof selectedPath !== "string" || selectedPath.length === 0) return;
+
+    try {
+      const root = await apiClient.workspaceRootSet(selectedPath);
+      setWorkspaceRoot(root);
+    } catch (err) {
+      setWorkspaceRootError(errorMessage(err, "Failed to set workspace root"));
+      return;
+    }
+
+    await createNewSession();
+  }, [createNewSession]);
+
   const sendMessage = useCallback(async () => {
-    const text = input.trim();
-    if (!text) return;
+    const userInput = input;
+    const trimmedInput = userInput.trim();
+    if (!trimmedInput) return;
 
     setSending(true);
     try {
       let threadId = selectedThreadId;
+      let currentRepoPath = activeThread?.cwd ?? null;
       if (!threadId) {
         const res = await apiClient.codexThreadStart(selectedModel);
         const thread = normalizeThreadFromResponse(res);
         if (!thread) throw new Error("Failed to start thread");
         threadId = thread.id;
+        currentRepoPath = thread.cwd ?? null;
         setSelectedThreadId(threadId);
         setActiveThread(thread);
         await listSessions();
       }
 
+      const outgoingText = autoContextEnabled
+        ? wrapUserInputWithRepoContext({
+            userInput,
+            currentRepoPath,
+            relatedRepoPaths,
+          })
+        : userInput;
+
       const userEntry: ChatEntry = {
         kind: "user",
         id: `user-${crypto.randomUUID()}`,
-        text,
+        text: userInput,
       };
       setTurnOrder((prev) =>
         prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID],
@@ -904,7 +988,7 @@ export function CodexChat() {
       setInput("");
       await apiClient.codexTurnStart(
         threadId,
-        text,
+        outgoingText,
         selectedModel,
         selectedEffort,
         approvalPolicy,
@@ -949,6 +1033,9 @@ export function CodexChat() {
     selectedEffort,
     selectedModel,
     selectedThreadId,
+    autoContextEnabled,
+    activeThread?.cwd,
+    relatedRepoPaths,
   ]);
 
   const approve = useCallback(
@@ -975,7 +1062,51 @@ export function CodexChat() {
     }));
   }, []);
 
+  const toggleTurnReplies = useCallback((turnId: string) => {
+    setCollapsedRepliesByTurnId((prev) => {
+      const nextCollapsed = !(prev[turnId] ?? false);
+      if (nextCollapsed) {
+        setCollapsedActivityByTurnId((activityPrev) => ({
+          ...activityPrev,
+          [turnId]: true,
+        }));
+      }
+      return { ...prev, [turnId]: nextCollapsed };
+    });
+  }, []);
+
   // Context management callbacks
+  const addRelatedRepoDir = useCallback(async () => {
+    if (!selectedThreadId) return;
+    const currentRepoPath = activeThread?.cwd;
+    if (!currentRepoPath) return;
+
+    const selection = await openDialog({ directory: true, multiple: false });
+    const selectedPath = Array.isArray(selection) ? selection[0] : selection;
+    if (typeof selectedPath !== "string" || selectedPath.length === 0) return;
+
+    setRelatedRepoPaths((prev) => {
+      if (prev.length >= 3) return prev;
+      if (selectedPath === currentRepoPath) return prev;
+      if (prev.includes(selectedPath)) return prev;
+      const next = [...prev, selectedPath];
+      relatedRepoPathsByThreadIdRef.current[selectedThreadId] = next;
+      return next;
+    });
+  }, [activeThread?.cwd, selectedThreadId]);
+
+  const removeRelatedRepoDir = useCallback(
+    (path: string) => {
+      if (!selectedThreadId) return;
+      setRelatedRepoPaths((prev) => {
+        const next = prev.filter((p) => p !== path);
+        relatedRepoPathsByThreadIdRef.current[selectedThreadId] = next;
+        return next;
+      });
+    },
+    [selectedThreadId],
+  );
+
   const loadAutoContext = useCallback(async () => {
     if (!autoContextEnabled) {
       setAutoContext(null);
@@ -1198,7 +1329,8 @@ export function CodexChat() {
   useEffect(() => {
     listSessions();
     loadModelsAndChatDefaults();
-  }, [listSessions, loadModelsAndChatDefaults]);
+    void loadWorkspaceRoot();
+  }, [listSessions, loadModelsAndChatDefaults, loadWorkspaceRoot]);
 
   useEffect(() => {
     let mounted = true;
@@ -1566,22 +1698,46 @@ export function CodexChat() {
 
       const chatEntries = visible.filter((e) => !isActivityEntry(e));
       const activityEntries = visible.filter(isActivityEntry);
+      const userEntries = chatEntries.filter(
+        (e) => e.kind === "user",
+      ) as Extract<ChatEntry, { kind: "user" }>[];
+      const replyEntries = chatEntries.filter((e) => e.kind !== "user");
+      const assistantMessages = replyEntries.filter(
+        (e): e is Extract<ChatEntry, { kind: "assistant" }> =>
+          e.kind === "assistant" && e.role === "message",
+      );
+      const finalAssistantMessageId =
+        assistantMessages.length > 0
+          ? assistantMessages[assistantMessages.length - 1].id
+          : null;
 
       return {
         id: turn.id,
         status: turn.status,
         chatEntries,
+        userEntries,
+        replyEntries,
+        finalAssistantMessageId,
         activityEntries,
       };
     });
   }, [settings.showReasoning, turnBlocks]);
 
   const renderCount = useMemo(() => {
-    return renderTurns.reduce(
-      (acc, t) => acc + t.chatEntries.length + t.activityEntries.length,
-      0,
-    );
-  }, [renderTurns]);
+    return renderTurns.reduce((acc, t) => {
+      const repliesCollapsed = collapsedRepliesByTurnId[t.id] ?? false;
+      const activityCollapsed = collapsedActivityByTurnId[t.id] ?? true;
+
+      const visibleRepliesCount = repliesCollapsed
+        ? t.replyEntries.filter((e) => e.kind === "system").length +
+          (t.finalAssistantMessageId ? 1 : 0)
+        : t.replyEntries.length;
+      const visibleActivityCount =
+        !repliesCollapsed && !activityCollapsed ? t.activityEntries.length : 0;
+
+      return acc + t.userEntries.length + visibleRepliesCount + visibleActivityCount;
+    }, 0);
+  }, [collapsedActivityByTurnId, collapsedRepliesByTurnId, renderTurns]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -1591,7 +1747,7 @@ export function CodexChat() {
 
   return (
     <div className="flex h-full min-h-0">
-      <aside className="flex w-[72px] shrink-0 flex-col items-center gap-4 border-r border-white/10 bg-bg-panel/40 py-6">
+      <aside className="flex w-[72px] shrink-0 flex-col items-center gap-4 border-r border-white/10 bg-bg-panel/40 pt-6 pb-0.5">
         <button
           type="button"
           className="flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/40 bg-primary/10 text-lg text-text-main"
@@ -1612,42 +1768,110 @@ export function CodexChat() {
         </div>
       </aside>
 
-      <div className="relative flex min-h-0 flex-1 flex-col px-8 py-6">
+      <div className="relative flex min-h-0 flex-1 flex-col px-8 pt-6 pb-0.5">
         <div className="relative flex items-center justify-between gap-4">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <div className="truncate text-xl font-semibold">Codex</div>
               <div className="text-sm text-text-dim">· AgentMesh</div>
             </div>
-            <div className="mt-1 truncate text-xs text-text-muted">
-              {selectedThreadId ? `Thread ${selectedThreadId}` : "New session"}
-              {activeThread
-                ? ` · created ${formatEpochSeconds(activeThread.createdAt)}`
-                : ""}
+
+            <div className="mt-2 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-text-main transition hover:bg-bg-panelHover hover:text-primary"
+                  title={activeThread?.cwd ?? workspaceRoot ?? ""}
+                  onClick={() => void switchWorkspaceRoot()}
+                >
+                  <Folder className="h-4 w-4 text-text-dim" />
+                  <span className="truncate">
+                    {activeThread?.cwd || workspaceRoot
+                      ? repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? "")
+                      : "Choose workspace"}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5 text-text-dim" />
+                </button>
+                {selectedThreadId &&
+                activeThread?.cwd &&
+                relatedRepoPaths.length < 3 ? (
+                  <button
+                    type="button"
+                    className="mt-1 text-[11px] text-text-muted hover:text-text-main"
+                    onClick={() => void addRelatedRepoDir()}
+                  >
+                    + add dir
+                  </button>
+                ) : null}
+              </div>
+
+              {activeThread?.cwd && relatedRepoPaths.length > 0 ? (
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  {relatedRepoPaths.map((path) => (
+                    <div
+                      key={path}
+                      className="group inline-flex items-center rounded-full border border-white/10 bg-bg-panelHover px-2 py-0.5 text-[11px] text-text-muted"
+                      title={path}
+                    >
+                      <span className="max-w-[140px] truncate">
+                        {repoNameFromPath(path)}
+                      </span>
+                      <button
+                        type="button"
+                        className="ml-1 rounded px-1 text-status-error opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto hover:bg-white/5"
+                        onClick={() => removeRelatedRepoDir(path)}
+                        aria-label={`Remove related repo ${repoNameFromPath(path)}`}
+                      >
+                        -
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
+
+            {workspaceRootError ? (
+              <div className="mt-2 text-xs text-status-warning">
+                {workspaceRootError}
+              </div>
+            ) : null}
           </div>
 
-          <div className="relative flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-bg-panelHover text-sm hover:border-white/20"
-              onClick={() => {
-                setIsSettingsMenuOpen(false);
-                setIsSessionsOpen(true);
-              }}
-              title="Sessions"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
+          <div className="relative flex shrink-0 items-center">
+            <div className="inline-flex items-center rounded-xl border border-white/10 bg-bg-panel/40 p-1 backdrop-blur">
+              <button
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-sm text-text-main hover:bg-bg-panelHover"
+                onClick={() => {
+                  setIsSettingsMenuOpen(false);
+                  setIsSessionsOpen(true);
+                }}
+                title="Sessions"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
 
-            <button
-              type="button"
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-bg-panelHover text-sm hover:border-white/20"
-              onClick={() => setIsSettingsMenuOpen((v) => !v)}
-              title="Menu"
-            >
-              <Settings2 className="h-5 w-5" />
-            </button>
+              <button
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-sm text-text-main hover:bg-bg-panelHover"
+                onClick={() => setIsSettingsMenuOpen((v) => !v)}
+                title="Menu"
+              >
+                <Settings2 className="h-5 w-5" />
+              </button>
+
+              <button
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-sm text-text-main hover:bg-bg-panelHover"
+                onClick={() => {
+                  setIsSettingsMenuOpen(false);
+                  void createNewSession();
+                }}
+                title="New session"
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+            </div>
 
             {isSettingsMenuOpen ? (
               <>
@@ -1661,6 +1885,16 @@ export function CodexChat() {
                   <div className="px-3 py-2 text-[11px] uppercase tracking-wide text-text-dim">
                     Menu
                   </div>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
+                    onClick={() => {
+                      setIsSettingsMenuOpen(false);
+                      void switchWorkspaceRoot();
+                    }}
+                  >
+                    Switch workspace…
+                  </button>
                   <button
                     type="button"
                     className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
@@ -1701,27 +1935,53 @@ export function CodexChat() {
           ref={scrollRef}
           className="mt-4 min-h-0 flex-1 space-y-4 overflow-auto pb-4"
         >
-          {renderCount === 0 ? (
-            <div className="rounded-xl border border-white/10 bg-bg-panel/70 p-4 text-center text-sm text-text-muted backdrop-blur">
-              {selectedThreadId
-                ? "No messages yet."
-                : "Start a new session and say hello."}
-            </div>
-          ) : null}
-
           {renderTurns.map((turn) => {
             const activityCollapsed =
               collapsedActivityByTurnId[turn.id] ?? true;
+            const repliesCollapsed = collapsedRepliesByTurnId[turn.id] ?? false;
             const hasActivity = turn.activityEntries.length > 0;
+            const replyEntries = repliesCollapsed
+              ? turn.replyEntries.filter((e) => {
+                  if (e.kind === "system") return true;
+                  return (
+                    e.kind === "assistant" &&
+                    e.role === "message" &&
+                    e.id === turn.finalAssistantMessageId
+                  );
+                })
+              : turn.replyEntries;
 
             return (
               <div key={turn.id} className="space-y-2">
+                <div className="space-y-2">
+                  {turn.userEntries.map((e) => (
+                    <div key={e.id} className="flex justify-end">
+                      <div className="max-w-[75%] rounded-xl bg-primary/15 px-3 py-2 text-sm text-text-main">
+                        <div className="whitespace-pre-wrap">{e.text}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
                 <div className="flex items-center justify-between gap-2 text-xs text-text-dim">
-                  <div className="truncate">
-                    {turnStatusLabel(turn.status)}
-                    {turn.id === PENDING_TURN_ID ? " (pending)" : ""}
-                  </div>
-                  {hasActivity ? (
+                  <button
+                    type="button"
+                    className="rounded-full border border-white/10 bg-bg-panelHover px-3 py-1 text-[11px] hover:border-white/20"
+                    onClick={() => toggleTurnReplies(turn.id)}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      <span className="truncate">
+                        {turnStatusLabel(turn.status)}
+                        {turn.id === PENDING_TURN_ID ? " (pending)" : ""}
+                      </span>
+                      {repliesCollapsed ? (
+                        <ChevronRight className="h-3 w-3" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
+                      )}
+                    </span>
+                  </button>
+                  {hasActivity && !repliesCollapsed ? (
                     <button
                       type="button"
                       className="shrink-0 rounded-full border border-white/10 bg-bg-panelHover px-2 py-0.5 text-[10px] hover:border-white/20"
@@ -1736,25 +1996,11 @@ export function CodexChat() {
                         )}
                       </span>
                     </button>
-                  ) : (
-                    <div className="shrink-0 text-[10px] text-text-dim">
-                      No activity
-                    </div>
-                  )}
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">
-                  {turn.chatEntries.map((e) => {
-                    if (e.kind === "user") {
-                      return (
-                        <div key={e.id} className="flex justify-end">
-                          <div className="max-w-[75%] rounded-xl bg-primary/15 px-3 py-2 text-sm text-text-main">
-                            <div className="whitespace-pre-wrap">{e.text}</div>
-                          </div>
-                        </div>
-                      );
-                    }
-
+                  {replyEntries.map((e) => {
                     if (e.kind === "assistant") {
                       const isReasoning = e.role === "reasoning";
                       return (
@@ -1807,7 +2053,7 @@ export function CodexChat() {
                   })}
                 </div>
 
-                {!activityCollapsed && hasActivity ? (
+                {!repliesCollapsed && !activityCollapsed && hasActivity ? (
                   <div className="space-y-2">
                     {turn.activityEntries.map((e) => {
                       if (e.kind === "command") {
@@ -2063,16 +2309,16 @@ export function CodexChat() {
             </div>
           ) : null}
 
-          <div className="mb-1.5 flex items-center gap-1.5">
+          <div className="mb-2 flex items-center gap-1.5">
             {/* + Add Context Button */}
             <div className="relative">
               <button
                 type="button"
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
+                className="flex h-6 w-6 items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
                 title="Add context"
                 onClick={() => setIsAddContextOpen((v) => !v)}
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-3.5 w-3.5" />
               </button>
 
               {isAddContextOpen ? (
@@ -2087,7 +2333,7 @@ export function CodexChat() {
                     role="button"
                     tabIndex={0}
                   />
-                  <div className="absolute bottom-[44px] left-0 z-50 w-[280px] rounded-xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
+                  <div className="absolute bottom-[32px] left-0 z-50 w-[280px] rounded-xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
                     <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/10 bg-bg-panelHover px-2 py-1.5">
                       <Search className="h-4 w-4 text-text-dim" />
                       <input
@@ -2141,11 +2387,11 @@ export function CodexChat() {
             <div className="relative">
               <button
                 type="button"
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
+                className="flex h-6 w-6 items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
                 title="Commands"
                 onClick={() => setIsSlashMenuOpen((v) => !v)}
               >
-                <Slash className="h-4 w-4" />
+                <Slash className="h-3.5 w-3.5" />
               </button>
 
               {isSlashMenuOpen ? (
@@ -2160,7 +2406,7 @@ export function CodexChat() {
                     role="button"
                     tabIndex={0}
                   />
-                  <div className="absolute bottom-[44px] left-0 z-50 w-[220px] rounded-xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
+                  <div className="absolute bottom-[32px] left-0 z-50 w-[220px] rounded-xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
                     <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/10 bg-bg-panelHover px-2 py-1.5">
                       <Slash className="h-4 w-4 text-text-dim" />
                       <input
@@ -2205,7 +2451,7 @@ export function CodexChat() {
             <button
               type="button"
               className={[
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition",
+                "inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[11px] leading-none transition",
                 autoContextEnabled
                   ? "border-primary/40 bg-primary/10 text-primary"
                   : "border-white/10 bg-bg-panelHover text-text-muted hover:border-white/20",
@@ -2220,7 +2466,7 @@ export function CodexChat() {
               <Paperclip className="h-3.5 w-3.5" />
               <span>Auto context</span>
               {autoContext?.gitStatus ? (
-                <span className="rounded bg-white/10 px-1 py-0.5 text-[10px]">
+                <span className="rounded bg-white/10 px-1 py-0.5 text-[10px] leading-none">
                   {autoContext.gitStatus.branch}
                 </span>
               ) : null}

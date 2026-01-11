@@ -225,6 +225,16 @@ export async function codexDiagnostics(): Promise<{
   }>("codex_diagnostics");
 }
 
+export async function workspaceRootGet(): Promise<string> {
+  return invoke<string>("workspace_root_get");
+}
+
+export async function workspaceRootSet(workspaceRoot: string): Promise<string> {
+  return invoke<string>("workspace_root_set", {
+    workspace_root: workspaceRoot,
+  });
+}
+
 // ============================================================================
 // Context management APIs for Auto context, + button, / button
 // ============================================================================
@@ -272,6 +282,8 @@ export const apiClient = {
   codexReadConfig,
   codexWriteConfig,
   codexDiagnostics,
+  workspaceRootGet,
+  workspaceRootSet,
   // Context management APIs
   searchWorkspaceFiles,
   readFileContent,

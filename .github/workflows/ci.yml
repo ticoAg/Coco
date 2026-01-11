@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust (fmt, check, clippy, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: fmt-check
+        run: cargo fmt --check
+
+      - name: check (exclude Tauri app)
+        run: cargo check --workspace --exclude agentmesh-app
+
+      - name: clippy (exclude Tauri app)
+        run: cargo clippy --workspace --exclude agentmesh-app -- -D warnings
+
+      - name: test (exclude Tauri app)
+        run: cargo test --workspace --exclude agentmesh-app
+
+  gui_frontend:
+    name: GUI frontend build (Vite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/gui/package-lock.json
+
+      - name: Install deps
+        run: cd apps/gui && npm ci
+
+      - name: Build
+        run: cd apps/gui && npm run build
+
+  tauri_macos:
+    name: Tauri macOS build (.app, no-sign)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/gui/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install deps
+        run: cd apps/gui && npm ci
+
+      - name: Build .app (no-sign)
+        run: cd apps/gui && npm run tauri:build -- --bundles app --no-sign --ci
+

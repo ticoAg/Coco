@@ -1,0 +1,67 @@
+name: Release (DMG)
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    name: Build & publish DMGs
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/gui/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: |
+            aarch64-apple-darwin
+            x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Resolve version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify versions match tag
+        run: node scripts/check-version.mjs --expected "${{ steps.version.outputs.version }}"
+
+      - name: Install deps
+        run: cd apps/gui && npm ci
+
+      - name: Build DMG (intel only)
+        run: cd apps/gui && npm run tauri:build -- --target x86_64-apple-darwin --bundles dmg --no-sign --ci
+
+      - name: Build DMG (apple silicon only)
+        run: cd apps/gui && npm run tauri:build -- --target aarch64-apple-darwin --bundles dmg --no-sign --ci
+
+      - name: Build DMG (universal)
+        run: cd apps/gui && npm run tauri:build -- --target universal-apple-darwin --bundles dmg --no-sign --ci
+
+      - name: List built DMGs
+        run: |
+          set -euo pipefail
+          echo "DMG files:"
+          find apps/gui/src-tauri/target -type f -path "*bundle/dmg/*.dmg" -print
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            apps/gui/src-tauri/target/**/bundle/dmg/*.dmg
+

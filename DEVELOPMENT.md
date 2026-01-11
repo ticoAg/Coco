@@ -22,18 +22,22 @@ The previous Python implementation is archived under `legacy/python/`.
 ## Common commands
 
 ```bash
-# Install GUI deps
-just gui deps
+# Install GUI deps (optional; `just dev` will auto-install when needed)
+just deps
 
 # Run the app in dev mode (Vite + Tauri)
-just gui dev
+just dev
 
 # Build a release `.app`
-just gui build
+just build
 
 # Rust checks
-just rust check
+just check
 ```
+
+## Release (macOS DMG)
+
+See `docs/agentmesh/release.md` for the tag-driven GitHub Actions release workflow and local DMG build commands.
 
 ## Workspace root (tasks)
 

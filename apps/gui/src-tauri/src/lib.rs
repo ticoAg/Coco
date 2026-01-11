@@ -4,7 +4,7 @@ mod codex_app_server;
 
 use codex_app_server::CodexAppServer;
 use codex_app_server::CodexDiagnostics;
-use tokio::sync::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,6 +62,7 @@ struct CodexThreadListResponse {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             cluster_status,
             list_tasks,
@@ -73,6 +74,8 @@ pub fn run() {
             tail_subagent_events,
             list_shared_artifacts,
             read_shared_artifact,
+            workspace_root_get,
+            workspace_root_set,
             codex_thread_list,
             codex_thread_start,
             codex_thread_resume,
@@ -108,8 +111,10 @@ pub fn run() {
         .setup(|app| {
             let workspace_root = resolve_workspace_root(app.handle())?;
             app.manage(AppState {
-                orchestrator: agentmesh_orchestrator::Orchestrator::new(workspace_root),
-                codex: Mutex::new(None),
+                orchestrator: std::sync::Mutex::new(agentmesh_orchestrator::Orchestrator::new(
+                    workspace_root,
+                )),
+                codex: TokioMutex::new(None),
             });
 
             if cfg!(debug_assertions) {
@@ -126,8 +131,8 @@ pub fn run() {
 }
 
 struct AppState {
-    orchestrator: agentmesh_orchestrator::Orchestrator,
-    codex: Mutex<Option<CodexAppServer>>,
+    orchestrator: std::sync::Mutex<agentmesh_orchestrator::Orchestrator>,
+    codex: TokioMutex<Option<CodexAppServer>>,
 }
 
 fn resolve_workspace_root<R: tauri::Runtime>(
@@ -137,6 +142,12 @@ fn resolve_workspace_root<R: tauri::Runtime>(
         let path = std::path::PathBuf::from(root);
         std::fs::create_dir_all(&path)?;
         return Ok(path);
+    }
+
+    if let Some(path) = read_persisted_workspace_root(app) {
+        if std::fs::create_dir_all(&path).is_ok() {
+            return Ok(path);
+        }
     }
 
     // Dev convenience: if running from the repo, keep state in the repo workspace root.
@@ -152,6 +163,37 @@ fn resolve_workspace_root<R: tauri::Runtime>(
     let path = app_data.join("workspace");
     std::fs::create_dir_all(&path)?;
     Ok(path)
+}
+
+fn persisted_workspace_root_path<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> tauri::Result<std::path::PathBuf> {
+    Ok(app.path().app_data_dir()?.join("workspace_root.txt"))
+}
+
+fn read_persisted_workspace_root<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Option<std::path::PathBuf> {
+    let path = persisted_workspace_root_path(app).ok()?;
+    let content = std::fs::read_to_string(path).ok()?;
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(std::path::PathBuf::from(trimmed))
+}
+
+fn persist_workspace_root<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    workspace_root: &std::path::Path,
+) -> Result<(), String> {
+    let path = persisted_workspace_root_path(app).map_err(|e| e.to_string())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, workspace_root.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn validate_id(value: &str, label: &str) -> Result<(), String> {
@@ -281,14 +323,23 @@ fn collect_artifact_summaries(
 
 #[tauri::command]
 fn cluster_status(state: tauri::State<'_, AppState>) -> agentmesh_core::task::ClusterStatus {
-    state.orchestrator.cluster_status()
+    state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .cluster_status()
 }
 
 #[tauri::command]
 fn list_tasks(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<agentmesh_core::task::TaskFile>, String> {
-    state.orchestrator.list_tasks().map_err(|e| e.to_string())
+    state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .list_tasks()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -298,6 +349,8 @@ fn get_task(
 ) -> Result<agentmesh_core::task::TaskFile, String> {
     state
         .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
         .get_task(&task_id)
         .map_err(|e| e.to_string())
 }
@@ -312,6 +365,8 @@ fn get_task_events(
 ) -> Result<Vec<agentmesh_core::task::TaskEvent>, String> {
     state
         .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
         .get_task_events(&task_id, event_type_prefix.as_deref(), limit, offset)
         .map_err(|e| e.to_string())
 }
@@ -323,6 +378,8 @@ fn create_task(
 ) -> Result<agentmesh_core::task::CreateTaskResponse, String> {
     state
         .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
         .create_task(req)
         .map_err(|e| e.to_string())
 }
@@ -334,7 +391,13 @@ fn list_subagent_sessions(
 ) -> Result<Vec<SubagentSessionSummary>, String> {
     validate_id(&task_id, "task_id")?;
 
-    let agents_dir = task_agents_dir(state.orchestrator.workspace_root(), &task_id);
+    let workspace_root = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
+    let agents_dir = task_agents_dir(&workspace_root, &task_id);
     let read_dir = match std::fs::read_dir(&agents_dir) {
         Ok(entries) => entries,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -430,7 +493,13 @@ fn get_subagent_final_output(
     validate_id(&task_id, "task_id")?;
     validate_id(&agent_instance, "agent_instance")?;
 
-    let agents_dir = task_agents_dir(state.orchestrator.workspace_root(), &task_id);
+    let workspace_root = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
+    let agents_dir = task_agents_dir(&workspace_root, &task_id);
     let final_path = agents_dir
         .join(&agent_instance)
         .join("artifacts")
@@ -471,7 +540,13 @@ fn tail_subagent_events(
     validate_id(&task_id, "task_id")?;
     validate_id(&agent_instance, "agent_instance")?;
 
-    let agents_dir = task_agents_dir(state.orchestrator.workspace_root(), &task_id);
+    let workspace_root = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
+    let agents_dir = task_agents_dir(&workspace_root, &task_id);
     let events_path = agents_dir
         .join(&agent_instance)
         .join("runtime")
@@ -493,7 +568,13 @@ fn list_shared_artifacts(
     task_id: String,
     category: String,
 ) -> Result<Vec<SharedArtifactSummary>, String> {
-    let base_dir = shared_category_dir(state.orchestrator.workspace_root(), &task_id, &category)?;
+    let workspace_root = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
+    let base_dir = shared_category_dir(&workspace_root, &task_id, &category)?;
     if !base_dir.exists() {
         return Ok(Vec::new());
     }
@@ -517,7 +598,13 @@ fn read_shared_artifact(
     category: String,
     path: String,
 ) -> Result<SharedArtifactContent, String> {
-    let base_dir = shared_category_dir(state.orchestrator.workspace_root(), &task_id, &category)?;
+    let workspace_root = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
+    let base_dir = shared_category_dir(&workspace_root, &task_id, &category)?;
     let rel_path = validate_artifact_rel_path(&path)?;
     let full_path = base_dir.join(&rel_path);
     if !full_path.exists() {
@@ -559,10 +646,63 @@ async fn get_or_start_codex(
         return Ok(server);
     }
 
-    let cwd = state.orchestrator.workspace_root().to_path_buf();
+    let cwd = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
     let server = CodexAppServer::spawn(app, &cwd).await?;
     *guard = Some(server.clone());
     Ok(server)
+}
+
+#[tauri::command]
+fn workspace_root_get(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    Ok(state
+        .orchestrator
+        .lock()
+        .map_err(|_| "orchestrator lock poisoned".to_string())?
+        .workspace_root()
+        .to_string_lossy()
+        .to_string())
+}
+
+#[tauri::command]
+async fn workspace_root_set(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    workspace_root: String,
+) -> Result<String, String> {
+    let root = std::path::PathBuf::from(workspace_root.trim());
+    if root.as_os_str().is_empty() {
+        return Err("workspace_root cannot be empty".to_string());
+    }
+
+    if root.exists() && !root.is_dir() {
+        return Err("workspace_root must be a directory".to_string());
+    }
+
+    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    persist_workspace_root(&app, &root)?;
+
+    let server = {
+        let mut guard = state.codex.lock().await;
+        guard.take()
+    };
+    if let Some(server) = server {
+        server.shutdown().await;
+    }
+
+    {
+        let mut orchestrator = state
+            .orchestrator
+            .lock()
+            .map_err(|_| "orchestrator lock poisoned".to_string())?;
+        *orchestrator = agentmesh_orchestrator::Orchestrator::new(root.clone());
+    }
+
+    Ok(root.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -642,6 +782,8 @@ async fn codex_thread_start(
     let codex = get_or_start_codex(&state, app).await?;
     let cwd = state
         .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
         .workspace_root()
         .to_string_lossy()
         .to_string();

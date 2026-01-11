@@ -9,6 +9,7 @@
 - [[artifacts.md]](./artifacts.md)：产物（Artifacts）形态规范：任务目录、结构化报告、显式共享、人工介入点
 - [[roadmap.md]](./roadmap.md)：多阶段实施路线图（Codex-first：session 驱动 + 事件流提取）
 - [[gui.md]](./gui.md)：GUI 形态（Artifacts-first 的任务页面）
+- [[release.md]](./release.md)：CI / 发版流程（GitHub Actions + macOS DMG）
 - `adapters/`：运行时适配说明（首个：[`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)）
 - `prompts/`：可复用 prompt 模板（首个：[`docs/agentmesh/prompts/codex-worker.md`](./prompts/codex-worker.md)）
 

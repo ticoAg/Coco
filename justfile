@@ -14,7 +14,7 @@ deps:
 
 # 运行开发模式
 dev:
-    cd apps/gui && npm run tauri:dev
+    cd apps/gui && if [ ! -d node_modules ] || [ ! -f node_modules/.package-lock.json ] || [ package.json -nt node_modules/.package-lock.json ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then echo "[just] GUI deps missing/stale, running npm install..."; npm install; fi && npm run tauri:dev
 
 # 构建 release app
 build:
