@@ -3,29 +3,39 @@ import { listen } from '@tauri-apps/api/event';
 import { message as dialogMessage, open as openDialog } from '@tauri-apps/plugin-dialog';
 import {
 	ArrowUp,
+	AtSign,
 	Box,
 	Brain,
 	Check,
 	ChevronDown,
 	ChevronRight,
+	Cpu,
 	File,
+	FilePlus,
 	FileText,
 	Folder,
+	GitBranch,
 	Image,
 	Info,
 	Loader2,
+	LogOut,
 	Menu,
+	Minimize2,
 	Paperclip,
+	Play,
 	Plus,
 	RotateCw,
 	Search,
 	Settings2,
+	Shield,
 	SignalHigh,
 	SignalLow,
 	SignalMedium,
 	SignalZero,
 	Slash,
+	Trash2,
 	Users,
+	Wrench,
 	X,
 	Zap,
 } from 'lucide-react';
@@ -458,21 +468,127 @@ function turnStatusLabel(status: TurnBlockStatus): string {
 }
 
 // Slash Commands definition
+type SlashCommandIcon =
+	| 'cpu'
+	| 'shield'
+	| 'zap'
+	| 'search'
+	| 'plus'
+	| 'play'
+	| 'file-plus'
+	| 'minimize'
+	| 'git-branch'
+	| 'at-sign'
+	| 'info'
+	| 'tool'
+	| 'log-out'
+	| 'x'
+	| 'message'
+	| 'trash'
+	| 'paperclip';
+
 type SlashCommand = {
 	id: string;
 	label: string;
 	description: string;
-	icon: 'plus' | 'x' | 'paperclip' | 'info' | 'message' | 'search';
+	icon: SlashCommandIcon;
 };
 
+// 命令顺序与 TUI2 保持一致（高频命令优先）
 const SLASH_COMMANDS: SlashCommand[] = [
-	{ id: 'new', label: 'New session', description: '创建新会话', icon: 'plus' },
-	{ id: 'clear', label: 'Clear', description: '清空当前对话', icon: 'x' },
-	{ id: 'context', label: 'Enable auto context', description: '切换 Auto context', icon: 'paperclip' },
-	{ id: 'status', label: 'Status', description: '查看 thread id、context 使用情况', icon: 'info' },
+	{ id: 'model', label: 'Model', description: '选择模型和推理强度', icon: 'cpu' },
+	{ id: 'approvals', label: 'Approvals', description: '设置无需批准的操作', icon: 'shield' },
+	{ id: 'skills', label: 'Skills', description: '使用技能改进任务执行', icon: 'zap' },
+	{ id: 'review', label: 'Review', description: '审查当前更改并查找问题', icon: 'search' },
+	{ id: 'new', label: 'New', description: '开始新会话', icon: 'plus' },
+	{ id: 'resume', label: 'Resume', description: '恢复已保存的会话', icon: 'play' },
+	{ id: 'init', label: 'Init', description: '创建 AGENTS.md 文件', icon: 'file-plus' },
+	{ id: 'compact', label: 'Compact', description: '总结对话以防止达到上下文限制', icon: 'minimize' },
+	{ id: 'diff', label: 'Diff', description: '显示 git diff（包括未跟踪文件）', icon: 'git-branch' },
+	{ id: 'mention', label: 'Mention', description: '提及文件', icon: 'at-sign' },
+	{ id: 'status', label: 'Status', description: '显示当前会话配置和 token 使用情况', icon: 'info' },
+	{ id: 'mcp', label: 'MCP', description: '列出配置的 MCP 工具', icon: 'tool' },
+	{ id: 'logout', label: 'Logout', description: '登出', icon: 'log-out' },
+	{ id: 'quit', label: 'Quit', description: '退出', icon: 'x' },
 	{ id: 'feedback', label: 'Feedback', description: '发送反馈', icon: 'message' },
-	{ id: 'review', label: 'Code review', description: '进入 review 模式', icon: 'search' },
+	// GUI 特有命令
+	{ id: 'clear', label: 'Clear', description: '清空当前对话', icon: 'trash' },
+	{ id: 'context', label: 'Auto context', description: '切换 Auto context', icon: 'paperclip' },
 ];
+
+/**
+ * 模糊匹配算法 - 子序列匹配，返回匹配索引和分数（分数越小越好）
+ * 移植自 TUI2 的 fuzzy_match.rs
+ */
+function fuzzyMatch(haystack: string, needle: string): { indices: number[]; score: number } | null {
+	if (!needle) return { indices: [], score: Number.MAX_SAFE_INTEGER };
+
+	const haystackLower = haystack.toLowerCase();
+	const needleLower = needle.toLowerCase();
+
+	const indices: number[] = [];
+	let cur = 0;
+
+	for (const nc of needleLower) {
+		let found = false;
+		while (cur < haystackLower.length) {
+			if (haystackLower[cur] === nc) {
+				indices.push(cur);
+				cur++;
+				found = true;
+				break;
+			}
+			cur++;
+		}
+		if (!found) return null;
+	}
+
+	if (indices.length === 0) return { indices: [], score: 0 };
+
+	const firstPos = indices[0];
+	const lastPos = indices[indices.length - 1];
+	const window = lastPos - firstPos + 1 - needleLower.length;
+	let score = Math.max(0, window);
+
+	// 前缀匹配奖励
+	if (firstPos === 0) score -= 100;
+
+	return { indices, score };
+}
+
+type FilteredSlashCommand = {
+	cmd: SlashCommand;
+	indices: number[] | null;
+	score: number;
+};
+
+/**
+ * 高亮匹配的字符
+ */
+function highlightMatches(text: string, indices: number[]): React.ReactNode {
+	if (!indices || indices.length === 0) return text;
+
+	const result: React.ReactNode[] = [];
+	let lastIdx = 0;
+
+	for (const idx of indices) {
+		if (idx > lastIdx) {
+			result.push(text.slice(lastIdx, idx));
+		}
+		result.push(
+			<span key={idx} className="text-primary font-semibold">
+				{text[idx]}
+			</span>
+		);
+		lastIdx = idx + 1;
+	}
+
+	if (lastIdx < text.length) {
+		result.push(text.slice(lastIdx));
+	}
+
+	return result;
+}
 
 export function CodexChat() {
 	const [settings, setSettings] = useState<CodexChatSettings>(() => loadCodexChatSettings());
@@ -1176,12 +1292,30 @@ export function CodexChat() {
 		if (fileInputRef.current) fileInputRef.current.value = '';
 	}, []);
 
-	const filteredSlashCommands = useMemo(() => {
-		if (!slashSearchQuery.trim()) return SLASH_COMMANDS;
-		const q = slashSearchQuery.toLowerCase();
-		return SLASH_COMMANDS.filter(
-			(cmd) => cmd.label.toLowerCase().includes(q) || cmd.description.toLowerCase().includes(q)
-		);
+	const filteredSlashCommands: FilteredSlashCommand[] = useMemo(() => {
+		// 去掉前导斜杠和空白
+		const query = slashSearchQuery.trim().replace(/^\/+/, '');
+		if (!query) {
+			return SLASH_COMMANDS.map((cmd) => ({ cmd, indices: null, score: 0 }));
+		}
+
+		const results: FilteredSlashCommand[] = [];
+
+		for (const cmd of SLASH_COMMANDS) {
+			// 匹配 id 或 label
+			const matchId = fuzzyMatch(cmd.id, query);
+			const matchLabel = fuzzyMatch(cmd.label, query);
+
+			// 取最佳匹配
+			const candidates = [matchId, matchLabel].filter((m): m is NonNullable<typeof m> => m !== null);
+			if (candidates.length > 0) {
+				const best = candidates.sort((a, b) => a.score - b.score)[0];
+				results.push({ cmd, indices: best.indices, score: best.score });
+			}
+		}
+
+		// 按分数排序（分数越小越好）
+		return results.sort((a, b) => a.score - b.score);
 	}, [slashSearchQuery]);
 
 	const executeSlashCommand = useCallback(
@@ -1190,10 +1324,97 @@ export function CodexChat() {
 			setSlashSearchQuery('');
 			setSlashHighlightIndex(0);
 
+			// 辅助函数：添加系统消息
+			const addSystemMessage = (text: string, tone: 'info' | 'warning' | 'error' = 'info') => {
+				const entry: ChatEntry = {
+					kind: 'system',
+					id: `system-${cmdId}-${crypto.randomUUID()}`,
+					tone,
+					text,
+				};
+				setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]));
+				setTurnsById((prev) => {
+					const existing = prev[PENDING_TURN_ID] ?? {
+						id: PENDING_TURN_ID,
+						status: 'unknown' as const,
+						entries: [],
+					};
+					return {
+						...prev,
+						[PENDING_TURN_ID]: {
+							...existing,
+							entries: [...existing.entries, entry],
+						},
+					};
+				});
+			};
+
 			switch (cmdId) {
+				// === TUI2 命令 ===
+				case 'model':
+					setOpenStatusPopover('model');
+					break;
+				case 'approvals':
+					setOpenStatusPopover('approval_policy');
+					break;
+				case 'skills':
+					addSystemMessage('Skills 功能暂未实现', 'warning');
+					break;
+				case 'review':
+					setInput('/review ');
+					textareaRef.current?.focus();
+					break;
 				case 'new':
 					void createNewSession();
 					break;
+				case 'resume':
+					setIsSessionsOpen(true);
+					break;
+				case 'init':
+					setInput('/init');
+					textareaRef.current?.focus();
+					break;
+				case 'compact':
+					setInput('/compact');
+					textareaRef.current?.focus();
+					break;
+				case 'diff':
+					setInput('/diff');
+					textareaRef.current?.focus();
+					break;
+				case 'mention':
+					setIsAddContextOpen(true);
+					break;
+				case 'status': {
+					const tokenInfo = threadTokenUsage
+						? `Tokens: ${formatTokenCount(threadTokenUsage.totalTokens)}${threadTokenUsage.contextWindow ? ` / ${formatTokenCount(threadTokenUsage.contextWindow)}` : ''}`
+						: 'Tokens: —';
+					const statusText = [
+						`Thread: ${selectedThreadId ?? 'none'}`,
+						`Model: ${selectedModel ?? 'default'}`,
+						`Effort: ${selectedEffort ?? 'default'}`,
+						`Approval: ${approvalPolicy}`,
+						tokenInfo,
+						`Auto context: ${autoContextEnabled ? 'enabled' : 'disabled'}`,
+					].join('\n');
+					addSystemMessage(statusText);
+					break;
+				}
+				case 'mcp':
+					setInput('/mcp');
+					textareaRef.current?.focus();
+					break;
+				case 'logout':
+					addSystemMessage('Logout 功能暂未实现', 'warning');
+					break;
+				case 'quit':
+					// 尝试关闭窗口
+					window.close();
+					break;
+				case 'feedback':
+					window.open('https://github.com/anthropics/claude-code/issues', '_blank');
+					break;
+				// === GUI 特有命令 ===
 				case 'clear':
 					setTurnOrder([]);
 					setTurnsById({});
@@ -1203,46 +1424,17 @@ export function CodexChat() {
 				case 'context':
 					setAutoContextEnabled((v) => !v);
 					break;
-				case 'status': {
-					const statusText = [
-						`Thread: ${selectedThreadId ?? 'none'}`,
-						`Model: ${selectedModel ?? 'default'}`,
-						`Effort: ${selectedEffort ?? 'default'}`,
-						`Approval: ${approvalPolicy}`,
-					].join('\n');
-					const entry: ChatEntry = {
-						kind: 'system',
-						id: `system-status-${crypto.randomUUID()}`,
-						tone: 'info',
-						text: statusText,
-					};
-					setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]));
-					setTurnsById((prev) => {
-						const existing = prev[PENDING_TURN_ID] ?? {
-							id: PENDING_TURN_ID,
-							status: 'unknown' as const,
-							entries: [],
-						};
-						return {
-							...prev,
-							[PENDING_TURN_ID]: {
-								...existing,
-								entries: [...existing.entries, entry],
-							},
-						};
-					});
-					break;
-				}
-				case 'feedback':
-					window.open('https://github.com/anthropics/claude-code/issues', '_blank');
-					break;
-				case 'review':
-					setInput('/review ');
-					textareaRef.current?.focus();
-					break;
 			}
 		},
-		[approvalPolicy, createNewSession, selectedEffort, selectedModel, selectedThreadId]
+		[
+			approvalPolicy,
+			autoContextEnabled,
+			createNewSession,
+			selectedEffort,
+			selectedModel,
+			selectedThreadId,
+			threadTokenUsage,
+		]
 	);
 
 	const handleTextareaKeyDown = useCallback(
@@ -1259,10 +1451,22 @@ export function CodexChat() {
 					setSlashHighlightIndex((i) => Math.max(i - 1, 0));
 					return;
 				}
+				// Tab 键补全
+				if (e.key === 'Tab') {
+					e.preventDefault();
+					const selected = filteredSlashCommands[slashHighlightIndex];
+					if (selected) {
+						// 补全命令名称到输入框，添加空格
+						setInput(`/${selected.cmd.id} `);
+						setIsSlashMenuOpen(false);
+						setSlashSearchQuery('');
+					}
+					return;
+				}
 				if (e.key === 'Enter' && !e.shiftKey) {
 					e.preventDefault();
-					const cmd = filteredSlashCommands[slashHighlightIndex];
-					if (cmd) executeSlashCommand(cmd.id);
+					const selected = filteredSlashCommands[slashHighlightIndex];
+					if (selected) executeSlashCommand(selected.cmd.id);
 					return;
 				}
 				if (e.key === 'Escape') {
@@ -1272,10 +1476,17 @@ export function CodexChat() {
 				}
 			}
 
-			// Open slash menu when typing /
-			if (e.key === '/' && input === '') {
-				setIsSlashMenuOpen(true);
-				setSlashHighlightIndex(0);
+			// Open slash menu when typing / (不要求输入框为空)
+			if (e.key === '/') {
+				const target = e.target as HTMLTextAreaElement;
+				const cursorPos = target.selectionStart ?? 0;
+				const textBeforeCursor = input.slice(0, cursorPos);
+				// 只在行首或空白后输入 / 时触发
+				if (cursorPos === 0 || /\s$/.test(textBeforeCursor)) {
+					setIsSlashMenuOpen(true);
+					setSlashHighlightIndex(0);
+					setSlashSearchQuery('');
+				}
 			}
 
 			// Send message
@@ -2270,21 +2481,43 @@ export function CodexChat() {
 									<div className={MENU_STYLES.listContainer}>
 										{isSlashMenuOpen ? (
 											// Slash commands list
-											filteredSlashCommands.map((cmd, idx) => {
+											filteredSlashCommands.map(({ cmd, indices }, idx) => {
 												const IconComponent =
-													cmd.icon === 'plus'
-														? Plus
-														: cmd.icon === 'x'
-														? X
-														: cmd.icon === 'paperclip'
-														? Paperclip
-														: cmd.icon === 'info'
-														? Info
-														: cmd.icon === 'message'
-														? FileText
-														: cmd.icon === 'search'
-														? Search
-														: Search;
+													cmd.icon === 'cpu'
+														? Cpu
+														: cmd.icon === 'shield'
+															? Shield
+															: cmd.icon === 'zap'
+																? Zap
+																: cmd.icon === 'search'
+																	? Search
+																	: cmd.icon === 'plus'
+																		? Plus
+																		: cmd.icon === 'play'
+																			? Play
+																			: cmd.icon === 'file-plus'
+																				? FilePlus
+																				: cmd.icon === 'minimize'
+																					? Minimize2
+																					: cmd.icon === 'git-branch'
+																						? GitBranch
+																						: cmd.icon === 'at-sign'
+																							? AtSign
+																							: cmd.icon === 'info'
+																								? Info
+																								: cmd.icon === 'tool'
+																									? Wrench
+																									: cmd.icon === 'log-out'
+																										? LogOut
+																										: cmd.icon === 'x'
+																											? X
+																											: cmd.icon === 'message'
+																												? FileText
+																												: cmd.icon === 'trash'
+																													? Trash2
+																													: cmd.icon === 'paperclip'
+																														? Paperclip
+																														: Search;
 												return (
 													<button
 														key={cmd.id}
@@ -2296,7 +2529,11 @@ export function CodexChat() {
 														onMouseEnter={() => setSlashHighlightIndex(idx)}
 													>
 														<IconComponent className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
-														<span>{cmd.label}</span>
+														<span>
+															{indices && indices.length > 0
+																? highlightMatches(cmd.label, indices)
+																: cmd.label}
+														</span>
 														<span className={MENU_STYLES.popoverItemDesc}>{cmd.description}</span>
 													</button>
 												);
@@ -2386,11 +2623,26 @@ export function CodexChat() {
 							placeholder="Ask for follow-up changes"
 							value={input}
 							onChange={(e) => {
-								setInput(e.target.value);
-								// Close slash menu if input is cleared or doesn't start with /
-								if (!e.target.value.startsWith('/')) {
+								const newValue = e.target.value;
+								setInput(newValue);
+
+								// 处理 slash 命令菜单
+								const firstLine = newValue.split('\n')[0] ?? '';
+								const match = firstLine.match(/^\s*\/(\S*)/);
+
+								if (match) {
+									// 输入以 / 开头，打开菜单并更新过滤文本
+									if (!isSlashMenuOpen) {
+										setIsSlashMenuOpen(true);
+									}
+									setSlashSearchQuery(match[1] ?? '');
+									setSlashHighlightIndex(0);
+								} else if (isSlashMenuOpen) {
+									// 不再是 slash 命令，关闭菜单
 									setIsSlashMenuOpen(false);
+									setSlashSearchQuery('');
 								}
+
 								// Auto-resize textarea
 								const textarea = e.target;
 								textarea.style.height = 'auto';
