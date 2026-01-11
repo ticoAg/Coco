@@ -231,12 +231,16 @@ export async function workspaceRootGet(): Promise<string> {
 
 export async function workspaceRootSet(workspaceRoot: string): Promise<string> {
   return invoke<string>("workspace_root_set", {
-    workspace_root: workspaceRoot,
+    workspaceRoot,
   });
 }
 
 export async function workspaceRecentList(): Promise<string[]> {
   return invoke<string[]>("workspace_recent_list");
+}
+
+export async function windowNew(): Promise<string> {
+  return invoke<string>("window_new");
 }
 
 // ============================================================================
@@ -289,6 +293,7 @@ export const apiClient = {
   workspaceRootGet,
   workspaceRootSet,
   workspaceRecentList,
+  windowNew,
   // Context management APIs
   searchWorkspaceFiles,
   readFileContent,

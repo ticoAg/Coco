@@ -4,6 +4,8 @@ mod codex_app_server;
 
 use codex_app_server::CodexAppServer;
 use codex_app_server::CodexDiagnostics;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 use tokio::sync::Mutex as TokioMutex;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -77,6 +79,7 @@ pub fn run() {
             workspace_root_get,
             workspace_root_set,
             workspace_recent_list,
+            window_new,
             codex_thread_list,
             codex_thread_start,
             codex_thread_resume,
@@ -136,6 +139,8 @@ struct AppState {
     orchestrator: std::sync::Mutex<agentmesh_orchestrator::Orchestrator>,
     codex: TokioMutex<Option<CodexAppServer>>,
 }
+
+static NEXT_WINDOW_ID: AtomicU32 = AtomicU32::new(2);
 
 fn resolve_workspace_root<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
@@ -761,6 +766,21 @@ async fn workspace_root_set(
 #[tauri::command]
 fn workspace_recent_list(app: tauri::AppHandle) -> Vec<String> {
     read_recent_workspaces(&app)
+}
+
+#[tauri::command]
+fn window_new(app: tauri::AppHandle) -> Result<String, String> {
+    let id = NEXT_WINDOW_ID.fetch_add(1, Ordering::SeqCst);
+    let label = format!("main-{id}");
+
+    tauri::WebviewWindowBuilder::new(&app, label.clone(), tauri::WebviewUrl::default())
+        .title("AgentMesh")
+        .inner_size(900.0, 650.0)
+        .min_inner_size(900.0, 650.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    Ok(label)
 }
 
 #[tauri::command]
