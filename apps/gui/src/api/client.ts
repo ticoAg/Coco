@@ -128,7 +128,7 @@ export async function codexThreadStart(
 }
 
 export async function codexThreadResume(threadId: string): Promise<unknown> {
-  return invoke<unknown>("codex_thread_resume", { thread_id: threadId });
+  return invoke<unknown>("codex_thread_resume", { threadId });
 }
 
 export async function codexTurnStart(
@@ -139,11 +139,11 @@ export async function codexTurnStart(
   approvalPolicy?: string | null,
 ): Promise<unknown> {
   return invoke<unknown>("codex_turn_start", {
-    thread_id: threadId,
+    threadId,
     text,
     model: model ?? null,
     effort: effort ?? null,
-    approval_policy: approvalPolicy ?? null,
+    approvalPolicy: approvalPolicy ?? null,
   });
 }
 
@@ -152,8 +152,8 @@ export async function codexTurnInterrupt(
   turnId: string,
 ): Promise<unknown> {
   return invoke<unknown>("codex_turn_interrupt", {
-    thread_id: threadId,
-    turn_id: turnId,
+    threadId,
+    turnId,
   });
 }
 
@@ -162,7 +162,7 @@ export async function codexRespondApproval(
   decision: "accept" | "decline",
 ): Promise<void> {
   await invoke<void>("codex_respond_approval", {
-    request_id: requestId,
+    requestId,
     decision,
   });
 }
@@ -181,7 +181,7 @@ export async function codexConfigReadEffective(
   includeLayers?: boolean | null,
 ): Promise<unknown> {
   return invoke<unknown>("codex_config_read_effective", {
-    include_layers: includeLayers ?? null,
+    includeLayers: includeLayers ?? null,
   });
 }
 
@@ -192,8 +192,8 @@ export async function codexConfigWriteChatDefaults(options: {
 }): Promise<unknown> {
   return invoke<unknown>("codex_config_write_chat_defaults", {
     model: options.model ?? null,
-    model_reasoning_effort: options.modelReasoningEffort ?? null,
-    approval_policy: options.approvalPolicy ?? null,
+    modelReasoningEffort: options.modelReasoningEffort ?? null,
+    approvalPolicy: options.approvalPolicy ?? null,
   });
 }
 

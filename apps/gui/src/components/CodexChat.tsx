@@ -261,6 +261,31 @@ function statusBarItemClass(active: boolean): string {
 	].join(' ');
 }
 
+// 公共样式配置
+const MENU_STYLES = {
+	// 弹出菜单容器
+	popover: 'rounded-xl border border-white/10 bg-bg-panel/95 shadow-xl backdrop-blur',
+	// 弹出菜单标题
+	popoverTitle: 'px-2 py-1 text-[11px] text-text-dim',
+	// 弹出菜单选项
+	popoverItem:
+		'flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] text-text-main hover:bg-bg-panelHover',
+	// 弹出菜单选项（高亮）
+	popoverItemActive:
+		'flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] bg-primary/20 text-text-main',
+	// 弹出菜单选项描述
+	popoverItemDesc: 'text-[10px] text-text-dim',
+	// 图标尺寸
+	iconSm: 'h-3 w-3',
+	iconMd: 'h-3.5 w-3.5',
+	// 搜索输入框
+	searchInput: 'w-full bg-transparent text-[11px] text-text-muted outline-none placeholder:text-text-dim',
+	// 弹出菜单位置（输入框上方全宽）
+	popoverPosition: 'absolute bottom-full left-0 right-0 z-50 mb-2 p-2',
+	// 列表容器
+	listContainer: 'max-h-[240px] overflow-auto',
+};
+
 function reasoningEffortIcon(effort: ReasoningEffort, className = 'h-3 w-3'): JSX.Element {
 	switch (effort) {
 		case 'none':
@@ -437,15 +462,16 @@ type SlashCommand = {
 	id: string;
 	label: string;
 	description: string;
+	icon: 'plus' | 'x' | 'paperclip' | 'info' | 'message' | 'search';
 };
 
 const SLASH_COMMANDS: SlashCommand[] = [
-	{ id: 'new', label: '/new', description: '创建新会话' },
-	{ id: 'clear', label: '/clear', description: '清空当前对话' },
-	{ id: 'context', label: '/context', description: '切换 Auto context' },
-	{ id: 'status', label: '/status', description: '查看当前状态' },
-	{ id: 'feedback', label: '/feedback', description: '发送反馈' },
-	{ id: 'review', label: '/review', description: '进入 review 模式' },
+	{ id: 'new', label: 'New session', description: '创建新会话', icon: 'plus' },
+	{ id: 'clear', label: 'Clear', description: '清空当前对话', icon: 'x' },
+	{ id: 'context', label: 'Enable auto context', description: '切换 Auto context', icon: 'paperclip' },
+	{ id: 'status', label: 'Status', description: '查看 thread id、context 使用情况', icon: 'info' },
+	{ id: 'feedback', label: 'Feedback', description: '发送反馈', icon: 'message' },
+	{ id: 'review', label: 'Code review', description: '进入 review 模式', icon: 'search' },
 ];
 
 export function CodexChat() {
@@ -2202,7 +2228,121 @@ export function CodexChat() {
 						})}
 					</div>
 
-					<div className="-mx-6 mt-3 rounded-xl border border-white/10 bg-bg-panel/70 px-4 pb-2 pt-2 backdrop-blur">
+					<div className="relative -mx-6 mt-3 rounded-xl border border-white/10 bg-bg-panel/70 px-4 py-1 backdrop-blur">
+						{/* Popup Menu - shared container for both + and / menus */}
+						{isSlashMenuOpen || isAddContextOpen ? (
+							<>
+								<div
+									className="fixed inset-0 z-40"
+									onClick={() => {
+										if (isSlashMenuOpen) {
+											setIsSlashMenuOpen(false);
+											setSlashSearchQuery('');
+											setSlashHighlightIndex(0);
+										}
+										if (isAddContextOpen) {
+											setIsAddContextOpen(false);
+											setFileSearchQuery('');
+											setFileSearchResults([]);
+										}
+									}}
+									role="button"
+									tabIndex={0}
+								/>
+								<div className={`${MENU_STYLES.popoverPosition} ${MENU_STYLES.popover}`}>
+									{/* Search input */}
+									<input
+										type="text"
+										className={`mb-2 ${MENU_STYLES.searchInput}`}
+										placeholder={isSlashMenuOpen ? 'Search commands...' : 'Search files...'}
+										value={isSlashMenuOpen ? slashSearchQuery : fileSearchQuery}
+										onChange={(e) => {
+											if (isSlashMenuOpen) {
+												setSlashSearchQuery(e.target.value);
+												setSlashHighlightIndex(0);
+											} else {
+												void searchFiles(e.target.value);
+											}
+										}}
+										autoFocus
+									/>
+									{/* Content list */}
+									<div className={MENU_STYLES.listContainer}>
+										{isSlashMenuOpen ? (
+											// Slash commands list
+											filteredSlashCommands.map((cmd, idx) => {
+												const IconComponent =
+													cmd.icon === 'plus'
+														? Plus
+														: cmd.icon === 'x'
+														? X
+														: cmd.icon === 'paperclip'
+														? Paperclip
+														: cmd.icon === 'info'
+														? Info
+														: cmd.icon === 'message'
+														? FileText
+														: cmd.icon === 'search'
+														? Search
+														: Search;
+												return (
+													<button
+														key={cmd.id}
+														type="button"
+														className={
+															idx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
+														}
+														onClick={() => executeSlashCommand(cmd.id)}
+														onMouseEnter={() => setSlashHighlightIndex(idx)}
+													>
+														<IconComponent className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+														<span>{cmd.label}</span>
+														<span className={MENU_STYLES.popoverItemDesc}>{cmd.description}</span>
+													</button>
+												);
+											})
+										) : (
+											// File search results
+											<>
+												{fileSearchResults.length > 0 ? (
+													fileSearchResults.map((f) => (
+														<button
+															key={f.path}
+															type="button"
+															className={MENU_STYLES.popoverItem}
+															onClick={() => void addFileAttachment(f)}
+														>
+															{f.isDirectory ? (
+																<Folder className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+															) : (
+																<File className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+															)}
+															<span className="truncate">{f.path}</span>
+														</button>
+													))
+												) : fileSearchQuery ? (
+													<div className={`${MENU_STYLES.popoverItemDesc} px-2 py-1`}>No files found</div>
+												) : null}
+											</>
+										)}
+									</div>
+									{/* Add image option (only for + menu) */}
+									{isAddContextOpen ? (
+										<div className="mt-1.5 border-t border-white/10 pt-1.5">
+											<button
+												type="button"
+												className={MENU_STYLES.popoverItem}
+												onClick={() => fileInputRef.current?.click()}
+											>
+												<Image className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+												<span>Add image</span>
+											</button>
+										</div>
+									) : null}
+								</div>
+							</>
+						) : null}
+
 						{/* File attachments display */}
 						{fileAttachments.length > 0 ? (
 							<div className="mb-2 flex flex-wrap gap-1.5">
@@ -2241,7 +2381,8 @@ export function CodexChat() {
 						{/* Textarea */}
 						<textarea
 							ref={textareaRef}
-							className="mb-2 min-h-[40px] max-h-[264px] w-full resize-none overflow-y-auto bg-transparent py-2 text-sm leading-6 outline-none placeholder:text-text-dim"
+							rows={1}
+							className="m-0 h-5 max-h-[264px] w-full resize-none overflow-y-auto bg-transparent p-0 text-sm leading-5 outline-none placeholder:text-text-dim"
 							placeholder="Ask for follow-up changes"
 							value={input}
 							onChange={(e) => {
@@ -2261,137 +2402,26 @@ export function CodexChat() {
 
 						{/* Bottom row: +, /, Auto context, Send */}
 						<div className="flex items-center justify-between gap-2">
-							<div className="flex items-center gap-1.5">
+							<div className="flex items-center gap-2">
 								{/* + Add Context Button */}
-								<div className="relative">
-									<button
-										type="button"
-										className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
-										title="Add context"
-										onClick={() => setIsAddContextOpen((v) => !v)}
-									>
-										<Plus className="h-4 w-4" />
-									</button>
-
-									{isAddContextOpen ? (
-										<>
-											<div
-												className="fixed inset-0 z-40"
-												onClick={() => {
-													setIsAddContextOpen(false);
-													setFileSearchQuery('');
-													setFileSearchResults([]);
-												}}
-												role="button"
-												tabIndex={0}
-											/>
-											<div className="absolute bottom-[36px] left-0 z-50 w-[280px] rounded-xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
-												<div className="mb-2 flex items-center gap-2 rounded-lg border border-white/10 bg-bg-panelHover px-2 py-1.5">
-													<Search className="h-4 w-4 text-text-dim" />
-													<input
-														type="text"
-														className="flex-1 bg-transparent text-sm outline-none placeholder:text-text-dim"
-														placeholder="Search files..."
-														value={fileSearchQuery}
-														onChange={(e) => void searchFiles(e.target.value)}
-														autoFocus
-													/>
-												</div>
-												<div className="max-h-[200px] overflow-auto">
-													{fileSearchResults.length > 0 ? (
-														fileSearchResults.map((f) => (
-															<button
-																key={f.path}
-																type="button"
-																className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-bg-panelHover"
-																onClick={() => void addFileAttachment(f)}
-															>
-																{f.isDirectory ? (
-																	<Folder className="h-4 w-4 text-text-dim" />
-																) : (
-																	<File className="h-4 w-4 text-text-dim" />
-																)}
-																<span className="truncate">{f.path}</span>
-															</button>
-														))
-													) : fileSearchQuery ? (
-														<div className="px-2 py-1.5 text-xs text-text-muted">No files found</div>
-													) : null}
-												</div>
-												<div className="mt-2 border-t border-white/10 pt-2">
-													<button
-														type="button"
-														className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-bg-panelHover"
-														onClick={() => fileInputRef.current?.click()}
-													>
-														<Image className="h-4 w-4 text-text-dim" />
-														<span>Add image</span>
-													</button>
-												</div>
-											</div>
-										</>
-									) : null}
-								</div>
+								<button
+									type="button"
+									className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
+									title="Add context"
+									onClick={() => setIsAddContextOpen((v) => !v)}
+								>
+									<Plus className="h-3.5 w-3.5" />
+								</button>
 
 								{/* / Slash Commands Button */}
-								<div className="relative">
-									<button
-										type="button"
-										className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
-										title="Commands"
-										onClick={() => setIsSlashMenuOpen((v) => !v)}
-									>
-										<Slash className="h-4 w-4" />
-									</button>
-
-									{isSlashMenuOpen ? (
-										<>
-											<div
-												className="fixed inset-0 z-40"
-												onClick={() => {
-													setIsSlashMenuOpen(false);
-													setSlashSearchQuery('');
-													setSlashHighlightIndex(0);
-												}}
-												role="button"
-												tabIndex={0}
-											/>
-											<div className="absolute bottom-[36px] left-0 z-50 w-[220px] rounded-xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
-												<div className="mb-2 flex items-center gap-2 rounded-lg border border-white/10 bg-bg-panelHover px-2 py-1.5">
-													<Slash className="h-4 w-4 text-text-dim" />
-													<input
-														type="text"
-														className="flex-1 bg-transparent text-sm outline-none placeholder:text-text-dim"
-														placeholder="Search commands..."
-														value={slashSearchQuery}
-														onChange={(e) => {
-															setSlashSearchQuery(e.target.value);
-															setSlashHighlightIndex(0);
-														}}
-														autoFocus
-													/>
-												</div>
-												<div className="max-h-[200px] overflow-auto">
-													{filteredSlashCommands.map((cmd, idx) => (
-														<button
-															key={cmd.id}
-															type="button"
-															className={[
-																'flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm',
-																idx === slashHighlightIndex ? 'bg-bg-panelHover' : 'hover:bg-bg-panelHover',
-															].join(' ')}
-															onClick={() => executeSlashCommand(cmd.id)}
-															onMouseEnter={() => setSlashHighlightIndex(idx)}
-														>
-															<span className="font-mono text-xs">{cmd.label}</span>
-															<span className="text-xs text-text-muted">{cmd.description}</span>
-														</button>
-													))}
-												</div>
-											</div>
-										</>
-									) : null}
-								</div>
+								<button
+									type="button"
+									className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
+									title="Commands"
+									onClick={() => setIsSlashMenuOpen((v) => !v)}
+								>
+									<Slash className="h-3.5 w-3.5" />
+								</button>
 
 								{/* Auto context toggle */}
 								<button
@@ -2411,7 +2441,6 @@ export function CodexChat() {
 											: 'Auto context'
 									}
 								>
-									<Paperclip className="h-3.5 w-3.5" />
 									<span>Auto context</span>
 									{autoContext?.gitStatus ? (
 										<span className="rounded bg-white/10 px-1 py-0.5 text-[10px] leading-none">
@@ -2456,52 +2485,58 @@ export function CodexChat() {
 								</button>
 
 								{openStatusPopover === 'profile' ? (
-									<div className="absolute bottom-[28px] left-0 z-50 w-max rounded-md border border-white/10 bg-[#2a2a2a]/95 py-1.5 shadow-xl backdrop-blur">
-										<div className="px-3 py-1.5 text-[11px] text-text-dim">Switch mode</div>
+									<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
+										<div className={MENU_STYLES.popoverTitle}>Switch mode</div>
 										<button
 											type="button"
-											className="flex w-full items-center justify-between whitespace-nowrap px-3 py-1.5 text-left text-[12px] text-text-main hover:bg-white/5"
+											className={MENU_STYLES.popoverItem}
 											onClick={() => {
 												void applyApprovalPolicy('untrusted');
 												setOpenStatusPopover(null);
 											}}
 											title="需要用户批准所有操作"
 										>
-											<span className="inline-flex items-center gap-2">
-												<Users className="h-3.5 w-3.5 text-text-dim" />
-												<span>Agent</span>
-											</span>
-											<Check className={`ml-2 h-3.5 w-3.5 shrink-0 ${approvalPolicy === 'untrusted' ? '' : 'invisible'}`} />
+											<Users className={`${MENU_STYLES.iconSm} text-text-dim`} />
+											<span>Agent</span>
+											<Check
+												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${
+													approvalPolicy === 'untrusted' ? '' : 'invisible'
+												}`}
+											/>
 										</button>
 										<button
 											type="button"
-											className="flex w-full items-center justify-between whitespace-nowrap px-3 py-1.5 text-left text-[12px] text-text-main hover:bg-white/5"
+											className={MENU_STYLES.popoverItem}
 											onClick={() => {
 												void applyApprovalPolicy('never');
 												setOpenStatusPopover(null);
 											}}
 											title="自动执行所有操作，无需批准"
 										>
-											<span className="inline-flex items-center gap-2">
-												<Zap className="h-3.5 w-3.5 text-text-dim" />
-												<span>Agent (full access)</span>
-											</span>
-											<Check className={`ml-2 h-3.5 w-3.5 shrink-0 ${approvalPolicy === 'never' ? '' : 'invisible'}`} />
+											<Zap className={`${MENU_STYLES.iconSm} text-text-dim`} />
+											<span>Agent (full access)</span>
+											<Check
+												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${
+													approvalPolicy === 'never' ? '' : 'invisible'
+												}`}
+											/>
 										</button>
 										<button
 											type="button"
-											className="flex w-full items-center justify-between whitespace-nowrap px-3 py-1.5 text-left text-[12px] text-text-main hover:bg-white/5"
+											className={MENU_STYLES.popoverItem}
 											onClick={() => {
 												void applyApprovalPolicy('on-request');
 												setOpenStatusPopover(null);
 											}}
 											title="使用 config.toml 自定义批准策略"
 										>
-											<span className="inline-flex items-center gap-2">
-												<FileText className="h-3.5 w-3.5 text-text-dim" />
-												<span>Custom (config.toml)</span>
-											</span>
-											<Check className={`ml-2 h-3.5 w-3.5 shrink-0 ${approvalPolicy === 'on-request' || approvalPolicy === 'on-failure' ? '' : 'invisible'}`} />
+											<FileText className={`${MENU_STYLES.iconSm} text-text-dim`} />
+											<span>Custom (config.toml)</span>
+											<Check
+												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${
+													approvalPolicy === 'on-request' || approvalPolicy === 'on-failure' ? '' : 'invisible'
+												}`}
+											/>
 										</button>
 									</div>
 								) : null}
@@ -2523,8 +2558,8 @@ export function CodexChat() {
 								</button>
 
 								{openStatusPopover === 'model' ? (
-									<div className="absolute bottom-[28px] left-0 z-50 w-max rounded-md border border-white/10 bg-[#2a2a2a]/95 py-1.5 shadow-xl backdrop-blur">
-										<div className="px-3 py-1.5 text-[11px] text-text-dim">Select model</div>
+									<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
+										<div className={MENU_STYLES.popoverTitle}>Select model</div>
 										<div className="max-h-[40vh] overflow-auto">
 											{models.length === 0 ? (
 												<div className="px-3 py-1.5 text-[12px] text-text-muted">(unavailable)</div>
@@ -2535,12 +2570,14 @@ export function CodexChat() {
 														<button
 															key={m.id}
 															type="button"
-															className="flex w-full items-center justify-between whitespace-nowrap px-3 py-1.5 text-left text-[12px] text-text-main hover:bg-white/5"
+															className={MENU_STYLES.popoverItem}
 															onClick={() => void applyModel(m.model)}
 															title={translateModelDesc(m.description)}
 														>
 															<span>{m.displayName}</span>
-															<Check className={`ml-2 h-3.5 w-3.5 shrink-0 ${selected ? '' : 'invisible'}`} />
+															<Check
+																className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`}
+															/>
 														</button>
 													);
 												})
@@ -2568,8 +2605,8 @@ export function CodexChat() {
 								</button>
 
 								{openStatusPopover === 'approval_policy' ? (
-									<div className="absolute bottom-[28px] left-0 z-50 w-max rounded-md border border-white/10 bg-[#2a2a2a]/95 py-1.5 shadow-xl backdrop-blur">
-										<div className="px-3 py-1.5 text-[11px] text-text-dim">Approval policy</div>
+									<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
+										<div className={MENU_STYLES.popoverTitle}>Approval policy</div>
 										<div>
 											{(['untrusted', 'on-request', 'on-failure', 'never'] as const).map((policy) => {
 												const selected = approvalPolicy === policy;
@@ -2583,12 +2620,14 @@ export function CodexChat() {
 													<button
 														key={policy}
 														type="button"
-														className="flex w-full items-center justify-between whitespace-nowrap px-3 py-1.5 text-left text-[12px] text-text-main hover:bg-white/5"
+														className={MENU_STYLES.popoverItem}
 														onClick={() => void applyApprovalPolicy(policy)}
 														title={policyTitles[policy]}
 													>
 														<span>{policy}</span>
-														<Check className={`ml-2 h-3.5 w-3.5 shrink-0 ${selected ? '' : 'invisible'}`} />
+														<Check
+															className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`}
+														/>
 													</button>
 												);
 											})}
@@ -2621,8 +2660,8 @@ export function CodexChat() {
 								</button>
 
 								{openStatusPopover === 'model_reasoning_effort' ? (
-									<div className="absolute bottom-[28px] left-0 z-50 w-max rounded-md border border-white/10 bg-[#2a2a2a]/95 py-1.5 shadow-xl backdrop-blur">
-										<div className="px-3 py-1.5 text-[11px] text-text-dim">Select reasoning</div>
+									<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
+										<div className={MENU_STYLES.popoverTitle}>Select reasoning</div>
 										<div>
 											{effortOptions.length === 0 ? (
 												<div className="px-3 py-1.5 text-[12px] text-text-muted">Default</div>
@@ -2633,15 +2672,15 @@ export function CodexChat() {
 														<button
 															key={opt.reasoningEffort}
 															type="button"
-															className="flex w-full items-center justify-between whitespace-nowrap px-3 py-1.5 text-left text-[12px] text-text-main hover:bg-white/5"
+															className={MENU_STYLES.popoverItem}
 															onClick={() => void applyReasoningEffort(opt.reasoningEffort)}
 															title={translateReasoningDesc(opt.description)}
 														>
-															<span className="inline-flex items-center gap-1">
-																{reasoningEffortIcon(opt.reasoningEffort, 'h-3 w-3 text-text-dim')}
-																<span>{reasoningEffortLabelEn(opt.reasoningEffort)}</span>
-															</span>
-															<Check className={`ml-2 h-3.5 w-3.5 shrink-0 ${selected ? '' : 'invisible'}`} />
+															{reasoningEffortIcon(opt.reasoningEffort, `${MENU_STYLES.iconSm} text-text-dim`)}
+															<span>{reasoningEffortLabelEn(opt.reasoningEffort)}</span>
+															<Check
+																className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`}
+															/>
 														</button>
 													);
 												})
