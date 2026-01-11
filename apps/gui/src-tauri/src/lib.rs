@@ -76,6 +76,7 @@ pub fn run() {
             read_shared_artifact,
             workspace_root_get,
             workspace_root_set,
+            workspace_recent_list,
             codex_thread_list,
             codex_thread_start,
             codex_thread_resume,
@@ -110,6 +111,7 @@ pub fn run() {
         })
         .setup(|app| {
             let workspace_root = resolve_workspace_root(app.handle())?;
+            let _ = update_recent_workspaces(app.handle(), &workspace_root);
             app.manage(AppState {
                 orchestrator: std::sync::Mutex::new(agentmesh_orchestrator::Orchestrator::new(
                     workspace_root,
@@ -194,6 +196,56 @@ fn persist_workspace_root<R: tauri::Runtime>(
     std::fs::write(path, workspace_root.to_string_lossy().to_string())
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn recent_workspaces_path<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> tauri::Result<std::path::PathBuf> {
+    Ok(app.path().app_data_dir()?.join("recent_workspaces.json"))
+}
+
+fn read_recent_workspaces<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Vec<String> {
+    let path = match recent_workspaces_path(app) {
+        Ok(path) => path,
+        Err(_) => return Vec::new(),
+    };
+
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(_) => return Vec::new(),
+    };
+
+    serde_json::from_str::<Vec<String>>(&content).unwrap_or_default()
+}
+
+fn persist_recent_workspaces<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    recent: &[String],
+) -> Result<(), String> {
+    let path = recent_workspaces_path(app).map_err(|e| e.to_string())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(recent).map_err(|e| e.to_string())?;
+    std::fs::write(path, json).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn update_recent_workspaces<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    workspace_root: &std::path::Path,
+) -> Result<(), String> {
+    let normalized =
+        std::fs::canonicalize(workspace_root).unwrap_or_else(|_| workspace_root.to_path_buf());
+    let normalized = normalized.to_string_lossy().to_string();
+
+    let mut recent = read_recent_workspaces(app);
+    recent.retain(|p| p != &normalized);
+    recent.insert(0, normalized);
+    recent.truncate(5);
+
+    persist_recent_workspaces(app, &recent)
 }
 
 fn validate_id(value: &str, label: &str) -> Result<(), String> {
@@ -685,6 +737,7 @@ async fn workspace_root_set(
 
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     persist_workspace_root(&app, &root)?;
+    update_recent_workspaces(&app, &root)?;
 
     let server = {
         let mut guard = state.codex.lock().await;
@@ -703,6 +756,11 @@ async fn workspace_root_set(
     }
 
     Ok(root.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn workspace_recent_list(app: tauri::AppHandle) -> Vec<String> {
+    read_recent_workspaces(&app)
 }
 
 #[tauri::command]

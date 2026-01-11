@@ -11,6 +11,7 @@ import {
   File,
   FileText,
   Folder,
+  FolderOpen,
   Image,
   Loader2,
   Menu,
@@ -550,6 +551,8 @@ export function CodexChat() {
   const [workspaceRootError, setWorkspaceRootError] = useState<string | null>(
     null,
   );
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
+  const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
   const itemToTurnRef = useRef<Record<string, string>>({});
   const relatedRepoPathsByThreadIdRef = useRef<Record<string, string[]>>({});
 
@@ -597,6 +600,15 @@ export function CodexChat() {
       setWorkspaceRoot(root);
     } catch (err) {
       setWorkspaceRootError(errorMessage(err, "Failed to load workspace root"));
+    }
+  }, []);
+
+  const loadRecentWorkspaces = useCallback(async () => {
+    try {
+      const recent = await apiClient.workspaceRecentList();
+      setRecentWorkspaces(recent);
+    } catch {
+      setRecentWorkspaces([]);
     }
   }, []);
 
@@ -904,8 +916,26 @@ export function CodexChat() {
     }
   }, [listSessions, selectedModel]);
 
-  const switchWorkspaceRoot = useCallback(async () => {
-    setWorkspaceRootError(null);
+  const applyWorkspaceRoot = useCallback(
+    async (nextRoot: string) => {
+      setWorkspaceRootError(null);
+
+      try {
+        const root = await apiClient.workspaceRootSet(nextRoot);
+        setWorkspaceRoot(root);
+      } catch (err) {
+        setWorkspaceRootError(errorMessage(err, "Failed to set workspace root"));
+        return;
+      }
+
+      void loadRecentWorkspaces();
+      setIsWorkspaceMenuOpen(false);
+      await createNewSession();
+    },
+    [createNewSession, loadRecentWorkspaces],
+  );
+
+  const openWorkspaceDialog = useCallback(async () => {
     let selection: string | string[] | null;
     try {
       selection = await openDialog({ directory: true, multiple: false });
@@ -917,17 +947,8 @@ export function CodexChat() {
     }
     const selectedPath = Array.isArray(selection) ? selection[0] : selection;
     if (typeof selectedPath !== "string" || selectedPath.length === 0) return;
-
-    try {
-      const root = await apiClient.workspaceRootSet(selectedPath);
-      setWorkspaceRoot(root);
-    } catch (err) {
-      setWorkspaceRootError(errorMessage(err, "Failed to set workspace root"));
-      return;
-    }
-
-    await createNewSession();
-  }, [createNewSession]);
+    await applyWorkspaceRoot(selectedPath);
+  }, [applyWorkspaceRoot]);
 
   const sendMessage = useCallback(async () => {
     const userInput = input;
@@ -1330,7 +1351,8 @@ export function CodexChat() {
     listSessions();
     loadModelsAndChatDefaults();
     void loadWorkspaceRoot();
-  }, [listSessions, loadModelsAndChatDefaults, loadWorkspaceRoot]);
+    void loadRecentWorkspaces();
+  }, [listSessions, loadModelsAndChatDefaults, loadWorkspaceRoot, loadRecentWorkspaces]);
 
   useEffect(() => {
     let mounted = true;
@@ -1778,20 +1800,102 @@ export function CodexChat() {
 
             <div className="mt-2 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <button
-                  type="button"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-text-main transition hover:bg-bg-panelHover hover:text-primary"
-                  title={activeThread?.cwd ?? workspaceRoot ?? ""}
-                  onClick={() => void switchWorkspaceRoot()}
-                >
-                  <Folder className="h-4 w-4 text-text-dim" />
-                  <span className="truncate">
-                    {activeThread?.cwd || workspaceRoot
-                      ? repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? "")
-                      : "Choose workspace"}
-                  </span>
-                  <ChevronDown className="h-3.5 w-3.5 text-text-dim" />
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-text-main transition hover:bg-bg-panelHover hover:text-primary"
+                    title={activeThread?.cwd ?? workspaceRoot ?? ""}
+                    onClick={() => setIsWorkspaceMenuOpen((v) => !v)}
+                  >
+                    <Folder className="h-4 w-4 text-text-dim" />
+                    <span className="truncate">
+                      {activeThread?.cwd || workspaceRoot
+                        ? repoNameFromPath(
+                            activeThread?.cwd ?? workspaceRoot ?? "",
+                          )
+                        : "Choose workspace"}
+                    </span>
+                    <ChevronDown className="h-3.5 w-3.5 text-text-dim" />
+                  </button>
+
+                  {isWorkspaceMenuOpen ? (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setIsWorkspaceMenuOpen(false)}
+                        role="button"
+                        tabIndex={0}
+                      />
+                      <div className="absolute left-0 top-[36px] z-50 w-[320px] rounded-2xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
+                        <div className="px-3 py-2 text-[11px] uppercase tracking-wide text-text-dim">
+                          Current project
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-bg-panelHover px-3 py-2">
+                          <div className="flex items-center gap-2 text-sm text-text-main">
+                            <Folder className="h-4 w-4 text-text-dim" />
+                            <span className="truncate font-medium">
+                              {repoNameFromPath(
+                                activeThread?.cwd ?? workspaceRoot ?? "",
+                              )}
+                            </span>
+                          </div>
+                          <div className="mt-1 truncate text-[11px] text-text-muted">
+                            {activeThread?.cwd ?? workspaceRoot ?? "Not set"}
+                          </div>
+                        </div>
+
+                        <div className="my-2 border-t border-white/10" />
+
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-text-main hover:bg-bg-panelHover"
+                          onClick={() => void openWorkspaceDialog()}
+                        >
+                          <FolderOpen className="h-4 w-4 text-text-dim" />
+                          <span>Open project…</span>
+                        </button>
+
+                        {recentWorkspaces.filter(
+                          (p) => p !== (activeThread?.cwd ?? workspaceRoot),
+                        ).length > 0 ? (
+                          <>
+                            <div className="mt-2 border-t border-white/10 pt-2" />
+                            <div className="px-3 py-2 text-[11px] uppercase tracking-wide text-text-dim">
+                              Recent projects
+                            </div>
+                            <div>
+                              {recentWorkspaces
+                                .filter(
+                                  (p) =>
+                                    p !== (activeThread?.cwd ?? workspaceRoot),
+                                )
+                                .slice(0, 5)
+                                .map((path) => (
+                                  <button
+                                    key={path}
+                                    type="button"
+                                    className="w-full rounded-xl px-3 py-2 text-left hover:bg-bg-panelHover"
+                                    onClick={() => void applyWorkspaceRoot(path)}
+                                    title={path}
+                                  >
+                                    <div className="flex items-center gap-2 text-sm text-text-main">
+                                      <Folder className="h-4 w-4 text-text-dim" />
+                                      <span className="truncate font-medium">
+                                        {repoNameFromPath(path)}
+                                      </span>
+                                    </div>
+                                    <div className="mt-0.5 truncate text-[11px] text-text-muted">
+                                      {path}
+                                    </div>
+                                  </button>
+                                ))}
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+                    </>
+                  ) : null}
+                </div>
                 {selectedThreadId &&
                 activeThread?.cwd &&
                 relatedRepoPaths.length < 3 ? (
@@ -1890,7 +1994,7 @@ export function CodexChat() {
                     className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
                     onClick={() => {
                       setIsSettingsMenuOpen(false);
-                      void switchWorkspaceRoot();
+                      void openWorkspaceDialog();
                     }}
                   >
                     Switch workspace…

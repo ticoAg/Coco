@@ -235,6 +235,10 @@ export async function workspaceRootSet(workspaceRoot: string): Promise<string> {
   });
 }
 
+export async function workspaceRecentList(): Promise<string[]> {
+  return invoke<string[]>("workspace_recent_list");
+}
+
 // ============================================================================
 // Context management APIs for Auto context, + button, / button
 // ============================================================================
@@ -284,6 +288,7 @@ export const apiClient = {
   codexDiagnostics,
   workspaceRootGet,
   workspaceRootSet,
+  workspaceRecentList,
   // Context management APIs
   searchWorkspaceFiles,
   readFileContent,
