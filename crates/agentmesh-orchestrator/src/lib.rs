@@ -1267,11 +1267,7 @@ mod tests {
                 .spawn()
                 .unwrap()
         } else {
-            Command::new("sh")
-                .arg("-c")
-                .arg("sleep 60")
-                .spawn()
-                .unwrap()
+            Command::new("sleep").arg("60").spawn().unwrap()
         }
     }
 

@@ -80,9 +80,15 @@ pub fn run() {
             codex_turn_interrupt,
             codex_respond_approval,
             codex_model_list,
+            codex_config_read_effective,
+            codex_config_write_chat_defaults,
             codex_read_config,
             codex_write_config,
             codex_diagnostics,
+            // Context management commands
+            search_workspace_files,
+            read_file_content,
+            get_auto_context,
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
@@ -249,9 +255,7 @@ fn collect_artifact_summaries(
         if !path.is_file() {
             continue;
         }
-        let rel = path
-            .strip_prefix(base_dir)
-            .map_err(|e| e.to_string())?;
+        let rel = path.strip_prefix(base_dir).map_err(|e| e.to_string())?;
         let rel_str = rel.to_string_lossy().replace('\\', "/");
         let filename = path
             .file_name()
@@ -636,7 +640,11 @@ async fn codex_thread_start(
     model: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let codex = get_or_start_codex(&state, app).await?;
-    let cwd = state.orchestrator.workspace_root().to_string_lossy().to_string();
+    let cwd = state
+        .orchestrator
+        .workspace_root()
+        .to_string_lossy()
+        .to_string();
     let params = serde_json::json!({
         "cwd": cwd,
         "model": model,
@@ -724,7 +732,8 @@ async fn codex_respond_approval(
     }
 
     let codex = get_or_start_codex(&state, app).await?;
-    codex.respond(request_id, serde_json::json!({ "decision": decision }))
+    codex
+        .respond(request_id, serde_json::json!({ "decision": decision }))
         .await
 }
 
@@ -738,6 +747,78 @@ async fn codex_model_list(
     let codex = get_or_start_codex(&state, app).await?;
     let params = serde_json::json!({ "cursor": cursor, "limit": limit });
     codex.request("model/list", Some(params)).await
+}
+
+#[tauri::command]
+async fn codex_config_read_effective(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    include_layers: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let codex = get_or_start_codex(&state, app).await?;
+    let params = serde_json::json!({
+        "includeLayers": include_layers.unwrap_or(false),
+    });
+    codex.request("config/read", Some(params)).await
+}
+
+#[tauri::command]
+async fn codex_config_write_chat_defaults(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    model: Option<String>,
+    model_reasoning_effort: Option<String>,
+    approval_policy: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let codex = get_or_start_codex(&state, app).await?;
+
+    let approval_policy = match approval_policy.as_deref() {
+        None => None,
+        Some("") => None,
+        Some(v) => {
+            let v = v.to_string();
+            match v.as_str() {
+                "untrusted" | "on-failure" | "on-request" | "never" => Some(v),
+                _ => return Err(format!("invalid approval_policy: {v}")),
+            }
+        }
+    };
+
+    let model = model.filter(|v| !v.trim().is_empty());
+    let model_reasoning_effort = model_reasoning_effort.filter(|v| !v.trim().is_empty());
+
+    let mut edits = Vec::new();
+    if let Some(model) = model {
+        edits.push(serde_json::json!({
+            "keyPath": "model",
+            "value": model,
+            "mergeStrategy": "replace",
+        }));
+    }
+    if let Some(effort) = model_reasoning_effort {
+        edits.push(serde_json::json!({
+            "keyPath": "model_reasoning_effort",
+            "value": effort,
+            "mergeStrategy": "replace",
+        }));
+    }
+    if let Some(policy) = approval_policy {
+        edits.push(serde_json::json!({
+            "keyPath": "approval_policy",
+            "value": policy,
+            "mergeStrategy": "replace",
+        }));
+    }
+
+    if edits.is_empty() {
+        return Ok(serde_json::json!({ "status": "noop" }));
+    }
+
+    let params = serde_json::json!({
+        "edits": edits,
+    });
+
+    codex.request("config/batchWrite", Some(params)).await
 }
 
 #[tauri::command]
@@ -762,4 +843,288 @@ fn codex_write_config(content: String) -> Result<(), String> {
 #[tauri::command]
 async fn codex_diagnostics() -> CodexDiagnostics {
     codex_app_server::codex_diagnostics().await
+}
+
+// ============================================================================
+// Context management commands for Auto context, + button, / button
+// ============================================================================
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileInfo {
+    path: String,
+    name: String,
+    is_directory: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitStatus {
+    branch: String,
+    modified: Vec<String>,
+    staged: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AutoContextInfo {
+    cwd: String,
+    recent_files: Vec<String>,
+    git_status: Option<GitStatus>,
+}
+
+#[tauri::command]
+async fn search_workspace_files(
+    cwd: String,
+    query: String,
+    limit: Option<u32>,
+) -> Result<Vec<FileInfo>, String> {
+    use std::path::Path;
+
+    let cwd_path = Path::new(&cwd);
+    if !cwd_path.exists() {
+        return Err("cwd does not exist".to_string());
+    }
+
+    let limit = limit.unwrap_or(10) as usize;
+    let query_lower = query.to_lowercase();
+
+    let mut results = Vec::new();
+    search_files_recursive(cwd_path, cwd_path, &query_lower, limit, &mut results)?;
+
+    Ok(results)
+}
+
+fn search_files_recursive(
+    base: &std::path::Path,
+    current: &std::path::Path,
+    query: &str,
+    limit: usize,
+    results: &mut Vec<FileInfo>,
+) -> Result<(), String> {
+    if results.len() >= limit {
+        return Ok(());
+    }
+
+    let entries = match std::fs::read_dir(current) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(()),
+    };
+
+    for entry in entries {
+        if results.len() >= limit {
+            break;
+        }
+
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let path = entry.path();
+        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+
+        // Skip hidden files and common ignore patterns
+        if file_name.starts_with('.')
+            || file_name == "node_modules"
+            || file_name == "target"
+            || file_name == "dist"
+            || file_name == "build"
+        {
+            continue;
+        }
+
+        let is_dir = path.is_dir();
+        let rel_path = path
+            .strip_prefix(base)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| file_name.clone());
+
+        // Match if query is empty or file name contains query
+        if query.is_empty() || file_name.to_lowercase().contains(query) {
+            results.push(FileInfo {
+                path: rel_path.clone(),
+                name: file_name.clone(),
+                is_directory: is_dir,
+            });
+        }
+
+        // Recurse into directories
+        if is_dir && results.len() < limit {
+            search_files_recursive(base, &path, query, limit, results)?;
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn read_file_content(path: String) -> Result<String, String> {
+    use std::path::Path;
+
+    let file_path = Path::new(&path);
+    if !file_path.exists() {
+        return Err("file does not exist".to_string());
+    }
+
+    if !file_path.is_file() {
+        return Err("path is not a file".to_string());
+    }
+
+    // Limit file size to 1MB
+    let metadata = std::fs::metadata(file_path).map_err(|e| e.to_string())?;
+    if metadata.len() > 1_000_000 {
+        return Err("file too large (max 1MB)".to_string());
+    }
+
+    std::fs::read_to_string(file_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_auto_context(cwd: String) -> Result<AutoContextInfo, String> {
+    use std::path::Path;
+
+    let cwd_path = Path::new(&cwd);
+    if !cwd_path.exists() {
+        return Err("cwd does not exist".to_string());
+    }
+
+    // Get recent files (modified in last 24 hours)
+    let recent_files = get_recent_files(cwd_path, 10);
+
+    // Get git status
+    let git_status = get_git_status(cwd_path);
+
+    Ok(AutoContextInfo {
+        cwd,
+        recent_files,
+        git_status,
+    })
+}
+
+fn get_recent_files(cwd: &std::path::Path, limit: usize) -> Vec<String> {
+    use std::time::{Duration, SystemTime};
+
+    let mut files: Vec<(String, SystemTime)> = Vec::new();
+    let cutoff = SystemTime::now() - Duration::from_secs(24 * 60 * 60);
+
+    collect_recent_files(cwd, cwd, &cutoff, &mut files);
+
+    // Sort by modification time (most recent first)
+    files.sort_by(|a, b| b.1.cmp(&a.1));
+
+    files
+        .into_iter()
+        .take(limit)
+        .map(|(path, _)| path)
+        .collect()
+}
+
+fn collect_recent_files(
+    base: &std::path::Path,
+    current: &std::path::Path,
+    cutoff: &std::time::SystemTime,
+    files: &mut Vec<(String, std::time::SystemTime)>,
+) {
+    let entries = match std::fs::read_dir(current) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let path = entry.path();
+        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name,
+            None => continue,
+        };
+
+        // Skip hidden files and common ignore patterns
+        if file_name.starts_with('.')
+            || file_name == "node_modules"
+            || file_name == "target"
+            || file_name == "dist"
+            || file_name == "build"
+        {
+            continue;
+        }
+
+        if path.is_dir() {
+            collect_recent_files(base, &path, cutoff, files);
+        } else if path.is_file() {
+            if let Ok(metadata) = std::fs::metadata(&path) {
+                if let Ok(modified) = metadata.modified() {
+                    if modified > *cutoff {
+                        let rel_path = path
+                            .strip_prefix(base)
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        if !rel_path.is_empty() {
+                            files.push((rel_path, modified));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn get_git_status(cwd: &std::path::Path) -> Option<GitStatus> {
+    use std::process::Command;
+
+    // Check if it's a git repo
+    let git_dir = cwd.join(".git");
+    if !git_dir.exists() {
+        return None;
+    }
+
+    // Get current branch
+    let branch_output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(cwd)
+        .output()
+        .ok()?;
+
+    let branch = String::from_utf8_lossy(&branch_output.stdout)
+        .trim()
+        .to_string();
+
+    // Get modified files (unstaged)
+    let modified_output = Command::new("git")
+        .args(["diff", "--name-only"])
+        .current_dir(cwd)
+        .output()
+        .ok()?;
+
+    let modified: Vec<String> = String::from_utf8_lossy(&modified_output.stdout)
+        .lines()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect();
+
+    // Get staged files
+    let staged_output = Command::new("git")
+        .args(["diff", "--cached", "--name-only"])
+        .current_dir(cwd)
+        .output()
+        .ok()?;
+
+    let staged: Vec<String> = String::from_utf8_lossy(&staged_output.stdout)
+        .lines()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect();
+
+    Some(GitStatus {
+        branch,
+        modified,
+        staged,
+    })
 }

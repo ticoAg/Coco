@@ -11,7 +11,7 @@ import type {
   Task,
   TaskEvent,
 } from '../types/task'
-import type { CodexModelListResponse, CodexThreadListResponse } from '../types/codex'
+import type { AutoContextInfo, CodexModelListResponse, CodexThreadListResponse, FileInfo } from '../types/codex'
 
 export async function listTasks(): Promise<Task[]> {
   return invoke<Task[]>('list_tasks')
@@ -155,6 +155,22 @@ export async function codexModelList(
   })
 }
 
+export async function codexConfigReadEffective(includeLayers?: boolean | null): Promise<unknown> {
+  return invoke<unknown>('codex_config_read_effective', { include_layers: includeLayers ?? null })
+}
+
+export async function codexConfigWriteChatDefaults(options: {
+  model?: string | null
+  modelReasoningEffort?: string | null
+  approvalPolicy?: string | null
+}): Promise<unknown> {
+  return invoke<unknown>('codex_config_write_chat_defaults', {
+    model: options.model ?? null,
+    model_reasoning_effort: options.modelReasoningEffort ?? null,
+    approval_policy: options.approvalPolicy ?? null,
+  })
+}
+
 export async function codexReadConfig(): Promise<string> {
   return invoke<string>('codex_read_config')
 }
@@ -183,6 +199,30 @@ export async function codexDiagnostics(): Promise<{
   }>('codex_diagnostics')
 }
 
+// ============================================================================
+// Context management APIs for Auto context, + button, / button
+// ============================================================================
+
+export async function searchWorkspaceFiles(
+  cwd: string,
+  query: string,
+  limit?: number
+): Promise<FileInfo[]> {
+  return invoke<FileInfo[]>('search_workspace_files', {
+    cwd,
+    query,
+    limit: limit ?? null,
+  })
+}
+
+export async function readFileContent(path: string): Promise<string> {
+  return invoke<string>('read_file_content', { path })
+}
+
+export async function getAutoContext(cwd: string): Promise<AutoContextInfo> {
+  return invoke<AutoContextInfo>('get_auto_context', { cwd })
+}
+
 export const apiClient = {
   listTasks,
   getTask,
@@ -201,9 +241,15 @@ export const apiClient = {
   codexTurnInterrupt,
   codexRespondApproval,
   codexModelList,
+  codexConfigReadEffective,
+  codexConfigWriteChatDefaults,
   codexReadConfig,
   codexWriteConfig,
   codexDiagnostics,
+  // Context management APIs
+  searchWorkspaceFiles,
+  readFileContent,
+  getAutoContext,
 }
 
 export default apiClient

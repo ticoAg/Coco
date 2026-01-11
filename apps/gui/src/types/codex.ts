@@ -108,3 +108,31 @@ export interface CodexThread {
   turns: CodexTurn[]
 }
 
+// ============================================================================
+// Context management types for Auto context, + button, / button
+// ============================================================================
+
+export interface FileInfo {
+  path: string
+  name: string
+  isDirectory: boolean
+}
+
+export interface GitStatus {
+  branch: string
+  modified: string[]
+  staged: string[]
+}
+
+export interface AutoContextInfo {
+  cwd: string
+  recentFiles: string[]
+  gitStatus: GitStatus | null
+}
+
+export interface FileAttachment {
+  path: string
+  name: string
+  content?: string
+}
+

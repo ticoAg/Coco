@@ -5,36 +5,48 @@ default:
     @just --list --unsorted
 
 # ==========================================
-# 🚀 GUI (Tauri)
+# 🚀 GUI
 # ==========================================
 
-gui action:
-    #!/usr/bin/env zsh
-    if [[ "{{action}}" == "deps" ]]; then
-        cd apps/gui && npm install
-    elif [[ "{{action}}" == "dev" ]]; then
-        cd apps/gui && npm run tauri:dev
-    elif [[ "{{action}}" == "build" ]]; then
-        cd apps/gui && npm run tauri:build
-    else
-        echo "Unknown action: {{action}}. Available: deps, dev, build"
-        exit 1
-    fi
+# 安装 GUI 依赖
+deps:
+    cd apps/gui && npm install
+
+# 运行开发模式
+dev:
+    cd apps/gui && npm run tauri:dev
+
+# 构建 release app
+build:
+    cd apps/gui && npm run tauri:build
 
 # ==========================================
 # 🦀 Rust
 # ==========================================
 
-rust action:
-    #!/usr/bin/env zsh
-    if [[ "{{action}}" == "check" ]]; then
-        cargo check
-    elif [[ "{{action}}" == "test" ]]; then
-        cargo test
-    elif [[ "{{action}}" == "fmt" ]]; then
-        cargo fmt
-    else
-        echo "Unknown action: {{action}}. Available: check, test, fmt"
-        exit 1
-    fi
+# 检查代码
+check:
+    cargo check
 
+# 运行测试
+test:
+    cargo test
+
+# 格式化代码
+fmt:
+    cargo fmt
+
+# 检查格式（不修改）
+fmt-check:
+    cargo fmt --check
+
+# Clippy 检查
+lint:
+    cargo clippy -- -D warnings
+
+# ==========================================
+# 🔄 CI
+# ==========================================
+
+# 运行完整 CI 检查（含 GUI 构建）
+ci: fmt-check check lint test build

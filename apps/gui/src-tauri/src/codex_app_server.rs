@@ -13,13 +13,13 @@ use tauri::Emitter;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
-use tokio::process::ChildStdout;
 use tokio::process::Child;
 use tokio::process::ChildStderr;
 use tokio::process::ChildStdin;
+use tokio::process::ChildStdout;
 use tokio::process::Command;
-use tokio::sync::Mutex;
 use tokio::sync::oneshot;
+use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
 use tokio::time::timeout;
 
@@ -133,10 +133,7 @@ impl CodexAppServer {
     }
 
     pub async fn request(&self, method: &str, params: Option<Value>) -> Result<Value, String> {
-        let id = self
-            .inner
-            .next_request_id
-            .fetch_sub(1, Ordering::SeqCst);
+        let id = self.inner.next_request_id.fetch_sub(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         {
             let mut pending = self.inner.pending.lock().await;
@@ -208,8 +205,11 @@ pub async fn codex_diagnostics() -> CodexDiagnostics {
 
     let (path_env, path_source, shell, env_source, env_count) = preferred_shell_env().await;
     let path_str = path_env.to_string_lossy().to_string();
-    let resolved_codex_bin = find_executable_in_paths("codex", &std::env::split_paths(&path_env).collect::<Vec<_>>())
-        .map(|p| p.to_string_lossy().to_string());
+    let resolved_codex_bin = find_executable_in_paths(
+        "codex",
+        &std::env::split_paths(&path_env).collect::<Vec<_>>(),
+    )
+    .map(|p| p.to_string_lossy().to_string());
 
     CodexDiagnostics {
         path: path_str,
@@ -222,7 +222,8 @@ pub async fn codex_diagnostics() -> CodexDiagnostics {
     }
 }
 
-async fn resolve_codex_bin_and_env() -> Result<(PathBuf, HashMap<OsString, OsString>, String), String> {
+async fn resolve_codex_bin_and_env(
+) -> Result<(PathBuf, HashMap<OsString, OsString>, String), String> {
     let (path_env, _path_source, _shell, env_source, _env_count) = preferred_shell_env().await;
 
     if let Some(bin) = std::env::var_os(CODEX_BIN_ENV) {
@@ -260,7 +261,13 @@ async fn preferred_shell_env() -> (OsString, String, Option<String>, String, usi
     }
 
     let path = ensure_codex_path_env();
-    (path, "fallback".to_string(), None, "fallback".to_string(), std::env::vars_os().count())
+    (
+        path,
+        "fallback".to_string(),
+        None,
+        "fallback".to_string(),
+        std::env::vars_os().count(),
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -274,7 +281,7 @@ async fn shell_env_snapshot() -> Result<ShellEnvSnapshot, String> {
     SHELL_ENV_CACHE
         .get_or_try_init(|| async { compute_shell_env_snapshot().await })
         .await
-        .map(Clone::clone)
+        .cloned()
 }
 
 async fn compute_shell_env_snapshot() -> Result<ShellEnvSnapshot, String> {
@@ -300,9 +307,9 @@ async fn compute_shell_env_snapshot() -> Result<ShellEnvSnapshot, String> {
 
     // Use NUL-separated output so values are unambiguous. Surround with sentinels so we can
     // ignore any stray stdout from shell init plugins.
-    let cmd = format!(
+    let cmd =
         "printf '__AGENTMESH_ENV_BEGIN__\\0'; /usr/bin/env -0; printf '__AGENTMESH_ENV_END__\\0'"
-    );
+            .to_string();
 
     let mut proc = Command::new(&shell);
     proc.arg(flag)
@@ -435,7 +442,7 @@ fn is_executable_file(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        return (meta.permissions().mode() & 0o111) != 0;
+        (meta.permissions().mode() & 0o111) != 0
     }
 
     #[cfg(not(unix))]

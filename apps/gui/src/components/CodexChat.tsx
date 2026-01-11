@@ -1,12 +1,33 @@
 import { listen } from '@tauri-apps/api/event'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ArrowUp,
+  Brain,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  File,
+  Folder,
+  Image,
+  Loader2,
+  Menu,
+  Paperclip,
+  Plus,
+  Search,
+  Settings2,
+  Slash,
+  X,
+} from 'lucide-react'
 import type {
+  AutoContextInfo,
   CodexJsonRpcEvent,
   CodexModelInfo,
   CodexThread,
   CodexThreadItem,
   CodexThreadSummary,
   CodexUserInput,
+  FileAttachment,
+  FileInfo,
   ReasoningEffort,
 } from '../types/codex'
 import { apiClient } from '../api/client'
@@ -74,7 +95,6 @@ type CodexChatSettings = {
 }
 
 const SETTINGS_STORAGE_KEY = 'agentmesh.codexChat.settings.v1'
-const APPROVAL_POLICY_STORAGE_KEY = 'agentmesh.codexChat.approvalPolicy.v1'
 
 function loadCodexChatSettings(): CodexChatSettings {
   const defaults: CodexChatSettings = {
@@ -110,19 +130,74 @@ function isCollapsibleEntry(entry: ChatEntry): entry is Extract<ChatEntry, { kin
 
 type ApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never'
 
-function loadApprovalPolicy(): ApprovalPolicy {
-  if (typeof window === 'undefined') return 'untrusted'
-  const raw = window.localStorage.getItem(APPROVAL_POLICY_STORAGE_KEY)
-  if (raw === 'untrusted' || raw === 'on-failure' || raw === 'on-request' || raw === 'never') return raw
-  return 'untrusted'
+function reasoningEffortLabelEn(effort: ReasoningEffort): string {
+  switch (effort) {
+    case 'none':
+      return 'None'
+    case 'minimal':
+      return 'Minimal'
+    case 'low':
+      return 'Low'
+    case 'medium':
+      return 'Medium'
+    case 'high':
+      return 'High'
+    case 'xhigh':
+      return 'Extra high'
+    default:
+      return effort
+  }
 }
 
-function persistApprovalPolicy(next: ApprovalPolicy) {
-  try {
-    window.localStorage.setItem(APPROVAL_POLICY_STORAGE_KEY, next)
-  } catch {
-    // ignore
+function translateReasoningDesc(desc: string): string {
+  // 翻译 Codex API 返回的原始英文描述
+  const translations: Record<string, string> = {
+    // Low
+    'Fast responses with lighter reasoning': '快速响应，轻量推理',
+    'Fastest responses with limited reasoning': '最快响应，有限推理',
+    'Balances speed with some reasoning; useful for straightforward queries and short explanations':
+      '平衡速度与推理；适合简单查询和简短解释',
+    // Medium
+    'Balances speed and reasoning depth for everyday tasks': '平衡速度与推理深度，适合日常任务',
+    'Dynamically adjusts reasoning based on the task': '根据任务动态调整推理深度',
+    'Provides a solid balance of reasoning depth and latency for general-purpose tasks':
+      '为通用任务提供推理深度与延迟的良好平衡',
+    // High
+    'Greater reasoning depth for complex problems': '更深的推理深度，适合复杂问题',
+    'Maximizes reasoning depth for complex or ambiguous problems': '最大化推理深度，适合复杂或模糊问题',
+    // XHigh
+    'Extra high reasoning depth for complex problems': '超高推理深度，适合复杂问题',
+    // Minimal
+    'Fastest responses with little reasoning': '最快响应，几乎不进行推理',
   }
+  return translations[desc] || desc
+}
+
+function parseApprovalPolicyValue(value: unknown): ApprovalPolicy | null {
+  if (value === 'untrusted' || value === 'on-failure' || value === 'on-request' || value === 'never') return value
+  return null
+}
+
+function parseReasoningEffortValue(value: unknown): ReasoningEffort | null {
+  if (value === 'none' || value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh') {
+    return value
+  }
+  return null
+}
+
+function formatTokenCount(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  const abs = Math.abs(value)
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\\.0$/, '')}m`
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\\.0$/, '')}k`
+  return String(Math.round(value))
+}
+
+function statusBarItemClass(active: boolean): string {
+  return [
+    'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition',
+    active ? 'bg-bg-panelHover text-text-main' : 'text-text-muted hover:bg-bg-panelHover',
+  ].join(' ')
 }
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -267,6 +342,22 @@ function turnStatusLabel(status: TurnBlockStatus): string {
   }
 }
 
+// Slash Commands definition
+type SlashCommand = {
+  id: string
+  label: string
+  description: string
+}
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  { id: 'new', label: '/new', description: '创建新会话' },
+  { id: 'clear', label: '/clear', description: '清空当前对话' },
+  { id: 'context', label: '/context', description: '切换 Auto context' },
+  { id: 'status', label: '/status', description: '查看当前状态' },
+  { id: 'feedback', label: '/feedback', description: '发送反馈' },
+  { id: 'review', label: '/review', description: '进入 review 模式' },
+]
+
 export function CodexChat() {
   const [settings, setSettings] = useState<CodexChatSettings>(() => loadCodexChatSettings())
   const [sessions, setSessions] = useState<CodexThreadSummary[]>([])
@@ -279,6 +370,10 @@ export function CodexChat() {
 
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [activeThread, setActiveThread] = useState<CodexThread | null>(null)
+  const [threadTokenUsage, setThreadTokenUsage] = useState<{
+    totalTokens: number
+    contextWindow: number | null
+  } | null>(null)
   const [turnOrder, setTurnOrder] = useState<string[]>([])
   const [turnsById, setTurnsById] = useState<Record<string, TurnBlock>>({})
   const [collapsedActivityByTurnId, setCollapsedActivityByTurnId] = useState<Record<string, boolean>>({})
@@ -291,7 +386,11 @@ export function CodexChat() {
 
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [selectedEffort, setSelectedEffort] = useState<ReasoningEffort | null>(null)
-  const [approvalPolicy, setApprovalPolicy] = useState<ApprovalPolicy>(() => loadApprovalPolicy())
+  const [approvalPolicy, setApprovalPolicy] = useState<ApprovalPolicy>('untrusted')
+  const [openStatusPopover, setOpenStatusPopover] = useState<
+    'profile' | 'approval_policy' | 'model' | 'model_reasoning_effort' | null
+  >(null)
+  const [statusPopoverError, setStatusPopoverError] = useState<string | null>(null)
 
   const [isConfigOpen, setIsConfigOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -312,13 +411,21 @@ export function CodexChat() {
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null)
   const itemToTurnRef = useRef<Record<string, string>>({})
 
+  // Context management state
+  const [autoContext, setAutoContext] = useState<AutoContextInfo | null>(null)
+  const [fileAttachments, setFileAttachments] = useState<FileAttachment[]>([])
+  const [isAddContextOpen, setIsAddContextOpen] = useState(false)
+  const [fileSearchQuery, setFileSearchQuery] = useState('')
+  const [fileSearchResults, setFileSearchResults] = useState<FileInfo[]>([])
+  const [isSlashMenuOpen, setIsSlashMenuOpen] = useState(false)
+  const [slashSearchQuery, setSlashSearchQuery] = useState('')
+  const [slashHighlightIndex, setSlashHighlightIndex] = useState(0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
   useEffect(() => {
     persistCodexChatSettings(settings)
   }, [settings])
-
-  useEffect(() => {
-    persistApprovalPolicy(approvalPolicy)
-  }, [approvalPolicy])
 
   const loadDiagnostics = useCallback(async () => {
     setDiagnosticsError(null)
@@ -343,14 +450,37 @@ export function CodexChat() {
     }
   }, [])
 
-  const loadModels = useCallback(async () => {
+  const loadModelsAndChatDefaults = useCallback(async () => {
     setModelsError(null)
+    setStatusPopoverError(null)
+
     try {
-      const res = await apiClient.codexModelList(null, 200)
-      setModels(res.data)
-      const defaultModel = res.data.find((m) => m.isDefault) ?? res.data[0] ?? null
-      setSelectedModel(defaultModel ? defaultModel.model : null)
-      setSelectedEffort(defaultModel ? defaultModel.defaultReasoningEffort : null)
+      const [modelsRes, configRes] = await Promise.all([
+        apiClient.codexModelList(null, 200),
+        apiClient.codexConfigReadEffective(false),
+      ])
+
+      const nextModels = (modelsRes as { data: CodexModelInfo[] }).data ?? []
+      setModels(nextModels)
+
+      const config = (configRes as any)?.config ?? {}
+      const configuredModel = typeof config.model === 'string' ? config.model : null
+      const configuredEffort = parseReasoningEffortValue(config.model_reasoning_effort)
+      const configuredApproval = parseApprovalPolicyValue(config.approval_policy)
+
+      if (configuredApproval) setApprovalPolicy(configuredApproval)
+
+      const fallbackModel = nextModels.find((m) => m.isDefault) ?? nextModels[0] ?? null
+      const modelToUse = configuredModel && nextModels.some((m) => m.model === configuredModel) ? configuredModel : fallbackModel?.model ?? null
+      setSelectedModel(modelToUse)
+
+      const modelInfo = modelToUse ? nextModels.find((m) => m.model === modelToUse) ?? null : null
+      const supportedEfforts = modelInfo?.supportedReasoningEfforts?.map((o) => o.reasoningEffort) ?? []
+      const effortToUse =
+        configuredEffort && supportedEfforts.includes(configuredEffort)
+          ? configuredEffort
+          : modelInfo?.defaultReasoningEffort ?? null
+      setSelectedEffort(effortToUse)
     } catch (err) {
       setModelsError(errorMessage(err, 'Failed to load models'))
     }
@@ -379,10 +509,76 @@ export function CodexChat() {
     }
   }, [configText])
 
+  const applyApprovalPolicy = useCallback(
+    async (next: ApprovalPolicy) => {
+      if (next === approvalPolicy) return
+      setStatusPopoverError(null)
+      const prev = approvalPolicy
+      setApprovalPolicy(next)
+      setOpenStatusPopover(null)
+      try {
+        await apiClient.codexConfigWriteChatDefaults({ approvalPolicy: next })
+      } catch (err) {
+        setApprovalPolicy(prev)
+        setStatusPopoverError(errorMessage(err, 'Failed to update approval_policy'))
+      }
+    },
+    [approvalPolicy]
+  )
+
+  const applyModel = useCallback(
+    async (nextModel: string) => {
+      if (nextModel === selectedModel) return
+      setStatusPopoverError(null)
+
+      const prevModel = selectedModel
+      const prevEffort = selectedEffort
+
+      const modelInfo = models.find((m) => m.model === nextModel) ?? null
+      const supportedEfforts = modelInfo?.supportedReasoningEfforts?.map((o) => o.reasoningEffort) ?? []
+      const nextEffort =
+        selectedEffort && supportedEfforts.includes(selectedEffort) ? selectedEffort : modelInfo?.defaultReasoningEffort ?? null
+
+      setSelectedModel(nextModel)
+      setSelectedEffort(nextEffort)
+      setOpenStatusPopover(null)
+
+      try {
+        await apiClient.codexConfigWriteChatDefaults({
+          model: nextModel,
+          modelReasoningEffort: nextEffort,
+        })
+      } catch (err) {
+        setSelectedModel(prevModel)
+        setSelectedEffort(prevEffort)
+        setStatusPopoverError(errorMessage(err, 'Failed to update model'))
+      }
+    },
+    [models, selectedEffort, selectedModel]
+  )
+
+  const applyReasoningEffort = useCallback(
+    async (nextEffort: ReasoningEffort) => {
+      if (nextEffort === selectedEffort) return
+      setStatusPopoverError(null)
+      const prev = selectedEffort
+      setSelectedEffort(nextEffort)
+      setOpenStatusPopover(null)
+      try {
+        await apiClient.codexConfigWriteChatDefaults({ modelReasoningEffort: nextEffort })
+      } catch (err) {
+        setSelectedEffort(prev)
+        setStatusPopoverError(errorMessage(err, 'Failed to update model_reasoning_effort'))
+      }
+    },
+    [selectedEffort]
+  )
+
   const selectSession = useCallback(async (threadId: string) => {
     setSelectedThreadId(threadId)
     setTurnOrder([])
     setTurnsById({})
+    setThreadTokenUsage(null)
     setCollapsedActivityByTurnId({})
     setItemToTurnId({})
     itemToTurnRef.current = {}
@@ -467,6 +663,7 @@ export function CodexChat() {
   const createNewSession = useCallback(async () => {
     setTurnOrder([])
     setTurnsById({})
+    setThreadTokenUsage(null)
     setCollapsedActivityByTurnId({})
     setItemToTurnId({})
     itemToTurnRef.current = {}
@@ -568,10 +765,180 @@ export function CodexChat() {
     setCollapsedActivityByTurnId((prev) => ({ ...prev, [turnId]: !(prev[turnId] ?? true) }))
   }, [])
 
+  // Context management callbacks
+  const loadAutoContext = useCallback(async () => {
+    if (!autoContextEnabled) {
+      setAutoContext(null)
+      return
+    }
+    try {
+      const cwd = activeThread?.cwd ?? '.'
+      const ctx = await apiClient.getAutoContext(cwd)
+      setAutoContext(ctx)
+    } catch {
+      setAutoContext(null)
+    }
+  }, [autoContextEnabled, activeThread?.cwd])
+
+  const searchFiles = useCallback(async (query: string) => {
+    setFileSearchQuery(query)
+    if (!query.trim()) {
+      setFileSearchResults([])
+      return
+    }
+    try {
+      const cwd = activeThread?.cwd ?? '.'
+      const results = await apiClient.searchWorkspaceFiles(cwd, query, 8)
+      setFileSearchResults(results)
+    } catch {
+      setFileSearchResults([])
+    }
+  }, [activeThread?.cwd])
+
+  const addFileAttachment = useCallback(async (file: FileInfo) => {
+    try {
+      const cwd = activeThread?.cwd ?? '.'
+      const fullPath = file.path.startsWith('/') ? file.path : `${cwd}/${file.path}`
+      const content = await apiClient.readFileContent(fullPath)
+      setFileAttachments((prev) => {
+        if (prev.some((f) => f.path === file.path)) return prev
+        return [...prev, { path: file.path, name: file.name, content }]
+      })
+      setIsAddContextOpen(false)
+      setFileSearchQuery('')
+      setFileSearchResults([])
+    } catch {
+      // ignore
+    }
+  }, [activeThread?.cwd])
+
+  const removeFileAttachment = useCallback((path: string) => {
+    setFileAttachments((prev) => prev.filter((f) => f.path !== path))
+  }, [])
+
+  const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64 = reader.result as string
+      setFileAttachments((prev) => [
+        ...prev,
+        { path: file.name, name: file.name, content: base64 },
+      ])
+    }
+    reader.readAsDataURL(file)
+    setIsAddContextOpen(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [])
+
+  const filteredSlashCommands = useMemo(() => {
+    if (!slashSearchQuery.trim()) return SLASH_COMMANDS
+    const q = slashSearchQuery.toLowerCase()
+    return SLASH_COMMANDS.filter(
+      (cmd) => cmd.label.toLowerCase().includes(q) || cmd.description.toLowerCase().includes(q)
+    )
+  }, [slashSearchQuery])
+
+  const executeSlashCommand = useCallback((cmdId: string) => {
+    setIsSlashMenuOpen(false)
+    setSlashSearchQuery('')
+    setSlashHighlightIndex(0)
+
+    switch (cmdId) {
+      case 'new':
+        void createNewSession()
+        break
+      case 'clear':
+        setTurnOrder([])
+        setTurnsById({})
+        setCollapsedActivityByTurnId({})
+        setCollapsedByEntryId({})
+        break
+      case 'context':
+        setAutoContextEnabled((v) => !v)
+        break
+      case 'status': {
+        const statusText = [
+          `Thread: ${selectedThreadId ?? 'none'}`,
+          `Model: ${selectedModel ?? 'default'}`,
+          `Effort: ${selectedEffort ?? 'default'}`,
+          `Approval: ${approvalPolicy}`,
+        ].join('\n')
+        const entry: ChatEntry = {
+          kind: 'system',
+          id: `system-status-${crypto.randomUUID()}`,
+          tone: 'info',
+          text: statusText,
+        }
+        setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]))
+        setTurnsById((prev) => {
+          const existing = prev[PENDING_TURN_ID] ?? { id: PENDING_TURN_ID, status: 'unknown' as const, entries: [] }
+          return { ...prev, [PENDING_TURN_ID]: { ...existing, entries: [...existing.entries, entry] } }
+        })
+        break
+      }
+      case 'feedback':
+        window.open('https://github.com/anthropics/claude-code/issues', '_blank')
+        break
+      case 'review':
+        setInput('/review ')
+        textareaRef.current?.focus()
+        break
+    }
+  }, [approvalPolicy, createNewSession, selectedEffort, selectedModel, selectedThreadId])
+
+  const handleTextareaKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Slash menu navigation
+      if (isSlashMenuOpen) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setSlashHighlightIndex((i) => Math.min(i + 1, filteredSlashCommands.length - 1))
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setSlashHighlightIndex((i) => Math.max(i - 1, 0))
+          return
+        }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault()
+          const cmd = filteredSlashCommands[slashHighlightIndex]
+          if (cmd) executeSlashCommand(cmd.id)
+          return
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          setIsSlashMenuOpen(false)
+          return
+        }
+      }
+
+      // Open slash menu when typing /
+      if (e.key === '/' && input === '') {
+        setIsSlashMenuOpen(true)
+        setSlashHighlightIndex(0)
+      }
+
+      // Send message
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        void sendMessage()
+      }
+    },
+    [executeSlashCommand, filteredSlashCommands, input, isSlashMenuOpen, sendMessage, slashHighlightIndex]
+  )
+
+  // Load auto context when enabled or thread changes
+  useEffect(() => {
+    void loadAutoContext()
+  }, [loadAutoContext])
+
   useEffect(() => {
     listSessions()
-    loadModels()
-  }, [listSessions, loadModels])
+    loadModelsAndChatDefaults()
+  }, [listSessions, loadModelsAndChatDefaults])
 
   useEffect(() => {
     let mounted = true
@@ -591,6 +958,19 @@ export function CodexChat() {
         const params = message?.params ?? null
         const threadId = safeString(params?.threadId ?? params?.thread_id)
         if (selectedThreadId && threadId && threadId !== selectedThreadId) return
+
+        if (method === 'thread/tokenUsage/updated') {
+          const tokenUsage = params?.tokenUsage ?? params?.token_usage ?? null
+          const totalTokens = Number(tokenUsage?.total?.totalTokens ?? tokenUsage?.total?.total_tokens)
+          const contextWindowRaw = tokenUsage?.modelContextWindow ?? tokenUsage?.model_context_window
+          const contextWindow = contextWindowRaw == null ? null : Number(contextWindowRaw)
+          if (!Number.isFinite(totalTokens)) return
+          setThreadTokenUsage({
+            totalTokens,
+            contextWindow: Number.isFinite(contextWindow) ? contextWindow : null,
+          })
+          return
+        }
 
         if (method === 'turn/started') {
           const turnId = safeString(params?.turn?.id ?? params?.turnId)
@@ -779,6 +1159,15 @@ export function CodexChat() {
     return models.find((m) => m.model === selectedModel) ?? null
   }, [models, selectedModel])
 
+  const contextUsageLabel = useMemo(() => {
+    if (!threadTokenUsage) return '上下文 —'
+    const used = threadTokenUsage.totalTokens
+    const window = threadTokenUsage.contextWindow
+    if (!window || !Number.isFinite(window) || window <= 0) return `上下文 — · ${formatTokenCount(used)}`
+    const pct = Math.min(999, Math.max(0, Math.round((used / window) * 100)))
+    return `上下文 ${pct}% · ${formatTokenCount(used)}/${formatTokenCount(window)}`
+  }, [threadTokenUsage])
+
   const effortOptions = useMemo(() => {
     return selectedModelInfo?.supportedReasoningEfforts ?? []
   }, [selectedModelInfo])
@@ -839,7 +1228,7 @@ export function CodexChat() {
             onClick={() => void createNewSession()}
             title="New session"
           >
-            +
+            <Plus className="h-6 w-6" />
           </button>
         </div>
       </aside>
@@ -867,7 +1256,7 @@ export function CodexChat() {
               }}
               title="Sessions"
             >
-              ☰
+              <Menu className="h-5 w-5" />
             </button>
 
             <button
@@ -876,7 +1265,7 @@ export function CodexChat() {
               onClick={() => setIsSettingsMenuOpen((v) => !v)}
               title="Menu"
             >
-              ⛭
+              <Settings2 className="h-5 w-5" />
             </button>
 
             {isSettingsMenuOpen ? (
@@ -925,9 +1314,9 @@ export function CodexChat() {
           </div>
         </div>
 
-        <div ref={scrollRef} className="mt-6 min-h-0 flex-1 space-y-6 overflow-auto">
+        <div ref={scrollRef} className="mt-4 min-h-0 flex-1 space-y-4 overflow-auto pb-4">
           {renderCount === 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 text-center text-sm text-text-muted backdrop-blur">
+            <div className="rounded-xl border border-white/10 bg-bg-panel/70 p-4 text-center text-sm text-text-muted backdrop-blur">
               {selectedThreadId ? 'No messages yet.' : 'Start a new session and say hello.'}
             </div>
           ) : null}
@@ -937,8 +1326,8 @@ export function CodexChat() {
             const hasActivity = turn.activityEntries.length > 0
 
             return (
-              <div key={turn.id} className="space-y-3">
-                <div className="flex items-center justify-between gap-3 text-xs text-text-dim">
+              <div key={turn.id} className="space-y-2">
+                <div className="flex items-center justify-between gap-2 text-xs text-text-dim">
                   <div className="truncate">
                     {turnStatusLabel(turn.status)}
                     {turn.id === PENDING_TURN_ID ? ' (pending)' : ''}
@@ -946,22 +1335,25 @@ export function CodexChat() {
                   {hasActivity ? (
                     <button
                       type="button"
-                      className="shrink-0 rounded-full border border-white/10 bg-bg-panelHover px-3 py-1 text-[11px] hover:border-white/20"
+                      className="shrink-0 rounded-full border border-white/10 bg-bg-panelHover px-2 py-0.5 text-[10px] hover:border-white/20"
                       onClick={() => toggleTurnActivity(turn.id)}
                     >
-                      Activity ({turn.activityEntries.length}) {activityCollapsed ? '▸' : '▾'}
+                      <span className="inline-flex items-center gap-1">
+                        <span>Activity ({turn.activityEntries.length})</span>
+                        {activityCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                      </span>
                     </button>
                   ) : (
-                    <div className="shrink-0 text-[11px] text-text-dim">No activity</div>
+                    <div className="shrink-0 text-[10px] text-text-dim">No activity</div>
                   )}
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {turn.chatEntries.map((e) => {
                     if (e.kind === 'user') {
                       return (
                         <div key={e.id} className="flex justify-end">
-                          <div className="max-w-[75%] rounded-2xl bg-primary/15 px-4 py-3 text-sm text-text-main">
+                          <div className="max-w-[75%] rounded-xl bg-primary/15 px-3 py-2 text-sm text-text-main">
                             <div className="whitespace-pre-wrap">{e.text}</div>
                           </div>
                         </div>
@@ -969,10 +1361,18 @@ export function CodexChat() {
                     }
 
                     if (e.kind === 'assistant') {
+                      const isReasoning = e.role === 'reasoning'
                       return (
-                        <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
-                          <div className="text-xs text-text-dim">Assistant{e.streaming ? ' (streaming)' : ''}</div>
-                          <div className="mt-2 whitespace-pre-wrap text-sm text-text-main">{e.text}</div>
+                        <div
+                          key={e.id}
+                          className={[
+                            'rounded-lg border border-white/10 px-3 py-2',
+                            isReasoning ? 'bg-black/20 text-text-muted' : 'bg-bg-panel/60 text-text-main backdrop-blur',
+                          ].join(' ')}
+                        >
+                          {isReasoning ? <div className="mb-1 text-[10px] text-text-dim">Reasoning</div> : null}
+                          {e.streaming ? <div className="mb-1 text-[10px] text-text-dim">Streaming…</div> : null}
+                          <div className="whitespace-pre-wrap text-sm">{e.text}</div>
                         </div>
                       )
                     }
@@ -987,7 +1387,7 @@ export function CodexChat() {
                             : 'border-white/10 bg-bg-panelHover text-text-muted'
 
                       return (
-                        <div key={e.id} className={`rounded-xl border p-4 text-sm ${color}`}>
+                        <div key={e.id} className={`rounded-lg border px-3 py-2 text-xs ${color}`}>
                           {e.text}
                         </div>
                       )
@@ -998,13 +1398,13 @@ export function CodexChat() {
                 </div>
 
                 {!activityCollapsed && hasActivity ? (
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     {turn.activityEntries.map((e) => {
                       if (e.kind === 'command') {
                         const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails
                         return (
-                          <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
-                            <div className="flex items-start justify-between gap-3">
+                          <div key={e.id} className="rounded-lg border border-white/10 bg-bg-panel/70 p-3 backdrop-blur">
+                            <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
                                 <div className="truncate text-xs text-text-dim">Run</div>
                                 <div className="mt-1 font-mono text-xs text-text-main">{e.command}</div>
@@ -1056,17 +1456,17 @@ export function CodexChat() {
                       if (e.kind === 'fileChange') {
                         const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails
                         return (
-                          <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
-                            <div className="flex items-start justify-between gap-3">
+                          <div key={e.id} className="rounded-lg border border-white/10 bg-bg-panel/70 p-3 backdrop-blur">
+                            <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
                                 <div className="text-xs text-text-dim">Edited</div>
-                                <div className="mt-1 text-xs text-text-muted">{e.changes.map((c) => c.path).join(', ')}</div>
+                                <div className="mt-0.5 text-xs text-text-muted">{e.changes.map((c) => c.path).join(', ')}</div>
                               </div>
-                              <div className="flex shrink-0 items-center gap-2">
-                                <div className="text-xs text-text-muted">{e.status}</div>
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                <div className="text-[10px] text-text-muted">{e.status}</div>
                                 <button
                                   type="button"
-                                  className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-[11px] hover:border-white/20"
+                                  className="rounded border border-white/10 bg-bg-panelHover px-1.5 py-0.5 text-[10px] hover:border-white/20"
                                   onClick={() => toggleEntryCollapse(e.id)}
                                 >
                                   {collapsed ? 'Expand' : 'Collapse'}
@@ -1074,12 +1474,12 @@ export function CodexChat() {
                               </div>
                             </div>
                             {!collapsed ? (
-                              <div className="mt-3 space-y-2">
+                              <div className="mt-2 space-y-1.5">
                                 {e.changes.map((c, idx) => (
-                                  <div key={`${e.id}-${idx}`} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                                  <div key={`${e.id}-${idx}`} className="rounded border border-white/10 bg-black/20 p-2">
                                     <div className="truncate text-xs font-semibold">{c.path}</div>
                                     {c.diff ? (
-                                      <pre className="mt-2 max-h-[220px] overflow-auto text-[11px] text-text-muted">
+                                      <pre className="mt-1.5 max-h-[180px] overflow-auto text-[10px] text-text-muted">
                                         {c.diff}
                                       </pre>
                                     ) : null}
@@ -1088,21 +1488,21 @@ export function CodexChat() {
                               </div>
                             ) : null}
                             {e.approval ? (
-                              <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                                <div className="min-w-0 text-xs text-text-muted">
+                              <div className="mt-2 flex items-center justify-between gap-2 rounded border border-white/10 bg-black/20 px-2 py-1.5">
+                                <div className="min-w-0 text-[10px] text-text-muted">
                                   Approval required{e.approval.reason ? `: ${e.approval.reason}` : ''}.
                                 </div>
-                                <div className="flex shrink-0 gap-2">
+                                <div className="flex shrink-0 gap-1.5">
                                   <button
                                     type="button"
-                                    className="rounded-md bg-status-success/20 px-3 py-1 text-xs font-semibold text-status-success"
+                                    className="rounded bg-status-success/20 px-2 py-0.5 text-[10px] font-semibold text-status-success"
                                     onClick={() => void approve(e.approval!.requestId, 'accept')}
                                   >
                                     批准
                                   </button>
                                   <button
                                     type="button"
-                                    className="rounded-md bg-status-error/15 px-3 py-1 text-xs font-semibold text-status-error"
+                                    className="rounded bg-status-error/15 px-2 py-0.5 text-[10px] font-semibold text-status-error"
                                     onClick={() => void approve(e.approval!.requestId, 'decline')}
                                   >
                                     拒绝
@@ -1116,24 +1516,24 @@ export function CodexChat() {
 
                       if (e.kind === 'webSearch') {
                         return (
-                          <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
-                            <div className="text-xs text-text-dim">Web search</div>
-                            <div className="mt-2 text-sm text-text-main">{e.query}</div>
+                          <div key={e.id} className="rounded-lg border border-white/10 bg-bg-panel/70 p-2 backdrop-blur">
+                            <div className="text-[10px] text-text-dim">Web search</div>
+                            <div className="mt-1 text-xs text-text-main">{e.query}</div>
                           </div>
                         )
                       }
 
                       if (e.kind === 'mcp') {
                         return (
-                          <div key={e.id} className="rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="text-xs text-text-dim">MCP tool call</div>
-                              <div className="text-xs text-text-muted">{e.status}</div>
+                          <div key={e.id} className="rounded-lg border border-white/10 bg-bg-panel/70 p-2 backdrop-blur">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-[10px] text-text-dim">MCP tool call</div>
+                              <div className="text-[10px] text-text-muted">{e.status}</div>
                             </div>
-                            <div className="mt-2 text-sm text-text-main">
-                              <span className="font-mono text-xs">{e.server}.{e.tool}</span>
+                            <div className="mt-1 text-xs text-text-main">
+                              <span className="font-mono text-[10px]">{e.server}.{e.tool}</span>
                             </div>
-                            {e.message ? <div className="mt-2 text-xs text-text-muted">{e.message}</div> : null}
+                            {e.message ? <div className="mt-1 text-[10px] text-text-muted">{e.message}</div> : null}
                           </div>
                         )
                       }
@@ -1147,126 +1547,435 @@ export function CodexChat() {
           })}
         </div>
 
-        <div className="mt-4 rounded-2xl border border-white/10 bg-bg-panel/70 p-4 backdrop-blur">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-bg-panelHover text-sm hover:border-white/20"
-              onClick={() => {
-                setIsSettingsMenuOpen(false)
-                setIsSessionsOpen(true)
-              }}
-              title="Open sessions"
-            >
-              +
-            </button>
+        <div className="mt-3 rounded-xl border border-white/10 bg-bg-panel/70 p-2 backdrop-blur">
+          {/* File attachments display */}
+          {fileAttachments.length > 0 ? (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {fileAttachments.map((f) => (
+                <div
+                  key={f.path}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-bg-panelHover px-2 py-1 text-xs"
+                >
+                  {f.content?.startsWith('data:image') ? (
+                    <Image className="h-3.5 w-3.5 text-text-dim" />
+                  ) : (
+                    <File className="h-3.5 w-3.5 text-text-dim" />
+                  )}
+                  <span className="max-w-[120px] truncate">{f.name}</span>
+                  <button
+                    type="button"
+                    className="rounded p-0.5 hover:bg-white/10"
+                    onClick={() => removeFileAttachment(f.path)}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
+          <div className="mb-1.5 flex items-center gap-1.5">
+            {/* + Add Context Button */}
+            <div className="relative">
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
+                title="Add context"
+                onClick={() => setIsAddContextOpen((v) => !v)}
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+
+              {isAddContextOpen ? (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => {
+                      setIsAddContextOpen(false)
+                      setFileSearchQuery('')
+                      setFileSearchResults([])
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  />
+                  <div className="absolute bottom-[44px] left-0 z-50 w-[280px] rounded-xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
+                    <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/10 bg-bg-panelHover px-2 py-1.5">
+                      <Search className="h-4 w-4 text-text-dim" />
+                      <input
+                        type="text"
+                        className="flex-1 bg-transparent text-sm outline-none placeholder:text-text-dim"
+                        placeholder="Search files..."
+                        value={fileSearchQuery}
+                        onChange={(e) => void searchFiles(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                    <div className="max-h-[200px] overflow-auto">
+                      {fileSearchResults.length > 0 ? (
+                        fileSearchResults.map((f) => (
+                          <button
+                            key={f.path}
+                            type="button"
+                            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-bg-panelHover"
+                            onClick={() => void addFileAttachment(f)}
+                          >
+                            {f.isDirectory ? (
+                              <Folder className="h-4 w-4 text-text-dim" />
+                            ) : (
+                              <File className="h-4 w-4 text-text-dim" />
+                            )}
+                            <span className="truncate">{f.path}</span>
+                          </button>
+                        ))
+                      ) : fileSearchQuery ? (
+                        <div className="px-2 py-1.5 text-xs text-text-muted">No files found</div>
+                      ) : null}
+                    </div>
+                    <div className="mt-2 border-t border-white/10 pt-2">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-bg-panelHover"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Image className="h-4 w-4 text-text-dim" />
+                        <span>Add image</span>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            {/* / Slash Commands Button */}
+            <div className="relative">
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
+                title="Commands"
+                onClick={() => setIsSlashMenuOpen((v) => !v)}
+              >
+                <Slash className="h-4 w-4" />
+              </button>
+
+              {isSlashMenuOpen ? (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => {
+                      setIsSlashMenuOpen(false)
+                      setSlashSearchQuery('')
+                      setSlashHighlightIndex(0)
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  />
+                  <div className="absolute bottom-[44px] left-0 z-50 w-[220px] rounded-xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
+                    <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/10 bg-bg-panelHover px-2 py-1.5">
+                      <Slash className="h-4 w-4 text-text-dim" />
+                      <input
+                        type="text"
+                        className="flex-1 bg-transparent text-sm outline-none placeholder:text-text-dim"
+                        placeholder="Search commands..."
+                        value={slashSearchQuery}
+                        onChange={(e) => {
+                          setSlashSearchQuery(e.target.value)
+                          setSlashHighlightIndex(0)
+                        }}
+                        autoFocus
+                      />
+                    </div>
+                    <div className="max-h-[200px] overflow-auto">
+                      {filteredSlashCommands.map((cmd, idx) => (
+                        <button
+                          key={cmd.id}
+                          type="button"
+                          className={[
+                            'flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm',
+                            idx === slashHighlightIndex ? 'bg-bg-panelHover' : 'hover:bg-bg-panelHover',
+                          ].join(' ')}
+                          onClick={() => executeSlashCommand(cmd.id)}
+                          onMouseEnter={() => setSlashHighlightIndex(idx)}
+                        >
+                          <span className="font-mono text-xs">{cmd.label}</span>
+                          <span className="text-xs text-text-muted">{cmd.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            {/* Auto context toggle */}
             <button
               type="button"
               className={[
-                'rounded-full border px-3 py-1 text-xs',
+                'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition',
                 autoContextEnabled
-                  ? 'border-primary/40 bg-primary/10 text-text-main'
+                  ? 'border-primary/40 bg-primary/10 text-primary'
                   : 'border-white/10 bg-bg-panelHover text-text-muted hover:border-white/20',
               ].join(' ')}
               onClick={() => setAutoContextEnabled((v) => !v)}
+              title={autoContext ? `cwd: ${autoContext.cwd}\nRecent: ${autoContext.recentFiles.length} files\nGit: ${autoContext.gitStatus?.branch ?? 'N/A'}` : 'Auto context'}
             >
-              Auto context
+              <Paperclip className="h-3.5 w-3.5" />
+              <span>Auto context</span>
+              {autoContext?.gitStatus ? (
+                <span className="rounded bg-white/10 px-1 py-0.5 text-[10px]">{autoContext.gitStatus.branch}</span>
+              ) : null}
             </button>
-
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-text-muted">Approval</span>
-              <select
-                className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-xs"
-                value={approvalPolicy}
-                onChange={(e) => setApprovalPolicy(e.target.value as ApprovalPolicy)}
-              >
-                <option value="untrusted">Always Ask</option>
-                <option value="on-request">On Request</option>
-                <option value="on-failure">On Failure</option>
-                <option value="never">Never</option>
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-text-muted">Model</span>
-              <select
-                className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-xs"
-                value={selectedModel ?? ''}
-                onChange={(e) => setSelectedModel(e.target.value || null)}
-                disabled={models.length === 0}
-              >
-                {models.length === 0 ? <option value="">(unavailable)</option> : null}
-                {models.map((m) => (
-                  <option key={m.id} value={m.model}>
-                    {m.displayName}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-text-muted">Reasoning</span>
-              <select
-                className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-xs"
-                value={selectedEffort ?? ''}
-                onChange={(e) => setSelectedEffort((e.target.value as ReasoningEffort) || null)}
-                disabled={effortOptions.length === 0}
-              >
-                {effortOptions.length === 0 ? <option value="">(default)</option> : null}
-                {effortOptions.map((opt) => (
-                  <option key={opt.reasoningEffort} value={opt.reasoningEffort}>
-                    {opt.description}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {modelsError ? <div className="text-xs text-status-warning">{modelsError}</div> : null}
           </div>
 
-          {activeTurnId ? (
-            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-bg-panelHover px-3 py-1 text-xs text-text-muted">
-              <span className="truncate">turn: {activeTurnId}</span>
-              {selectedThreadId ? (
-                <button
-                  type="button"
-                  className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[11px] hover:border-white/20"
-                  onClick={() => void apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId)}
-                >
-                  Interrupt
-                </button>
-              ) : null}
-            </div>
-          ) : null}
+          {/* Hidden file input for image upload */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleImageUpload}
+          />
+
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={textareaRef}
+              className="min-h-[40px] w-full resize-none rounded-xl border border-white/10 bg-bg-panelHover px-3 py-2 text-sm outline-none focus:border-border-active"
+              placeholder="Ask for follow-up changes"
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value)
+                // Close slash menu if input is cleared or doesn't start with /
+                if (!e.target.value.startsWith('/')) {
+                  setIsSlashMenuOpen(false)
+                }
+              }}
+              onKeyDown={handleTextareaKeyDown}
+              disabled={sending}
+            />
+            <button
+              type="button"
+              className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-xl bg-bg-panelHover text-text-main hover:border-white/20 disabled:opacity-50"
+              onClick={() => void sendMessage()}
+              disabled={sending || input.trim().length === 0}
+              title="Send (Ctrl/Cmd+Enter)"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-end gap-3">
-          <textarea
-            className="min-h-[56px] w-full resize-none rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3 text-sm outline-none focus:border-border-active"
-            placeholder="Ask for follow-up changes"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault()
-                void sendMessage()
-              }
-            }}
-            disabled={sending}
+        <div className="-mx-8 mt-2 flex h-8 items-center justify-between border-t border-white/10 bg-bg-panel/40 px-4 text-xs text-text-muted">
+          <div className="flex min-w-0 items-center gap-1">
+            {/* Switch mode dropdown */}
+            <div className="relative">
+              <button
+                type="button"
+                className={statusBarItemClass(openStatusPopover === 'profile')}
+                onClick={() => setOpenStatusPopover((prev) => (prev === 'profile' ? null : 'profile'))}
+                title="Switch mode"
+              >
+                <span>{approvalPolicy === 'never' ? 'Agent (full access)' : approvalPolicy === 'untrusted' ? 'Agent' : 'Custom'}</span>
+                <ChevronDown className="h-3 w-3" />
+              </button>
+
+              {openStatusPopover === 'profile' ? (
+                <div className="absolute bottom-[28px] left-0 z-50 min-w-[140px] rounded-md bg-[#2a2a2a]/95 py-1 shadow-xl backdrop-blur">
+                  <div className="px-2.5 py-1 text-[10px] text-text-dim">Switch mode</div>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between px-2.5 py-1 text-left text-[11px] text-text-main hover:bg-white/5"
+                    onClick={() => {
+                      void applyApprovalPolicy('untrusted')
+                      setOpenStatusPopover(null)
+                    }}
+                  >
+                    <span>Agent</span>
+                    {approvalPolicy === 'untrusted' ? <Check className="ml-2 h-3 w-3 shrink-0" /> : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between px-2.5 py-1 text-left text-[11px] text-text-main hover:bg-white/5"
+                    onClick={() => {
+                      void applyApprovalPolicy('never')
+                      setOpenStatusPopover(null)
+                    }}
+                  >
+                    <span>Agent (full access)</span>
+                    {approvalPolicy === 'never' ? <Check className="ml-2 h-3 w-3 shrink-0" /> : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between px-2.5 py-1 text-left text-[11px] text-text-main hover:bg-white/5"
+                    onClick={() => {
+                      void applyApprovalPolicy('on-request')
+                      setOpenStatusPopover(null)
+                    }}
+                  >
+                    <span>Custom (config.toml)</span>
+                    {approvalPolicy === 'on-request' || approvalPolicy === 'on-failure' ? <Check className="ml-2 h-3 w-3 shrink-0" /> : null}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mx-1 h-3 w-px bg-white/10" />
+
+            <div className="relative">
+              <button
+                type="button"
+                className={statusBarItemClass(openStatusPopover === 'model')}
+                onClick={() => {
+                  setStatusPopoverError(null)
+                  setOpenStatusPopover((prev) => (prev === 'model' ? null : 'model'))
+                }}
+                title="model"
+              >
+                <span>{selectedModelInfo?.displayName ?? selectedModel ?? 'model'}</span>
+                <ChevronDown className="h-3 w-3" />
+              </button>
+
+              {openStatusPopover === 'model' ? (
+                <div className="absolute bottom-[28px] left-0 z-50 min-w-[160px] rounded-md bg-[#2a2a2a]/95 py-1 shadow-xl backdrop-blur">
+                  <div className="px-2.5 py-1 text-[10px] text-text-dim">Select model</div>
+                  <div className="max-h-[40vh] overflow-auto">
+                    {models.length === 0 ? (
+                      <div className="px-2.5 py-1 text-[11px] text-text-muted">(unavailable)</div>
+                    ) : (
+                      models.map((m) => {
+                        const selected = selectedModel === m.model
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            className="flex w-full items-center justify-between px-2.5 py-1 text-left text-[11px] text-text-main hover:bg-white/5"
+                            onClick={() => void applyModel(m.model)}
+                          >
+                            <span className="truncate">{m.displayName}</span>
+                            {selected ? <Check className="ml-2 h-3 w-3 shrink-0" /> : null}
+                          </button>
+                        )
+                      })
+                    )}
+                    {modelsError ? <div className="px-2.5 py-0.5 text-[10px] text-status-warning">{modelsError}</div> : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="relative">
+              <button
+                type="button"
+                className={statusBarItemClass(openStatusPopover === 'approval_policy')}
+                onClick={() => {
+                  setStatusPopoverError(null)
+                  setOpenStatusPopover((prev) => (prev === 'approval_policy' ? null : 'approval_policy'))
+                }}
+                title="approval_policy"
+              >
+                <span>{approvalPolicy}</span>
+                <ChevronDown className="h-3 w-3" />
+              </button>
+
+              {openStatusPopover === 'approval_policy' ? (
+                <div className="absolute bottom-[28px] left-0 z-50 min-w-[120px] rounded-md bg-[#2a2a2a]/95 py-1 shadow-xl backdrop-blur">
+                  <div className="px-2.5 py-1 text-[10px] text-text-dim">Approval policy</div>
+                  <div>
+                    {(['untrusted', 'on-request', 'on-failure', 'never'] as const).map((policy) => {
+                      const selected = approvalPolicy === policy
+                      return (
+                        <button
+                          key={policy}
+                          type="button"
+                          className="flex w-full items-center justify-between px-2.5 py-1 text-left text-[11px] text-text-main hover:bg-white/5"
+                          onClick={() => void applyApprovalPolicy(policy)}
+                        >
+                          <span>{policy}</span>
+                          {selected ? <Check className="ml-2 h-3 w-3 shrink-0" /> : null}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="relative">
+              <button
+                type="button"
+                className={statusBarItemClass(openStatusPopover === 'model_reasoning_effort')}
+                onClick={() => {
+                  setStatusPopoverError(null)
+                  setOpenStatusPopover((prev) => (prev === 'model_reasoning_effort' ? null : 'model_reasoning_effort'))
+                }}
+                title="model_reasoning_effort"
+              >
+                <span>{selectedEffort ? reasoningEffortLabelEn(selectedEffort) : 'Default'}</span>
+                <ChevronDown className="h-3 w-3" />
+              </button>
+
+              {openStatusPopover === 'model_reasoning_effort' ? (
+                <div className="absolute bottom-[28px] left-0 z-50 min-w-[120px] rounded-md bg-[#2a2a2a]/95 py-1 shadow-xl backdrop-blur">
+                  <div className="px-2.5 py-1 text-[10px] text-text-dim">Select reasoning</div>
+                  <div>
+                    {effortOptions.length === 0 ? (
+                      <div className="px-2.5 py-1 text-[11px] text-text-muted">Default</div>
+                    ) : (
+                      effortOptions.map((opt) => {
+                        const selected = selectedEffort === opt.reasoningEffort
+                        return (
+                          <button
+                            key={opt.reasoningEffort}
+                            type="button"
+                            className="flex w-full items-center justify-between px-2.5 py-1 text-left text-[11px] text-text-main hover:bg-white/5"
+                            onClick={() => void applyReasoningEffort(opt.reasoningEffort)}
+                            title={translateReasoningDesc(opt.description)}
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <Brain className="h-3 w-3 text-text-dim" />
+                              <span>{reasoningEffortLabelEn(opt.reasoningEffort)}</span>
+                            </span>
+                            {selected ? <Check className="ml-2 h-3 w-3 shrink-0" /> : null}
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {activeTurnId ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-text-dim" />
+                {selectedThreadId ? (
+                  <button
+                    type="button"
+                    className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-[11px] hover:border-white/20"
+                    onClick={() => void apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId)}
+                  >
+                    Interrupt
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="shrink-0">{contextUsageLabel}</div>
+          </div>
+        </div>
+
+        {openStatusPopover ? (
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setOpenStatusPopover(null)}
+            role="button"
+            tabIndex={0}
           />
-          <button
-            type="button"
-            className="h-[56px] rounded-xl bg-primary px-5 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50"
-            onClick={() => void sendMessage()}
-            disabled={sending || input.trim().length === 0}
-            title="Send (Ctrl/Cmd+Enter)"
-          >
-            Send
-          </button>
-        </div>
-        </div>
+        ) : null}
+
+        {statusPopoverError ? (
+          <div className="mt-2 text-xs text-status-warning">{statusPopoverError}</div>
+        ) : null}
 
         {isConfigOpen ? (
         <div className="fixed inset-0 z-50 flex">
