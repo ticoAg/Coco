@@ -1,42 +1,53 @@
-import { useMemo, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import type { AgentInstance, Gate, Milestone, SharedArtifactCategory, Task, TaskEvent } from '../types/task'
-import { useSharedArtifacts, useSubagentSessions } from '../hooks/useTasks'
-import { StatusBadge } from './TaskList'
+import { useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import type {
+  AgentInstance,
+  Gate,
+  Milestone,
+  SharedArtifactCategory,
+  Task,
+  TaskEvent,
+} from "../types/task";
+import { useSharedArtifacts, useSubagentSessions } from "../hooks/useTasks";
+import { StatusBadge } from "./TaskList";
 
-type TabId = 'overview' | 'events' | 'artifacts' | 'sessions'
+type TabId = "overview" | "events" | "artifacts" | "sessions";
 const TABS: Array<{ id: TabId; label: string }> = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'events', label: 'Events' },
-  { id: 'artifacts', label: 'Artifacts' },
-  { id: 'sessions', label: 'Sessions' },
-]
-const ARTIFACT_CATEGORIES: SharedArtifactCategory[] = ['reports', 'contracts', 'decisions']
+  { id: "overview", label: "Overview" },
+  { id: "events", label: "Events" },
+  { id: "artifacts", label: "Artifacts" },
+  { id: "sessions", label: "Sessions" },
+];
+const ARTIFACT_CATEGORIES: SharedArtifactCategory[] = [
+  "reports",
+  "contracts",
+  "decisions",
+];
 
 function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleString()
+  const date = new Date(dateString);
+  return date.toLocaleString();
 }
 
 function formatEpochMs(value: number | null): string {
-  if (value == null) return '—'
-  return new Date(value).toLocaleString()
+  if (value == null) return "—";
+  return new Date(value).toLocaleString();
 }
 
 function MilestoneItem({ milestone }: { milestone: Milestone }) {
   const icon = {
-    pending: '○',
-    working: '◐',
-    done: '●',
-    blocked: '⚠',
-  }[milestone.state]
+    pending: "○",
+    working: "◐",
+    done: "●",
+    blocked: "⚠",
+  }[milestone.state];
 
   const color = {
-    pending: 'text-text-muted',
-    working: 'text-status-info',
-    done: 'text-status-success',
-    blocked: 'text-status-warning',
-  }[milestone.state]
+    pending: "text-text-muted",
+    working: "text-status-info",
+    done: "text-status-success",
+    blocked: "text-status-warning",
+  }[milestone.state];
 
   return (
     <div className="flex items-start gap-3 rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2">
@@ -45,22 +56,24 @@ function MilestoneItem({ milestone }: { milestone: Milestone }) {
         <div className="text-sm font-medium">{milestone.title}</div>
         <div className="mt-1 text-xs text-text-muted">
           {milestone.state}
-          {milestone.dependsOn?.length ? ` • deps: ${milestone.dependsOn.join(', ')}` : ''}
+          {milestone.dependsOn?.length
+            ? ` • deps: ${milestone.dependsOn.join(", ")}`
+            : ""}
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function AgentCard({ agent }: { agent: AgentInstance }) {
   const color = {
-    pending: 'text-text-muted',
-    active: 'text-status-info',
-    awaiting: 'text-text-muted',
-    dormant: 'text-text-dim',
-    completed: 'text-status-success',
-    failed: 'text-status-error',
-  }[agent.state]
+    pending: "text-text-muted",
+    active: "text-status-info",
+    awaiting: "text-text-muted",
+    dormant: "text-text-dim",
+    completed: "text-status-success",
+    failed: "text-status-error",
+  }[agent.state];
 
   return (
     <div className="rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2">
@@ -82,22 +95,26 @@ function AgentCard({ agent }: { agent: AgentInstance }) {
         </div>
       ) : null}
     </div>
-  )
+  );
 }
 
 function GateItem({ gate }: { gate: Gate }) {
   const badge = {
-    open: 'bg-white/10 text-text-muted',
-    blocked: 'bg-status-warning/15 text-status-warning',
-    approved: 'bg-status-success/15 text-status-success',
-    rejected: 'bg-status-error/15 text-status-error',
-  }[gate.state]
+    open: "bg-white/10 text-text-muted",
+    blocked: "bg-status-warning/15 text-status-warning",
+    approved: "bg-status-success/15 text-status-success",
+    rejected: "bg-status-error/15 text-status-error",
+  }[gate.state];
 
   return (
     <div className="rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xs uppercase tracking-wide text-text-muted">{gate.type}</div>
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge}`}>
+        <div className="text-xs uppercase tracking-wide text-text-muted">
+          {gate.type}
+        </div>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge}`}
+        >
           {gate.state}
         </span>
       </div>
@@ -106,37 +123,43 @@ function GateItem({ gate }: { gate: Gate }) {
         {gate.instructionsRef ? `instructions: ${gate.instructionsRef}` : null}
       </div>
     </div>
-  )
+  );
 }
 
 function EventItem({ event }: { event: TaskEvent }) {
   const payloadMessage = useMemo(() => {
-    if (!event.payload || typeof event.payload !== 'object') return null
-    const p = event.payload as Record<string, unknown>
-    if (typeof p.message === 'string') return p.message
-    return null
-  }, [event.payload])
+    if (!event.payload || typeof event.payload !== "object") return null;
+    const p = event.payload as Record<string, unknown>;
+    if (typeof p.message === "string") return p.message;
+    return null;
+  }, [event.payload]);
 
   return (
     <div className="rounded-lg border border-white/10 bg-bg-panelHover px-3 py-2">
       <div className="text-xs text-text-dim">{formatDate(event.ts)}</div>
       <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
         <span className="font-mono text-xs text-accent">[{event.type}]</span>
-        {event.agentInstance ? <span className="text-xs text-text-muted">@{event.agentInstance}</span> : null}
-        {payloadMessage ? <span className="text-text-muted">{payloadMessage}</span> : null}
+        {event.agentInstance ? (
+          <span className="text-xs text-text-muted">
+            @{event.agentInstance}
+          </span>
+        ) : null}
+        {payloadMessage ? (
+          <span className="text-text-muted">{payloadMessage}</span>
+        ) : null}
       </div>
     </div>
-  )
+  );
 }
 
 interface TaskDetailProps {
-  task: Task | null
-  events: TaskEvent[]
-  loading: boolean
-  error: string | null
-  hasMoreEvents: boolean
-  onLoadMoreEvents: () => void
-  onClose: () => void
+  task: Task | null;
+  events: TaskEvent[];
+  loading: boolean;
+  error: string | null;
+  hasMoreEvents: boolean;
+  onLoadMoreEvents: () => void;
+  onClose: () => void;
 }
 
 export function TaskDetail({
@@ -148,11 +171,12 @@ export function TaskDetail({
   onLoadMoreEvents,
   onClose,
 }: TaskDetailProps) {
-  const [tab, setTab] = useState<TabId>('overview')
-  const [artifactCategory, setArtifactCategory] = useState<SharedArtifactCategory>('reports')
+  const [tab, setTab] = useState<TabId>("overview");
+  const [artifactCategory, setArtifactCategory] =
+    useState<SharedArtifactCategory>("reports");
 
-  const detailReady = Boolean(task) && !loading && !error
-  const sessionsEnabled = tab === 'sessions' && detailReady
+  const detailReady = Boolean(task) && !loading && !error;
+  const sessionsEnabled = tab === "sessions" && detailReady;
   const {
     sessions,
     selectedAgentInstance,
@@ -166,9 +190,9 @@ export function TaskDetail({
     enabled: sessionsEnabled,
     pollIntervalMs: 2000,
     eventsTailLimit: 200,
-  })
+  });
 
-  const artifactsEnabled = tab === 'artifacts' && detailReady
+  const artifactsEnabled = tab === "artifacts" && detailReady;
   const {
     items: artifacts,
     selectedPath: selectedArtifactPath,
@@ -180,35 +204,35 @@ export function TaskDetail({
   } = useSharedArtifacts(task?.id ?? null, artifactCategory, {
     enabled: artifactsEnabled,
     pollIntervalMs: 2000,
-  })
+  });
 
   const { finalStatus, finalSummary } = useMemo(() => {
-    if (!finalOutput?.json || typeof finalOutput.json !== 'object') {
-      return { finalStatus: null, finalSummary: null }
+    if (!finalOutput?.json || typeof finalOutput.json !== "object") {
+      return { finalStatus: null, finalSummary: null };
     }
 
-    const json = finalOutput.json as Record<string, unknown>
+    const json = finalOutput.json as Record<string, unknown>;
     return {
-      finalStatus: typeof json.status === 'string' ? json.status : null,
-      finalSummary: typeof json.summary === 'string' ? json.summary : null,
-    }
-  }, [finalOutput])
+      finalStatus: typeof json.status === "string" ? json.status : null,
+      finalSummary: typeof json.summary === "string" ? json.summary : null,
+    };
+  }, [finalOutput]);
 
   const selectedArtifact = useMemo(
     () => artifacts.find((item) => item.path === selectedArtifactPath) ?? null,
-    [artifacts, selectedArtifactPath]
-  )
+    [artifacts, selectedArtifactPath],
+  );
   const isMarkdown = useMemo(
-    () => selectedArtifact?.path?.toLowerCase().endsWith('.md') ?? false,
-    [selectedArtifact]
-  )
+    () => selectedArtifact?.path?.toLowerCase().endsWith(".md") ?? false,
+    [selectedArtifact],
+  );
 
   if (loading) {
     return (
       <section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
         <div className="text-sm text-text-muted">Loading…</div>
       </section>
-    )
+    );
   }
 
   if (error) {
@@ -218,15 +242,17 @@ export function TaskDetail({
           {error}
         </div>
       </section>
-    )
+    );
   }
 
   if (!task) {
     return (
       <section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
-        <div className="text-sm text-text-muted">Select a task to see details.</div>
+        <div className="text-sm text-text-muted">
+          Select a task to see details.
+        </div>
       </section>
-    )
+    );
   }
 
   return (
@@ -255,9 +281,11 @@ export function TaskDetail({
             key={id}
             type="button"
             className={[
-              'rounded-md px-3 py-1.5 text-sm',
-              tab === id ? 'bg-primary/15 text-primary' : 'text-text-muted hover:text-text-main',
-            ].join(' ')}
+              "rounded-md px-3 py-1.5 text-sm",
+              tab === id
+                ? "bg-primary/15 text-primary"
+                : "text-text-muted hover:text-text-main",
+            ].join(" ")}
             onClick={() => setTab(id)}
           >
             {label}
@@ -265,26 +293,38 @@ export function TaskDetail({
         ))}
       </div>
 
-      {tab === 'overview' && (
+      {tab === "overview" && (
         <div className="space-y-6">
           <div>
             <h3 className="text-sm font-semibold">Info</h3>
             <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-lg border border-white/10 bg-bg-panelHover p-3">
-                <div className="text-xs uppercase tracking-wide text-text-muted">Topology</div>
+                <div className="text-xs uppercase tracking-wide text-text-muted">
+                  Topology
+                </div>
                 <div className="mt-1 font-mono">{task.topology}</div>
               </div>
               <div className="rounded-lg border border-white/10 bg-bg-panelHover p-3">
-                <div className="text-xs uppercase tracking-wide text-text-muted">State</div>
+                <div className="text-xs uppercase tracking-wide text-text-muted">
+                  State
+                </div>
                 <div className="mt-1 font-mono">{task.state}</div>
               </div>
               <div className="rounded-lg border border-white/10 bg-bg-panelHover p-3">
-                <div className="text-xs uppercase tracking-wide text-text-muted">Created</div>
-                <div className="mt-1 font-mono">{formatDate(task.createdAt)}</div>
+                <div className="text-xs uppercase tracking-wide text-text-muted">
+                  Created
+                </div>
+                <div className="mt-1 font-mono">
+                  {formatDate(task.createdAt)}
+                </div>
               </div>
               <div className="rounded-lg border border-white/10 bg-bg-panelHover p-3">
-                <div className="text-xs uppercase tracking-wide text-text-muted">Updated</div>
-                <div className="mt-1 font-mono">{formatDate(task.updatedAt)}</div>
+                <div className="text-xs uppercase tracking-wide text-text-muted">
+                  Updated
+                </div>
+                <div className="mt-1 font-mono">
+                  {formatDate(task.updatedAt)}
+                </div>
               </div>
             </div>
             {task.description ? (
@@ -329,7 +369,7 @@ export function TaskDetail({
         </div>
       )}
 
-      {tab === 'events' && (
+      {tab === "events" && (
         <div>
           {events.length === 0 ? (
             <div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">
@@ -356,7 +396,7 @@ export function TaskDetail({
         </div>
       )}
 
-      {tab === 'artifacts' && (
+      {tab === "artifacts" && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm font-semibold">Artifacts</div>
@@ -375,11 +415,11 @@ export function TaskDetail({
                 key={category}
                 type="button"
                 className={[
-                  'rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide',
+                  "rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide",
                   artifactCategory === category
-                    ? 'bg-primary/20 text-primary'
-                    : 'bg-white/10 text-text-muted hover:text-text-main',
-                ].join(' ')}
+                    ? "bg-primary/20 text-primary"
+                    : "bg-white/10 text-text-muted hover:text-text-main",
+                ].join(" ")}
                 onClick={() => setArtifactCategory(category)}
               >
                 {category}
@@ -405,28 +445,32 @@ export function TaskDetail({
             <div className="grid grid-cols-[320px_1fr] gap-4">
               <div className="space-y-2">
                 {artifacts.map((item) => {
-                  const isSelected = item.path === selectedArtifactPath
+                  const isSelected = item.path === selectedArtifactPath;
                   return (
                     <button
                       key={item.path}
                       type="button"
                       className={[
-                        'w-full rounded-lg border px-3 py-2 text-left',
+                        "w-full rounded-lg border px-3 py-2 text-left",
                         isSelected
-                          ? 'border-primary/40 bg-primary/10'
-                          : 'border-white/10 bg-bg-panelHover hover:border-white/20',
-                      ].join(' ')}
+                          ? "border-primary/40 bg-primary/10"
+                          : "border-white/10 bg-bg-panelHover hover:border-white/20",
+                      ].join(" ")}
                       onClick={() => selectArtifact(item.path)}
                     >
-                      <div className="truncate text-sm font-semibold">{item.filename}</div>
+                      <div className="truncate text-sm font-semibold">
+                        {item.filename}
+                      </div>
                       <div className="mt-1 text-xs text-text-muted">
                         updated: {formatEpochMs(item.updatedAtMs)}
                       </div>
                       {item.path !== item.filename ? (
-                        <div className="mt-1 truncate text-[11px] text-text-dim">{item.path}</div>
+                        <div className="mt-1 truncate text-[11px] text-text-dim">
+                          {item.path}
+                        </div>
                       ) : null}
                     </button>
-                  )
+                  );
                 })}
               </div>
 
@@ -434,8 +478,12 @@ export function TaskDetail({
                 {selectedArtifactPath ? (
                   <div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="truncate text-sm font-semibold">{selectedArtifactPath}</div>
-                      <div className="text-xs text-text-muted">auto-refresh: 2s</div>
+                      <div className="truncate text-sm font-semibold">
+                        {selectedArtifactPath}
+                      </div>
+                      <div className="text-xs text-text-muted">
+                        auto-refresh: 2s
+                      </div>
                     </div>
                     {selectedArtifact?.updatedAtMs ? (
                       <div className="mt-1 text-xs text-text-muted">
@@ -447,7 +495,9 @@ export function TaskDetail({
                         <div className="text-sm text-text-muted">Loading…</div>
                       ) : isMarkdown ? (
                         <div className="space-y-3 text-sm text-text-main">
-                          <ReactMarkdown>{artifactContent.content}</ReactMarkdown>
+                          <ReactMarkdown>
+                            {artifactContent.content}
+                          </ReactMarkdown>
                         </div>
                       ) : (
                         <pre className="max-h-[420px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">
@@ -467,7 +517,7 @@ export function TaskDetail({
         </div>
       )}
 
-      {tab === 'sessions' && (
+      {tab === "sessions" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm font-semibold">Subagents / Sessions</div>
@@ -499,30 +549,34 @@ export function TaskDetail({
               <div className="space-y-2">
                 {sessions.map((s) => {
                   const badge = {
-                    running: 'bg-status-info/15 text-status-info',
-                    completed: 'bg-status-success/15 text-status-success',
-                    failed: 'bg-status-error/15 text-status-error',
-                    blocked: 'bg-status-warning/15 text-status-warning',
-                    unknown: 'bg-white/10 text-text-muted',
-                  }[s.status]
+                    running: "bg-status-info/15 text-status-info",
+                    completed: "bg-status-success/15 text-status-success",
+                    failed: "bg-status-error/15 text-status-error",
+                    blocked: "bg-status-warning/15 text-status-warning",
+                    unknown: "bg-white/10 text-text-muted",
+                  }[s.status];
 
-                  const isSelected = s.agentInstance === selectedAgentInstance
+                  const isSelected = s.agentInstance === selectedAgentInstance;
 
                   return (
                     <button
                       key={s.agentInstance}
                       type="button"
                       className={[
-                        'w-full rounded-lg border px-3 py-2 text-left',
+                        "w-full rounded-lg border px-3 py-2 text-left",
                         isSelected
-                          ? 'border-primary/40 bg-primary/10'
-                          : 'border-white/10 bg-bg-panelHover hover:border-white/20',
-                      ].join(' ')}
+                          ? "border-primary/40 bg-primary/10"
+                          : "border-white/10 bg-bg-panelHover hover:border-white/20",
+                      ].join(" ")}
                       onClick={() => selectAgentInstance(s.agentInstance)}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <div className="truncate text-sm font-semibold">{s.agentInstance}</div>
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge}`}>
+                        <div className="truncate text-sm font-semibold">
+                          {s.agentInstance}
+                        </div>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge}`}
+                        >
                           {s.status}
                         </span>
                       </div>
@@ -530,7 +584,7 @@ export function TaskDetail({
                         updated: {formatEpochMs(s.lastUpdatedAtMs)}
                       </div>
                     </button>
-                  )
+                  );
                 })}
               </div>
 
@@ -539,21 +593,30 @@ export function TaskDetail({
                   <>
                     <div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-semibold">{selectedAgentInstance}</div>
-                        <div className="text-xs text-text-muted">auto-refresh: 2s</div>
+                        <div className="text-sm font-semibold">
+                          {selectedAgentInstance}
+                        </div>
+                        <div className="text-xs text-text-muted">
+                          auto-refresh: 2s
+                        </div>
                       </div>
                       {finalStatus ? (
                         <div className="mt-2 text-xs text-text-muted">
-                          final.status: <span className="font-mono">{finalStatus}</span>
+                          final.status:{" "}
+                          <span className="font-mono">{finalStatus}</span>
                         </div>
                       ) : null}
                       {finalSummary ? (
-                        <div className="mt-2 text-sm text-text-muted">{finalSummary}</div>
+                        <div className="mt-2 text-sm text-text-muted">
+                          {finalSummary}
+                        </div>
                       ) : null}
                     </div>
 
                     <div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
-                      <div className="mb-2 text-sm font-semibold">Final Output</div>
+                      <div className="mb-2 text-sm font-semibold">
+                        Final Output
+                      </div>
                       {!finalOutput ? (
                         <div className="text-sm text-text-muted">Loading…</div>
                       ) : !finalOutput.exists ? (
@@ -561,23 +624,31 @@ export function TaskDetail({
                           `artifacts/final.json` not found yet.
                         </div>
                       ) : finalOutput.parseError ? (
-                        <div className="text-sm text-status-warning">{finalOutput.parseError}</div>
+                        <div className="text-sm text-status-warning">
+                          {finalOutput.parseError}
+                        </div>
                       ) : finalOutput.json ? (
                         <pre className="max-h-[260px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">
                           {JSON.stringify(finalOutput.json, null, 2)}
                         </pre>
                       ) : (
-                        <div className="text-sm text-text-muted">No structured output.</div>
+                        <div className="text-sm text-text-muted">
+                          No structured output.
+                        </div>
                       )}
                     </div>
 
                     <div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
-                      <div className="mb-2 text-sm font-semibold">Runtime Events (tail)</div>
+                      <div className="mb-2 text-sm font-semibold">
+                        Runtime Events (tail)
+                      </div>
                       {runtimeEvents.length === 0 ? (
-                        <div className="text-sm text-text-muted">No runtime events yet.</div>
+                        <div className="text-sm text-text-muted">
+                          No runtime events yet.
+                        </div>
                       ) : (
                         <pre className="max-h-[260px] overflow-auto rounded-md bg-black/20 p-3 text-[11px] text-text-muted">
-                          {runtimeEvents.join('\n')}
+                          {runtimeEvents.join("\n")}
                         </pre>
                       )}
                     </div>
@@ -593,7 +664,7 @@ export function TaskDetail({
         </div>
       )}
     </section>
-  )
+  );
 }
 
-export default TaskDetail
+export default TaskDetail;

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { apiClient } from '../api/client'
+import { useCallback, useEffect, useRef, useState } from "react";
+import { apiClient } from "../api/client";
 import type {
   ClusterStatus,
   CreateTaskRequest,
@@ -10,22 +10,22 @@ import type {
   SubagentSessionSummary,
   Task,
   TaskEvent,
-} from '../types/task'
+} from "../types/task";
 
 const getErrorMessage = (err: unknown, fallback: string) =>
-  err instanceof Error ? err.message : fallback
+  err instanceof Error ? err.message : fallback;
 
 // ============ useTasks ============
 
 interface UseTasksState {
-  tasks: Task[]
-  loading: boolean
-  error: string | null
+  tasks: Task[];
+  loading: boolean;
+  error: string | null;
 }
 
 interface UseTasksReturn extends UseTasksState {
-  refresh: () => Promise<void>
-  createTask: (data: CreateTaskRequest) => Promise<string | null>
+  refresh: () => Promise<void>;
+  createTask: (data: CreateTaskRequest) => Promise<string | null>;
 }
 
 export function useTasks(enablePolling: boolean = true): UseTasksReturn {
@@ -33,64 +33,67 @@ export function useTasks(enablePolling: boolean = true): UseTasksReturn {
     tasks: [],
     loading: true,
     error: null,
-  })
+  });
 
   const fetchTasks = useCallback(async () => {
     try {
-      const tasks = await apiClient.listTasks()
-      setState({ tasks, loading: false, error: null })
+      const tasks = await apiClient.listTasks();
+      setState({ tasks, loading: false, error: null });
     } catch (err) {
       setState({
         tasks: [],
         loading: false,
-        error: getErrorMessage(err, 'Failed to load tasks'),
-      })
+        error: getErrorMessage(err, "Failed to load tasks"),
+      });
     }
-  }, [])
+  }, []);
 
   const refresh = useCallback(async () => {
-    setState((prev) => ({ ...prev, loading: true }))
-    await fetchTasks()
-  }, [fetchTasks])
+    setState((prev) => ({ ...prev, loading: true }));
+    await fetchTasks();
+  }, [fetchTasks]);
 
-  const createTask = useCallback(async (data: CreateTaskRequest): Promise<string | null> => {
-    try {
-      const res = await apiClient.createTask(data)
-      await fetchTasks()
-      return res.id
-    } catch (err) {
-      setState((prev) => ({
-        ...prev,
-        error: getErrorMessage(err, 'Failed to create task'),
-      }))
-      return null
-    }
-  }, [fetchTasks])
+  const createTask = useCallback(
+    async (data: CreateTaskRequest): Promise<string | null> => {
+      try {
+        const res = await apiClient.createTask(data);
+        await fetchTasks();
+        return res.id;
+      } catch (err) {
+        setState((prev) => ({
+          ...prev,
+          error: getErrorMessage(err, "Failed to create task"),
+        }));
+        return null;
+      }
+    },
+    [fetchTasks],
+  );
 
   useEffect(() => {
-    fetchTasks()
-    if (!enablePolling) return
+    fetchTasks();
+    if (!enablePolling) return;
 
-    const timer = setInterval(fetchTasks, 5000)
-    return () => clearInterval(timer)
-  }, [enablePolling, fetchTasks])
+    const timer = setInterval(fetchTasks, 5000);
+    return () => clearInterval(timer);
+  }, [enablePolling, fetchTasks]);
 
-  return { ...state, refresh, createTask }
+  return { ...state, refresh, createTask };
 }
 
 // ============ useTaskDetail ============
 
 interface UseTaskDetailState {
-  task: Task | null
-  events: TaskEvent[]
-  loading: boolean
-  error: string | null
+  task: Task | null;
+  events: TaskEvent[];
+  loading: boolean;
+  error: string | null;
 }
 
 interface UseTaskDetailReturn extends UseTaskDetailState {
-  refresh: () => Promise<void>
-  loadMoreEvents: () => Promise<void>
-  hasMoreEvents: boolean
+  refresh: () => Promise<void>;
+  loadMoreEvents: () => Promise<void>;
+  hasMoreEvents: boolean;
 }
 
 export function useTaskDetail(taskId: string | null): UseTaskDetailReturn {
@@ -99,123 +102,131 @@ export function useTaskDetail(taskId: string | null): UseTaskDetailReturn {
     events: [],
     loading: true,
     error: null,
-  })
-  const [hasMoreEvents, setHasMoreEvents] = useState(false)
-  const offsetRef = useRef(0)
+  });
+  const [hasMoreEvents, setHasMoreEvents] = useState(false);
+  const offsetRef = useRef(0);
 
   const fetchTask = useCallback(async () => {
     if (!taskId) {
-      setState({ task: null, events: [], loading: false, error: null })
-      return
+      setState({ task: null, events: [], loading: false, error: null });
+      return;
     }
 
     try {
-      const task = await apiClient.getTask(taskId)
-      setState((prev) => ({ ...prev, task, loading: false, error: null }))
+      const task = await apiClient.getTask(taskId);
+      setState((prev) => ({ ...prev, task, loading: false, error: null }));
     } catch (err) {
       setState((prev) => ({
         ...prev,
         loading: false,
-        error: getErrorMessage(err, 'Failed to load task'),
-      }))
+        error: getErrorMessage(err, "Failed to load task"),
+      }));
     }
-  }, [taskId])
+  }, [taskId]);
 
-  const fetchEvents = useCallback(async (append: boolean) => {
-    if (!taskId) return
-    const limit = 50
-    const offset = append ? offsetRef.current : 0
+  const fetchEvents = useCallback(
+    async (append: boolean) => {
+      if (!taskId) return;
+      const limit = 50;
+      const offset = append ? offsetRef.current : 0;
 
-    try {
-      const events = await apiClient.getTaskEvents(taskId, { limit, offset })
-      offsetRef.current = offset + events.length
-      setHasMoreEvents(events.length >= limit)
-      setState((prev) => ({ ...prev, events: append ? [...prev.events, ...events] : events }))
-    } catch (err) {
-      // keep task visible; just log events failures
-      console.error('Failed to fetch events:', err)
-    }
-  }, [taskId])
+      try {
+        const events = await apiClient.getTaskEvents(taskId, { limit, offset });
+        offsetRef.current = offset + events.length;
+        setHasMoreEvents(events.length >= limit);
+        setState((prev) => ({
+          ...prev,
+          events: append ? [...prev.events, ...events] : events,
+        }));
+      } catch (err) {
+        // keep task visible; just log events failures
+        console.error("Failed to fetch events:", err);
+      }
+    },
+    [taskId],
+  );
 
   const refresh = useCallback(async () => {
-    setState((prev) => ({ ...prev, loading: true }))
-    offsetRef.current = 0
-    await fetchTask()
-    await fetchEvents(false)
-  }, [fetchTask, fetchEvents])
+    setState((prev) => ({ ...prev, loading: true }));
+    offsetRef.current = 0;
+    await fetchTask();
+    await fetchEvents(false);
+  }, [fetchTask, fetchEvents]);
 
   const loadMoreEvents = useCallback(async () => {
-    await fetchEvents(true)
-  }, [fetchEvents])
+    await fetchEvents(true);
+  }, [fetchEvents]);
 
   useEffect(() => {
-    refresh()
-  }, [refresh])
+    refresh();
+  }, [refresh]);
 
-  return { ...state, refresh, loadMoreEvents, hasMoreEvents }
+  return { ...state, refresh, loadMoreEvents, hasMoreEvents };
 }
 
 // ============ useClusterStatus ============
 
 interface UseClusterStatusReturn {
-  status: ClusterStatus | null
-  loading: boolean
-  error: string | null
+  status: ClusterStatus | null;
+  loading: boolean;
+  error: string | null;
 }
 
-export function useClusterStatus(pollInterval: number = 10000): UseClusterStatusReturn {
-  const [status, setStatus] = useState<ClusterStatus | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+export function useClusterStatus(
+  pollInterval: number = 10000,
+): UseClusterStatusReturn {
+  const [status, setStatus] = useState<ClusterStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await apiClient.getClusterStatus()
-      setStatus(data)
-      setError(null)
+      const data = await apiClient.getClusterStatus();
+      setStatus(data);
+      setError(null);
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to fetch status'))
+      setError(getErrorMessage(err, "Failed to fetch status"));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    fetchStatus()
-    const timer = setInterval(fetchStatus, pollInterval)
-    return () => clearInterval(timer)
-  }, [fetchStatus, pollInterval])
+    fetchStatus();
+    const timer = setInterval(fetchStatus, pollInterval);
+    return () => clearInterval(timer);
+  }, [fetchStatus, pollInterval]);
 
-  return { status, loading, error }
+  return { status, loading, error };
 }
 
 // ============ useSubagentSessions ============
 
 interface UseSubagentSessionsState {
-  sessions: SubagentSessionSummary[]
-  selectedAgentInstance: string | null
-  finalOutput: SubagentFinalOutput | null
-  runtimeEvents: string[]
-  loading: boolean
-  error: string | null
+  sessions: SubagentSessionSummary[];
+  selectedAgentInstance: string | null;
+  finalOutput: SubagentFinalOutput | null;
+  runtimeEvents: string[];
+  loading: boolean;
+  error: string | null;
 }
 
 interface UseSubagentSessionsReturn extends UseSubagentSessionsState {
-  refresh: () => Promise<void>
-  selectAgentInstance: (agentInstance: string) => void
+  refresh: () => Promise<void>;
+  selectAgentInstance: (agentInstance: string) => void;
 }
 
 export function useSubagentSessions(
   taskId: string | null,
   options?: {
-    enabled?: boolean
-    pollIntervalMs?: number
-    eventsTailLimit?: number
-  }
+    enabled?: boolean;
+    pollIntervalMs?: number;
+    eventsTailLimit?: number;
+  },
 ): UseSubagentSessionsReturn {
-  const enabled = options?.enabled ?? true
-  const pollIntervalMs = options?.pollIntervalMs ?? 2000
-  const eventsTailLimit = options?.eventsTailLimit ?? 200
+  const enabled = options?.enabled ?? true;
+  const pollIntervalMs = options?.pollIntervalMs ?? 2000;
+  const eventsTailLimit = options?.eventsTailLimit ?? 200;
 
   const [state, setState] = useState<UseSubagentSessionsState>({
     sessions: [],
@@ -224,71 +235,89 @@ export function useSubagentSessions(
     runtimeEvents: [],
     loading: true,
     error: null,
-  })
+  });
 
-  const fetchDetails = useCallback(async (agentInstance: string) => {
-    if (!taskId) return
+  const fetchDetails = useCallback(
+    async (agentInstance: string) => {
+      if (!taskId) return;
 
-    const [finalOutput, runtimeEvents] = await Promise.all([
-      apiClient.getSubagentFinalOutput(taskId, agentInstance),
-      apiClient.tailSubagentEvents(taskId, agentInstance, eventsTailLimit),
-    ])
-
-    setState((prev) => ({ ...prev, finalOutput, runtimeEvents, error: null }))
-  }, [taskId, eventsTailLimit])
-
-  const refresh = useCallback(async (options?: { background?: boolean }) => {
-    if (!enabled) return
-    if (!taskId) return
-
-    if (!options?.background) {
-      setState((prev) => ({ ...prev, loading: true }))
-    }
-    try {
-      const sessions = await apiClient.listSubagentSessions(taskId)
-      const selectedStillValid =
-        state.selectedAgentInstance &&
-        sessions.some((s) => s.agentInstance === state.selectedAgentInstance)
-
-      const selectedAgentInstance = selectedStillValid
-        ? state.selectedAgentInstance
-        : sessions[0]?.agentInstance ?? null
+      const [finalOutput, runtimeEvents] = await Promise.all([
+        apiClient.getSubagentFinalOutput(taskId, agentInstance),
+        apiClient.tailSubagentEvents(taskId, agentInstance, eventsTailLimit),
+      ]);
 
       setState((prev) => ({
         ...prev,
-        sessions,
-        selectedAgentInstance,
-        loading: false,
+        finalOutput,
+        runtimeEvents,
         error: null,
-      }))
+      }));
+    },
+    [taskId, eventsTailLimit],
+  );
 
-      if (!selectedAgentInstance) {
-        setState((prev) => ({ ...prev, finalOutput: null, runtimeEvents: [] }))
-        return
+  const refresh = useCallback(
+    async (options?: { background?: boolean }) => {
+      if (!enabled) return;
+      if (!taskId) return;
+
+      if (!options?.background) {
+        setState((prev) => ({ ...prev, loading: true }));
       }
+      try {
+        const sessions = await apiClient.listSubagentSessions(taskId);
+        const selectedStillValid =
+          state.selectedAgentInstance &&
+          sessions.some((s) => s.agentInstance === state.selectedAgentInstance);
 
-      await fetchDetails(selectedAgentInstance)
-    } catch (err) {
+        const selectedAgentInstance = selectedStillValid
+          ? state.selectedAgentInstance
+          : (sessions[0]?.agentInstance ?? null);
+
+        setState((prev) => ({
+          ...prev,
+          sessions,
+          selectedAgentInstance,
+          loading: false,
+          error: null,
+        }));
+
+        if (!selectedAgentInstance) {
+          setState((prev) => ({
+            ...prev,
+            finalOutput: null,
+            runtimeEvents: [],
+          }));
+          return;
+        }
+
+        await fetchDetails(selectedAgentInstance);
+      } catch (err) {
+        setState((prev) => ({
+          ...prev,
+          loading: false,
+          error: getErrorMessage(err, "Failed to load subagent sessions"),
+        }));
+      }
+    },
+    [enabled, taskId, state.selectedAgentInstance, fetchDetails],
+  );
+
+  const selectAgentInstance = useCallback(
+    (agentInstance: string) => {
       setState((prev) => ({
         ...prev,
-        loading: false,
-        error: getErrorMessage(err, 'Failed to load subagent sessions'),
-      }))
-    }
-  }, [enabled, taskId, state.selectedAgentInstance, fetchDetails])
+        selectedAgentInstance: agentInstance,
+        finalOutput: null,
+        runtimeEvents: [],
+      }));
 
-  const selectAgentInstance = useCallback((agentInstance: string) => {
-    setState((prev) => ({
-      ...prev,
-      selectedAgentInstance: agentInstance,
-      finalOutput: null,
-      runtimeEvents: [],
-    }))
-
-    fetchDetails(agentInstance).catch(() => {
-      // ignore selection details fetch errors; keep last successful state
-    })
-  }, [fetchDetails])
+      fetchDetails(agentInstance).catch(() => {
+        // ignore selection details fetch errors; keep last successful state
+      });
+    },
+    [fetchDetails],
+  );
 
   useEffect(() => {
     if (!enabled || !taskId) {
@@ -299,53 +328,53 @@ export function useSubagentSessions(
         runtimeEvents: [],
         loading: false,
         error: null,
-      })
-      return
+      });
+      return;
     }
 
-    refresh()
-  }, [enabled, taskId, refresh])
+    refresh();
+  }, [enabled, taskId, refresh]);
 
   useEffect(() => {
-    if (!enabled || !taskId) return
+    if (!enabled || !taskId) return;
 
     const timer = setInterval(() => {
       refresh({ background: true }).catch(() => {
         // ignore polling errors; keep last successful state
-      })
-    }, pollIntervalMs)
+      });
+    }, pollIntervalMs);
 
-    return () => clearInterval(timer)
-  }, [enabled, taskId, pollIntervalMs, refresh])
+    return () => clearInterval(timer);
+  }, [enabled, taskId, pollIntervalMs, refresh]);
 
-  return { ...state, refresh, selectAgentInstance }
+  return { ...state, refresh, selectAgentInstance };
 }
 
 // ============ useSharedArtifacts ============
 
 interface UseSharedArtifactsState {
-  items: SharedArtifactSummary[]
-  selectedPath: string | null
-  content: SharedArtifactContent | null
-  loading: boolean
-  error: string | null
+  items: SharedArtifactSummary[];
+  selectedPath: string | null;
+  content: SharedArtifactContent | null;
+  loading: boolean;
+  error: string | null;
 }
 
 interface UseSharedArtifactsReturn extends UseSharedArtifactsState {
-  refresh: () => Promise<void>
-  selectArtifact: (path: string) => void
+  refresh: () => Promise<void>;
+  selectArtifact: (path: string) => void;
 }
 
 export function useSharedArtifacts(
   taskId: string | null,
   category: SharedArtifactCategory,
   options?: {
-    enabled?: boolean
-    pollIntervalMs?: number
-  }
+    enabled?: boolean;
+    pollIntervalMs?: number;
+  },
 ): UseSharedArtifactsReturn {
-  const enabled = options?.enabled ?? true
-  const pollIntervalMs = options?.pollIntervalMs ?? 2000
+  const enabled = options?.enabled ?? true;
+  const pollIntervalMs = options?.pollIntervalMs ?? 2000;
 
   const [state, setState] = useState<UseSharedArtifactsState>({
     items: [],
@@ -353,61 +382,75 @@ export function useSharedArtifacts(
     content: null,
     loading: true,
     error: null,
-  })
+  });
 
-  const fetchContent = useCallback(async (path: string) => {
-    if (!taskId) return
-    const content = await apiClient.readSharedArtifact(taskId, category, path)
-    setState((prev) => ({ ...prev, content, error: null }))
-  }, [taskId, category])
+  const fetchContent = useCallback(
+    async (path: string) => {
+      if (!taskId) return;
+      const content = await apiClient.readSharedArtifact(
+        taskId,
+        category,
+        path,
+      );
+      setState((prev) => ({ ...prev, content, error: null }));
+    },
+    [taskId, category],
+  );
 
-  const refresh = useCallback(async (options?: { background?: boolean }) => {
-    if (!enabled || !taskId) return
+  const refresh = useCallback(
+    async (options?: { background?: boolean }) => {
+      if (!enabled || !taskId) return;
 
-    if (!options?.background) {
-      setState((prev) => ({ ...prev, loading: true }))
-    }
-    try {
-      const items = await apiClient.listSharedArtifacts(taskId, category)
-      const selectedStillValid =
-        state.selectedPath && items.some((item) => item.path === state.selectedPath)
-      const selectedPath = selectedStillValid
-        ? state.selectedPath
-        : items[0]?.path ?? null
-
-      setState((prev) => ({
-        ...prev,
-        items,
-        selectedPath,
-        loading: false,
-        error: null,
-      }))
-
-      if (!selectedPath) {
-        setState((prev) => ({ ...prev, content: null }))
-        return
+      if (!options?.background) {
+        setState((prev) => ({ ...prev, loading: true }));
       }
+      try {
+        const items = await apiClient.listSharedArtifacts(taskId, category);
+        const selectedStillValid =
+          state.selectedPath &&
+          items.some((item) => item.path === state.selectedPath);
+        const selectedPath = selectedStillValid
+          ? state.selectedPath
+          : (items[0]?.path ?? null);
 
-      await fetchContent(selectedPath)
-    } catch (err) {
+        setState((prev) => ({
+          ...prev,
+          items,
+          selectedPath,
+          loading: false,
+          error: null,
+        }));
+
+        if (!selectedPath) {
+          setState((prev) => ({ ...prev, content: null }));
+          return;
+        }
+
+        await fetchContent(selectedPath);
+      } catch (err) {
+        setState((prev) => ({
+          ...prev,
+          loading: false,
+          error: getErrorMessage(err, "Failed to load artifacts"),
+        }));
+      }
+    },
+    [enabled, taskId, category, state.selectedPath, fetchContent],
+  );
+
+  const selectArtifact = useCallback(
+    (path: string) => {
       setState((prev) => ({
         ...prev,
-        loading: false,
-        error: getErrorMessage(err, 'Failed to load artifacts'),
-      }))
-    }
-  }, [enabled, taskId, category, state.selectedPath, fetchContent])
-
-  const selectArtifact = useCallback((path: string) => {
-    setState((prev) => ({
-      ...prev,
-      selectedPath: path,
-      content: null,
-    }))
-    fetchContent(path).catch(() => {
-      // ignore selection errors; keep last successful state
-    })
-  }, [fetchContent])
+        selectedPath: path,
+        content: null,
+      }));
+      fetchContent(path).catch(() => {
+        // ignore selection errors; keep last successful state
+      });
+    },
+    [fetchContent],
+  );
 
   useEffect(() => {
     if (!enabled || !taskId) {
@@ -417,24 +460,24 @@ export function useSharedArtifacts(
         content: null,
         loading: false,
         error: null,
-      })
-      return
+      });
+      return;
     }
 
-    refresh()
-  }, [enabled, taskId, category, refresh])
+    refresh();
+  }, [enabled, taskId, category, refresh]);
 
   useEffect(() => {
-    if (!enabled || !taskId) return
+    if (!enabled || !taskId) return;
 
     const timer = setInterval(() => {
       refresh({ background: true }).catch(() => {
         // ignore polling errors; keep last successful state
-      })
-    }, pollIntervalMs)
+      });
+    }, pollIntervalMs);
 
-    return () => clearInterval(timer)
-  }, [enabled, taskId, category, pollIntervalMs, refresh])
+    return () => clearInterval(timer);
+  }, [enabled, taskId, category, pollIntervalMs, refresh]);
 
-  return { ...state, refresh, selectArtifact }
+  return { ...state, refresh, selectArtifact };
 }

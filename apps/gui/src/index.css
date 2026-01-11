@@ -9,6 +9,9 @@ body,
 body {
   background: #0f1115;
   color: #ffffff;
-  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    sans-serif;
 }
-
