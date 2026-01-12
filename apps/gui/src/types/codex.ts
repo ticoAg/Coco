@@ -62,6 +62,13 @@ export type CodexThreadItem =
   | { type: "agentMessage"; id: string; text: string }
   | { type: "reasoning"; id: string; summary: string[]; content: string[] }
   | {
+      type: "error";
+      id: string;
+      message: string;
+      willRetry?: boolean | null;
+      additionalDetails?: string | null;
+    }
+  | {
       type: "commandExecution";
       id: string;
       command: string;

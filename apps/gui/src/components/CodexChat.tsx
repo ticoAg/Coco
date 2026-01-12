@@ -43,7 +43,12 @@ import {
 import ReactMarkdown from 'react-markdown';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../api/client';
+import { CodeReviewAssistantMessage } from './codex/CodeReviewAssistantMessage';
 import { Collapse } from './ui/Collapse';
+import {
+	parseCodeReviewStructuredOutputFromMessage,
+	shouldHideAssistantMessageContent,
+} from './codex/assistantMessage';
 import type {
 	AutoContextInfo,
 	CodexJsonRpcEvent,
@@ -78,6 +83,9 @@ type ChatEntry =
 			text: string;
 			role: 'message' | 'reasoning';
 			streaming?: boolean;
+			completed?: boolean;
+			renderPlaceholderWhileStreaming?: boolean;
+			structuredOutput?: ReturnType<typeof parseCodeReviewStructuredOutputFromMessage> | null;
 	  }
 	| {
 			kind: 'command';
@@ -121,6 +129,8 @@ type ChatEntry =
 			id: string;
 			text: string;
 			tone?: 'info' | 'warning' | 'error';
+			willRetry?: boolean | null;
+			additionalDetails?: string | null;
 	  };
 
 type CodexChatSettings = {
@@ -794,11 +804,26 @@ function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
 		}
 		case 'agentmessage': {
 			const it = item as Extract<CodexThreadItem, { type: 'agentMessage' }>;
+			const structuredOutput = parseCodeReviewStructuredOutputFromMessage(it.text);
 			return {
 				kind: 'assistant',
 				id: it.id,
 				role: 'message',
 				text: it.text,
+				completed: true,
+				renderPlaceholderWhileStreaming: false,
+				structuredOutput,
+			};
+		}
+		case 'error': {
+			const it = item as Extract<CodexThreadItem, { type: 'error' }>;
+			return {
+				kind: 'system',
+				id: it.id,
+				tone: 'error',
+				text: it.message,
+				willRetry: it.willRetry ?? null,
+				additionalDetails: it.additionalDetails ?? null,
 			};
 		}
 		case 'reasoning': {
@@ -859,21 +884,52 @@ function mergeEntry(entries: ChatEntry[], next: ChatEntry): ChatEntry[] {
 	const idx = entries.findIndex((e) => e.id === next.id && e.kind === next.kind);
 	if (idx === -1) return [...entries, next];
 	const copy = [...entries];
-	copy[idx] = { ...copy[idx], ...next } as ChatEntry;
+	// Keep previously computed structured output unless the update explicitly sets it.
+	if (next.kind === 'assistant') {
+		const prev = copy[idx] as Extract<ChatEntry, { kind: 'assistant' }>;
+		const incoming = next as Extract<ChatEntry, { kind: 'assistant' }>;
+		copy[idx] = {
+			...prev,
+			...incoming,
+			structuredOutput:
+				incoming.structuredOutput !== undefined ? incoming.structuredOutput : prev.structuredOutput,
+		} as ChatEntry;
+	} else {
+		copy[idx] = { ...copy[idx], ...next } as ChatEntry;
+	}
 	return copy;
 }
 
 function appendDelta(entries: ChatEntry[], id: string, role: 'message' | 'reasoning', delta: string): ChatEntry[] {
 	const idx = entries.findIndex((e) => e.kind === 'assistant' && e.id === id && e.role === role);
 	if (idx === -1) {
-		return [...entries, { kind: 'assistant', id, role, text: delta, streaming: true }];
+		const renderPlaceholder = role === 'message' && shouldHideAssistantMessageContent(delta);
+		return [
+			...entries,
+			{
+				kind: 'assistant',
+				id,
+				role,
+				text: delta,
+				streaming: true,
+				completed: false,
+				renderPlaceholderWhileStreaming: renderPlaceholder,
+				structuredOutput: null,
+			},
+		];
 	}
 	const copy = [...entries];
 	const existing = copy[idx] as Extract<ChatEntry, { kind: 'assistant' }>;
+	const nextText = `${existing.text}${delta}`;
+	const renderPlaceholder =
+		role === 'message' ? shouldHideAssistantMessageContent(nextText) : existing.renderPlaceholderWhileStreaming;
 	copy[idx] = {
 		...existing,
-		text: `${existing.text}${delta}`,
+		text: nextText,
 		streaming: true,
+		completed: false,
+		renderPlaceholderWhileStreaming: renderPlaceholder,
+		structuredOutput: null,
 	};
 	return copy;
 }
@@ -1394,11 +1450,29 @@ export function CodexChat() {
 						nextWorkingCollapsed[turnId] = true;
 
 					const turnEntries: ChatEntry[] = [];
-					for (const item of turn.items ?? []) {
+					const items = turn.items ?? [];
+					const isTurnStreaming = turn.status === 'inProgress';
+					const lastIdx = items.length > 0 ? items.length - 1 : -1;
+					for (const [idx, item] of items.entries()) {
 						const rawType = safeString((item as unknown as { type?: unknown })?.type);
 						if (rawType) typeCounts[rawType] = (typeCounts[rawType] ?? 0) + 1;
 
-						const entry = entryFromThreadItem(item);
+						const baseEntry = entryFromThreadItem(item);
+						let entry = baseEntry;
+
+						// Plugin parity: the last agentMessage in an in-progress turn is considered streaming.
+						if (baseEntry?.kind === 'assistant' && baseEntry.role === 'message') {
+							const streaming = isTurnStreaming && idx === lastIdx;
+							const completed = !streaming;
+							const renderPlaceholder = streaming && shouldHideAssistantMessageContent(baseEntry.text);
+							entry = {
+								...baseEntry,
+								streaming,
+								completed,
+								renderPlaceholderWhileStreaming: renderPlaceholder,
+								structuredOutput: completed ? baseEntry.structuredOutput ?? null : null,
+							};
+						}
 						if (!entry) continue;
 						turnEntries.push(entry);
 						nextItemToTurn[entry.id] = turnId;
@@ -2343,8 +2417,18 @@ export function CodexChat() {
 				if (method === 'item/started' || method === 'item/completed') {
 					const item = params?.item as CodexThreadItem | undefined;
 					if (!item) return;
-					const entry = entryFromThreadItem(item);
+					let entry = entryFromThreadItem(item);
 					if (!entry) return;
+					if (entry.kind === 'assistant' && entry.role === 'message') {
+						const completed = method === 'item/completed';
+						entry = {
+							...entry,
+							streaming: !completed,
+							completed,
+							renderPlaceholderWhileStreaming: !completed && shouldHideAssistantMessageContent(entry.text),
+							structuredOutput: completed ? parseCodeReviewStructuredOutputFromMessage(entry.text) : null,
+						};
+					}
 					const explicitTurnId = safeString(params?.turnId ?? params?.turn_id ?? params?.turn?.id);
 					const turnId = explicitTurnId || activeTurnId || PENDING_TURN_ID;
 
@@ -2439,12 +2523,18 @@ export function CodexChat() {
 				if (method === 'error') {
 					const errMsg = safeString(params?.error?.message);
 					if (!errMsg) return;
+					const willRetryRaw = params?.error?.willRetry ?? params?.error?.will_retry;
+					const additionalDetailsRaw = params?.error?.additionalDetails ?? params?.error?.additional_details;
+					const willRetry = typeof willRetryRaw === 'boolean' ? willRetryRaw : null;
+					const additionalDetails = typeof additionalDetailsRaw === 'string' ? additionalDetailsRaw : null;
 					const turnId = activeTurnId ?? PENDING_TURN_ID;
 					const entry: ChatEntry = {
 						kind: 'system',
 						id: `system-err-${crypto.randomUUID()}`,
 						tone: 'error',
 						text: errMsg,
+						willRetry,
+						additionalDetails,
 					};
 					setTurnOrder((prev) => (prev.includes(turnId) ? prev : [...prev, turnId]));
 					setTurnsById((prev) => {
@@ -2556,13 +2646,19 @@ export function CodexChat() {
 				: turn.entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning');
 
 			const userEntries = visible.filter((e) => e.kind === 'user') as Extract<ChatEntry, { kind: 'user' }>[];
-			const assistantMessageEntries = visible.filter(
+			const assistantMessages = visible.filter(
 				(e): e is Extract<ChatEntry, { kind: 'assistant' }> => e.kind === 'assistant' && e.role === 'message'
 			);
+			const lastAssistantMessageId = assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1]?.id : null;
+			const assistantMessageEntries = lastAssistantMessageId
+				? assistantMessages.filter((e) => e.id === lastAssistantMessageId)
+				: [];
 			const workingEntries = visible.filter((e) => {
 				if (isActivityEntry(e)) return true;
 				if (e.kind === 'system') return true;
 				if (e.kind === 'assistant' && e.role === 'reasoning') return true;
+				// Plugin parity: earlier assistant-messages stay in Working; only the last one is the final reply.
+				if (e.kind === 'assistant' && e.role === 'message') return e.id !== lastAssistantMessageId;
 				return false;
 			});
 
@@ -2997,6 +3093,29 @@ export function CodexChat() {
 										<Collapse open={workingOpen} innerClassName="pt-0.5">
 											<div className="space-y-0">
 												{turn.workingEntries.map((e) => {
+													if (e.kind === 'assistant' && e.role === 'message') {
+														const showPlaceholder = !!e.renderPlaceholderWhileStreaming && !e.completed;
+														const structured = e.structuredOutput && e.structuredOutput.type === 'code-review' ? e.structuredOutput : null;
+														return (
+															<div key={e.id} className="px-2 py-1">
+																{showPlaceholder ? (
+																	<div className="text-[11px] text-text-menuDesc">Generating…</div>
+																) : structured ? (
+																	<CodeReviewAssistantMessage
+																		output={structured}
+																		completed={!!e.completed}
+																	/>
+																) : (
+																	<ChatMarkdown
+																		text={e.text}
+																		className="text-[11px] text-text-menuDesc"
+																		dense
+																	/>
+																)}
+															</div>
+														);
+													}
+
 													if (e.kind === 'command') {
 														const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
 														const displayContent = [
@@ -3144,6 +3263,26 @@ export function CodexChat() {
 
 														if (e.kind === 'system') {
 															const tone = e.tone ?? 'info';
+															const isError = tone === 'error';
+															const hasDetails = !!e.additionalDetails;
+															if (isError && hasDetails) {
+																const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+																const summary = e.willRetry ? 'Error (retrying)' : 'Error';
+																const content = `${e.text}\n\n${e.additionalDetails ?? ''}`.trim();
+																return (
+																	<ActivityBlock
+																		key={e.id}
+																		titlePrefix={summary}
+																		titleContent={e.text}
+																		copyContent={content}
+																		collapsible
+																		collapsed={collapsed}
+																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
+																	>
+																		{content}
+																	</ActivityBlock>
+																);
+															}
 															const color =
 																tone === 'error'
 																	? 'bg-status-error/10 text-status-error'
@@ -3173,11 +3312,17 @@ export function CodexChat() {
 												key={e.id}
 												className="px-1 py-1 text-text-muted"
 											>
-												<ChatMarkdown
-													text={e.text}
-													className="text-text-muted"
-													dense
-												/>
+												{e.renderPlaceholderWhileStreaming && !e.completed ? (
+													<div className="text-[12px] text-text-menuDesc">Generating…</div>
+												) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
+													<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
+												) : (
+													<ChatMarkdown
+														text={e.text}
+														className="text-text-muted"
+														dense
+													/>
+												)}
 											</div>
 										))}
 									</div>

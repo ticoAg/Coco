@@ -69,6 +69,23 @@
 - Working 列表采用极小间距（`space-y-0`），主要依赖 `.am-row` 自身 padding 提供“呼吸感”。
 - **默认折叠策略（对齐 VSCode plugin）**：每次展开 `Finished working`（即非 `inProgress` 的 turn）时，内部所有可折叠 block 都强制回到折叠状态，避免长输出“炸屏”。实现见 `CodexChat.tsx` 的 `toggleTurnWorking`。
 
+### 2.5 AI 消息 block（assistant-message）数据来源对齐
+
+对齐来源：`docs/implementation-notes/codex-vscode-plugin/plugin-index.js` 中的 `mapStateToLocalConversationItems` 与 `splitItemsIntoRenderGroups`。
+
+本项目实现落点（当前）：
+
+- **映射规则**：`apps/gui/src/components/CodexChat.tsx` + `apps/gui/src/components/codex/assistantMessage.ts`
+  - `agentMessage` → GUI 内部 `assistant`（role=`message`）
+  - `renderPlaceholderWhileStreaming`：当 assistant-message 处于 streaming 且内容以 `{` 或 ``` 开头时，不直接渲染正文，而是显示 placeholder（避免“JSON 半截”破坏布局）。
+  - `structuredOutput`：当 assistant-message 完成且内容看起来像 JSON 时，尝试解析 Code Review schema，成功则走结构化 UI。
+- **分组规则（turn 内）**：`apps/gui/src/components/CodexChat.tsx`
+  - 只把 **最后一条** assistant-message 当作最终回复（`assistantMessageEntries`）。
+  - 其余 assistant-message 保留在 Working 区域（`workingEntries`），与 VSCode plugin 一致。
+- **Code Review UI**：`apps/gui/src/components/codex/CodeReviewAssistantMessage.tsx`
+  - 渲染 Findings cards + priority（高优先级与低优先级分区）。
+  - 本项目按产品决策 **忽略 Open/Fix**（插件中的 open-file / startFixConversation 不在本 GUI 复刻范围内）。
+
 ---
 
 ## 3. 样式映射（Codex 插件 → AgentMesh）
