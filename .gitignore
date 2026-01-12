@@ -124,4 +124,5 @@ target/
 /codex/
 CLAUDE.md
 
+.agent/
 docs/implementation-notes/codex-vscode-plugin/plugin-index.js

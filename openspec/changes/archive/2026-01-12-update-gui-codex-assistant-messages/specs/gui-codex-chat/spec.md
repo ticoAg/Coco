@@ -12,6 +12,7 @@ GUI SHALL 流式呈现 turn 的 item 事件（agent message、reasoning、comman
 - **WHEN** GUI 接收到该条消息内容
 - **THEN** GUI 以 placeholder 方式展示而不直接渲染正文内容
 
+## ADDED Requirements
 ### Requirement: Assistant Message Grouping
 GUI SHALL 将 turn 内最后一条 assistant-message 作为最终回复展示，其余 assistant-message 保持在 Working 区域中。
 
@@ -20,7 +21,6 @@ GUI SHALL 将 turn 内最后一条 assistant-message 作为最终回复展示，
 - **WHEN** GUI 分组渲染该 turn
 - **THEN** 仅最后一条 assistant-message 渲染为最终回复，其余仍在 Working 区域
 
-## ADDED Requirements
 ### Requirement: Code Review Structured Output Rendering
 当 assistant-message 内容为 Code Review JSON 且解析成功时，GUI SHALL 渲染 Findings 卡片与优先级标签，并以与 Codex VSCode plugin 等效的内容结构展示。
 
