@@ -793,6 +793,14 @@ async fn codex_thread_list(
     cursor: Option<String>,
     limit: Option<u32>,
 ) -> Result<CodexThreadListResponse, String> {
+    // Get current workspace for filtering
+    let workspace_root = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
+
     let codex = get_or_start_codex(&state, app).await?;
     let params = serde_json::json!({
         "cursor": cursor,
@@ -814,6 +822,20 @@ async fn codex_thread_list(
         let Some(id) = entry.get("id").and_then(|v| v.as_str()) else {
             continue;
         };
+
+        // Parse cwd from entry for workspace filtering
+        let thread_cwd = entry
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .map(std::path::PathBuf::from);
+
+        // Filter: skip threads not in current workspace
+        if let Some(ref cwd) = thread_cwd {
+            if cwd != &workspace_root {
+                continue;
+            }
+        }
+
         let preview = entry
             .get("preview")
             .and_then(|v| v.as_str())
@@ -840,6 +862,7 @@ async fn codex_thread_list(
             updated_at_ms,
         });
     }
+
 
     threads.sort_by(|a, b| match (a.updated_at_ms, b.updated_at_ms) {
         (Some(a_ts), Some(b_ts)) => b_ts.cmp(&a_ts),

@@ -4247,8 +4247,8 @@ export function CodexChat() {
 														].join(' ')}
 														onClick={() => void selectSession(s.id)}
 													>
-														<div className="truncate text-sm font-semibold">{s.id}</div>
-														<div className="mt-1 truncate text-xs text-text-muted">{s.preview || '—'}</div>
+														<div className="truncate text-sm font-semibold">{s.preview || '—'}</div>
+
 														<div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-text-dim">
 															<span className="truncate">{s.modelProvider}</span>
 															<span className="shrink-0">{formatSessionUpdatedAtMs(s)}</span>
