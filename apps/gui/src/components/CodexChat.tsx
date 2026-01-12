@@ -17,7 +17,6 @@ import {
 	GitBranch,
 	Image,
 	Info,
-	Loader2,
 	LogOut,
 	Menu,
 	Minimize2,
@@ -39,7 +38,7 @@ import {
 	X,
 	Zap,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../api/client';
 import type {
 	AutoContextInfo,
@@ -288,12 +287,12 @@ const MENU_STYLES = {
 	popoverTitle: 'px-2 py-1 text-[11px] text-text-dim',
 	// 弹出菜单选项
 	popoverItem:
-		'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11px] text-text-main hover:bg-white/5',
+		'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11px] text-text-main hover:bg-white/5 group',
 	// 弹出菜单选项（高亮/聚焦）- 与 hover 样式一致
 	popoverItemActive:
-		'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11px] bg-white/5 text-text-main',
-	// 弹出菜单选项描述
-	popoverItemDesc: 'text-[10px] text-text-dim',
+		'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11px] bg-white/5 text-text-main group',
+	// 弹出菜单选项描述 - 单行截断
+	popoverItemDesc: 'ml-auto shrink-0 max-w-[180px] truncate text-[10px] text-text-dim',
 	// 图标尺寸
 	iconSm: 'h-3 w-3',
 	iconMd: 'h-3.5 w-3.5',
@@ -679,6 +678,7 @@ export function CodexChat() {
 	const [selectedPrompt, setSelectedPrompt] = useState<CustomPrompt | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const menuListRef = useRef<HTMLDivElement>(null);
 
 	// Load skills on mount
 	const loadSkills = useCallback(async () => {
@@ -1475,7 +1475,7 @@ export function CodexChat() {
 		return results.sort((a, b) => a.score - b.score);
 	}, [skillSearchQuery, skills]);
 
-	// Execute skill selection - insert $skill-name into input (like TUI2)
+	// Execute skill selection - display as tag in input area (no text insertion)
 	const executeSkillSelection = useCallback(
 		(skill: SkillMetadata) => {
 			setIsSkillMenuOpen(false);
@@ -1486,23 +1486,13 @@ export function CodexChat() {
 			setSlashHighlightIndex(0);
 			setSelectedSkill(skill);
 
-			// Insert $skill-name at cursor position (like TUI2's insert_selected_skill)
-			const textarea = textareaRef.current;
-			if (textarea) {
-				const cursorPos = textarea.selectionStart ?? input.length;
-				const before = input.slice(0, cursorPos);
-				const after = input.slice(cursorPos);
-				const inserted = `$${skill.name} `;
-				setInput(before + inserted + after);
-			}
-
 			// Focus back to textarea
 			setTimeout(() => textareaRef.current?.focus(), 0);
 		},
-		[input]
+		[]
 	);
 
-	// Execute prompt selection - insert /prompts:name into input (like TUI2)
+	// Execute prompt selection - display as tag in input area (no text insertion)
 	const executePromptSelection = useCallback(
 		(prompt: CustomPrompt) => {
 			setIsSlashMenuOpen(false);
@@ -1513,15 +1503,10 @@ export function CodexChat() {
 			setSkillHighlightIndex(0);
 			setSelectedPrompt(prompt);
 
-			// Insert /prompts:name at the beginning of input (like TUI2's prompt_selection_action)
-			// For prompts with arguments, we'd need to add placeholders, but for now just insert the command
-			const promptCmd = `/prompts:${prompt.name} `;
-			setInput(promptCmd + input.trim());
-
 			// Focus back to textarea
 			setTimeout(() => textareaRef.current?.focus(), 0);
 		},
-		[input]
+		[]
 	);
 
 	const executeSlashCommand = useCallback(
@@ -1783,6 +1768,16 @@ export function CodexChat() {
 		},
 		[executeSlashCommand, executeSkillSelection, executePromptSelection, filteredSlashCommands, filteredSkills, filteredPromptsForSlashMenu, filteredSkillsForSlashMenu, input, isSlashMenuOpen, isSkillMenuOpen, sendMessage, slashHighlightIndex, skillHighlightIndex, slashMenuTotalItems]
 	);
+
+	// Auto-scroll menu list to keep highlighted item visible
+	useLayoutEffect(() => {
+		if (!menuListRef.current) return;
+		const container = menuListRef.current;
+		const highlightedItem = container.querySelector('[data-highlighted="true"]') as HTMLElement | null;
+		if (highlightedItem) {
+			highlightedItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+		}
+	}, [slashHighlightIndex, skillHighlightIndex, isSlashMenuOpen, isSkillMenuOpen]);
 
 	// Load auto context when enabled or thread changes
 	useEffect(() => {
@@ -2756,7 +2751,7 @@ export function CodexChat() {
 						})}
 					</div>
 
-					<div className="relative -mx-6 mt-3 rounded-xl border border-white/10 bg-bg-panel/70 px-4 py-1 backdrop-blur">
+					<div className="relative -mx-6 mt-3 rounded-xl border border-white/10 bg-bg-panel/70 px-4 py-3 backdrop-blur">
 						{/* Popup Menu - shared container for +, / and $ menus */}
 						{isSlashMenuOpen || isAddContextOpen || isSkillMenuOpen ? (
 							<>
@@ -2900,7 +2895,7 @@ export function CodexChat() {
 										autoFocus
 									/>
 									{/* Content list */}
-									<div className={MENU_STYLES.listContainer}>
+									<div ref={menuListRef} className={MENU_STYLES.listContainer}>
 										{isSkillMenuOpen ? (
 											// Skills list (triggered by $)
 											filteredSkills.length > 0 ? (
@@ -2908,6 +2903,7 @@ export function CodexChat() {
 													<button
 														key={skill.name}
 														type="button"
+														data-highlighted={idx === skillHighlightIndex}
 														className={
 															idx === skillHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
 														}
@@ -2978,6 +2974,7 @@ export function CodexChat() {
 																<button
 																	key={cmd.id}
 																	type="button"
+																	data-highlighted={idx === slashHighlightIndex}
 																	className={
 																		idx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
 																	}
@@ -2990,7 +2987,7 @@ export function CodexChat() {
 																			? highlightMatches(cmd.label, indices)
 																			: cmd.label}
 																	</span>
-																	<span className={MENU_STYLES.popoverItemDesc}>{cmd.description}</span>
+																	<span className={MENU_STYLES.popoverItemDesc} title={cmd.description}>{cmd.description}</span>
 																</button>
 															);
 														})}
@@ -3006,6 +3003,7 @@ export function CodexChat() {
 																<button
 																	key={prompt.name}
 																	type="button"
+																	data-highlighted={globalIdx === slashHighlightIndex}
 																	className={
 																		globalIdx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
 																	}
@@ -3036,6 +3034,7 @@ export function CodexChat() {
 																<button
 																	key={skill.name}
 																	type="button"
+																	data-highlighted={globalIdx === slashHighlightIndex}
 																	className={
 																		globalIdx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
 																	}
@@ -3103,8 +3102,8 @@ export function CodexChat() {
 							</>
 						) : null}
 
-						{/* Attachments display: files, skills, prompts */}
-						{(fileAttachments.length > 0 || selectedSkill || selectedPrompt) ? (
+						{/* Attachments display: files only (skill/prompt tags are inline with textarea) */}
+						{fileAttachments.length > 0 ? (
 							<div className="mb-2 flex flex-wrap gap-1.5">
 								{/* File attachments */}
 								{fileAttachments.map((f) => (
@@ -3127,34 +3126,6 @@ export function CodexChat() {
 										</button>
 									</div>
 								))}
-								{/* Selected skill */}
-								{selectedSkill ? (
-									<div className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2 py-1 text-xs text-primary">
-										<Zap className="h-3.5 w-3.5" />
-										<span className="max-w-[120px] truncate">{selectedSkill.name}</span>
-										<button
-											type="button"
-											className="rounded p-0.5 hover:bg-primary/20"
-											onClick={() => setSelectedSkill(null)}
-										>
-											<X className="h-3 w-3" />
-										</button>
-									</div>
-								) : null}
-								{/* Selected prompt */}
-								{selectedPrompt ? (
-									<div className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-xs text-blue-400">
-										<FileText className="h-3.5 w-3.5" />
-										<span className="max-w-[120px] truncate">prompts:{selectedPrompt.name}</span>
-										<button
-											type="button"
-											className="rounded p-0.5 hover:bg-blue-500/20"
-											onClick={() => setSelectedPrompt(null)}
-										>
-											<X className="h-3 w-3" />
-										</button>
-									</div>
-								) : null}
 							</div>
 						) : null}
 
@@ -3167,31 +3138,59 @@ export function CodexChat() {
 							onChange={handleImageUpload}
 						/>
 
-						{/* Textarea */}
-						<textarea
-							ref={textareaRef}
-							rows={1}
-							className="m-0 h-5 max-h-[264px] w-full resize-none overflow-y-auto bg-transparent p-0 text-sm leading-5 outline-none placeholder:text-text-dim"
-							placeholder="Ask for follow-up changes"
-							value={input}
-							onChange={(e) => {
-								const newValue = e.target.value;
-								setInput(newValue);
+						{/* Input area with inline tags for skill/prompt */}
+						<div className="flex flex-wrap items-start gap-1.5">
+							{/* Selected prompt - inline tag */}
+							{selectedPrompt ? (
+								<div className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs text-blue-400">
+									<FileText className="h-3.5 w-3.5" />
+									<span className="max-w-[160px] truncate">prompts:{selectedPrompt.name}</span>
+									<button
+										type="button"
+										className="rounded p-0.5 hover:bg-blue-500/20"
+										onClick={() => setSelectedPrompt(null)}
+									>
+										<X className="h-3 w-3" />
+									</button>
+								</div>
+							) : null}
+							{/* Selected skill - inline tag */}
+							{selectedSkill ? (
+								<div className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs text-primary">
+									<Zap className="h-3.5 w-3.5" />
+									<span className="max-w-[160px] truncate">{selectedSkill.name}</span>
+									<button
+										type="button"
+										className="rounded p-0.5 hover:bg-primary/20"
+										onClick={() => setSelectedSkill(null)}
+									>
+										<X className="h-3 w-3" />
+									</button>
+								</div>
+							) : null}
+							{/* Textarea */}
+							<textarea
+								ref={textareaRef}
+								rows={1}
+								className="m-0 h-5 min-w-[100px] flex-1 resize-none overflow-y-auto bg-transparent p-0 text-sm leading-5 outline-none placeholder:text-text-dim"
+								placeholder={selectedSkill || selectedPrompt ? '' : 'Ask for follow-up changes'}
+								value={input}
+								onChange={(e) => {
+									const newValue = e.target.value;
+									setInput(newValue);
 
-								// 注意：slash 命令菜单和 skill 菜单现在都通过 keyDown 的 preventDefault 触发
-								// 输入框中不会出现 / 或 $ 字符，所以这里不需要处理这些菜单
-
-								// Auto-resize textarea
-								const textarea = e.target;
-								textarea.style.height = 'auto';
-								textarea.style.height = `${Math.min(textarea.scrollHeight, 264)}px`;
-							}}
-							onKeyDown={handleTextareaKeyDown}
-							disabled={sending}
-						/>
+									// Auto-resize textarea
+									const textarea = e.target;
+									textarea.style.height = 'auto';
+									textarea.style.height = `${Math.min(textarea.scrollHeight, 264)}px`;
+								}}
+								onKeyDown={handleTextareaKeyDown}
+								disabled={sending}
+							/>
+						</div>
 
 						{/* Bottom row: +, /, Auto context, Send */}
-						<div className="flex items-center justify-between gap-2">
+						<div className="mt-2 flex items-center justify-between gap-2">
 							<div className="flex items-center gap-2">
 								{/* + Add Context Button */}
 								<button
@@ -3244,19 +3243,45 @@ export function CodexChat() {
 							{activeTurnId && selectedThreadId ? (
 								<button
 									type="button"
-									className="relative flex h-8 w-8 items-center justify-center rounded-full bg-bg-panelHover"
+									className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
 									onClick={() => void apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId)}
 									title="Stop"
 								>
-									{/* Spinning ring */}
-									<div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-text-muted" />
+									{/* Background circle */}
+									<div className="absolute inset-0 rounded-full bg-[#3a3a3a]" />
+									{/* Spinning ring - using SVG for better visibility */}
+									<svg
+										className="absolute inset-0 h-full w-full animate-spin"
+										viewBox="0 0 32 32"
+									>
+										<circle
+											cx="16"
+											cy="16"
+											r="14"
+											fill="none"
+											stroke="currentColor"
+											strokeWidth="2"
+											className="text-white/20"
+										/>
+										<circle
+											cx="16"
+											cy="16"
+											r="14"
+											fill="none"
+											stroke="currentColor"
+											strokeWidth="2"
+											strokeDasharray="22 66"
+											strokeLinecap="round"
+											className="text-white/70"
+										/>
+									</svg>
 									{/* Stop icon (red rounded square) */}
-									<div className="h-3 w-3 rounded-sm bg-status-error" />
+									<div className="relative h-3 w-3 rounded-[3px] bg-[#ef4444]" />
 								</button>
 							) : (
 								<button
 									type="button"
-									className="flex h-8 w-8 items-center justify-center rounded-full bg-text-muted text-bg-panel hover:bg-text-main disabled:opacity-50"
+									className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/80 text-bg-panel hover:bg-white disabled:bg-white/30 disabled:text-bg-panel/50"
 									onClick={() => void sendMessage()}
 									disabled={sending || (input.trim().length === 0 && !selectedSkill && !selectedPrompt)}
 									title="Send (Ctrl/Cmd+Enter)"
