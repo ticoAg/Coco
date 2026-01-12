@@ -452,13 +452,27 @@ fn is_executable_file(path: &Path) -> bool {
 }
 
 async fn run_stdout_loop(inner: Arc<CodexAppServerInner>, stdout: ChildStdout) {
-    let mut reader = BufReader::new(stdout).lines();
-    while let Ok(Some(line)) = reader.next_line().await {
-        if line.trim().is_empty() {
+    let mut reader = BufReader::new(stdout);
+    let mut buf = Vec::new();
+
+    loop {
+        buf.clear();
+        let bytes_read = match reader.read_until(b'\n', &mut buf).await {
+            Ok(n) => n,
+            Err(_) => break,
+        };
+        if bytes_read == 0 {
+            break;
+        }
+
+        // Safely convert bytes to UTF-8, replacing invalid sequences with U+FFFD
+        let line = String::from_utf8_lossy(&buf);
+        let line = line.trim();
+        if line.is_empty() {
             continue;
         }
 
-        let parsed: Value = match serde_json::from_str(&line) {
+        let parsed: Value = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(err) => {
                 let _ = inner.app.emit(
@@ -554,9 +568,23 @@ async fn run_stdout_loop(inner: Arc<CodexAppServerInner>, stdout: ChildStdout) {
 }
 
 async fn run_stderr_loop(inner: Arc<CodexAppServerInner>, stderr: ChildStderr) {
-    let mut reader = BufReader::new(stderr).lines();
-    while let Ok(Some(line)) = reader.next_line().await {
-        if line.trim().is_empty() {
+    let mut reader = BufReader::new(stderr);
+    let mut buf = Vec::new();
+
+    loop {
+        buf.clear();
+        let bytes_read = match reader.read_until(b'\n', &mut buf).await {
+            Ok(n) => n,
+            Err(_) => break,
+        };
+        if bytes_read == 0 {
+            break;
+        }
+
+        // Safely convert bytes to UTF-8, replacing invalid sequences with U+FFFD
+        let line = String::from_utf8_lossy(&buf);
+        let line = line.trim();
+        if line.is_empty() {
             continue;
         }
         let _ = inner.app.emit(

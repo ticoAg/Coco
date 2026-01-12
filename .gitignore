@@ -122,3 +122,4 @@ target/
 # Codex submodule (if managed as submodule, git tracks the folder reference)
 # If 'codex' is a local clone for dev only and not a submodule, ignore it:
 codex/
+CLAUDE.md

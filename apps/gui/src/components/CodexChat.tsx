@@ -291,8 +291,8 @@ const MENU_STYLES = {
 	// 弹出菜单选项（高亮/聚焦）- 与 hover 样式一致
 	popoverItemActive:
 		'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11px] bg-white/5 text-text-main group',
-	// 弹出菜单选项描述 - 单行截断
-	popoverItemDesc: 'ml-auto shrink-0 max-w-[180px] truncate text-[10px] text-text-dim',
+	// 弹出菜单选项描述 - 单行截断，名称后空两格
+	popoverItemDesc: 'ml-4 shrink-0 max-w-[200px] truncate text-[10px] text-text-dim',
 	// 图标尺寸
 	iconSm: 'h-3 w-3',
 	iconMd: 'h-3.5 w-3.5',
@@ -2916,7 +2916,7 @@ export function CodexChat() {
 																? highlightMatches(skill.name, indices)
 																: skill.name}
 														</span>
-														<span className={MENU_STYLES.popoverItemDesc}>
+														<span className={MENU_STYLES.popoverItemDesc} title={skill.shortDescription || skill.description}>
 															{skill.shortDescription || skill.description}
 														</span>
 													</button>
@@ -3016,7 +3016,7 @@ export function CodexChat() {
 																			? highlightMatches(`prompts:${prompt.name}`, indices)
 																			: `prompts:${prompt.name}`}
 																	</span>
-																	<span className={MENU_STYLES.popoverItemDesc}>
+																	<span className={MENU_STYLES.popoverItemDesc} title={prompt.description || 'send saved prompt'}>
 																		{prompt.description || 'send saved prompt'}
 																	</span>
 																</button>
@@ -3047,7 +3047,7 @@ export function CodexChat() {
 																			? highlightMatches(skill.name, indices)
 																			: skill.name}
 																	</span>
-																	<span className={MENU_STYLES.popoverItemDesc}>
+																	<span className={MENU_STYLES.popoverItemDesc} title={skill.shortDescription || skill.description}>
 																		{skill.shortDescription || skill.description}
 																	</span>
 																</button>

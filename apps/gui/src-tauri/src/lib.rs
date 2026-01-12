@@ -1380,7 +1380,9 @@ async fn read_file_content(path: String) -> Result<String, String> {
         return Err("file too large (max 1MB)".to_string());
     }
 
-    std::fs::read_to_string(file_path).map_err(|e| e.to_string())
+    // Read file as bytes and safely convert to UTF-8, replacing invalid sequences
+    let bytes = std::fs::read(file_path).map_err(|e| e.to_string())?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[tauri::command]
