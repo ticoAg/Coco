@@ -1,5 +1,129 @@
 @import "tailwindcss";
 
+@layer base {
+  :root {
+    /* Core backgrounds (store as "r g b" for Tailwind rgb(var(--x) / <alpha-value>)) */
+    --am-bg-app: 15 17 21; /* #0f1115 */
+    --am-bg-panel: 24 27 33; /* #181b21 */
+    --am-bg-panel-hover: 31 35 43; /* #1f232b */
+    --am-bg-menu: 28 32 40; /* #1c2028 */
+
+    /* Text */
+    --am-text-main: 255 255 255;
+    --am-text-muted: 139 148 158; /* #8b949e */
+    --am-text-dim: 72 79 88; /* #484f58 */
+    --am-text-menu-label: 125 133 144; /* #7d8590 */
+    --am-text-menu-desc: 102 112 125; /* #66707d */
+
+    /* Borders */
+    --am-border: 48 54 61; /* #30363d */
+    --am-border-active: 83 155 245; /* #539bf5 */
+
+    /* Brand */
+    --am-primary: 100 108 255; /* #646cff */
+    --am-primary-hover: 123 131 255; /* #7b83ff */
+    --am-accent: 0 229 255; /* #00e5ff */
+
+    /* Status */
+    --am-status-success: 35 134 54; /* #238636 */
+    --am-status-warning: 210 153 34; /* #d29922 */
+    --am-status-error: 218 54 51; /* #da3633 */
+    --am-status-info: 9 105 218; /* #0969da */
+
+    /* Tokens inspired by VSCode/Codex webview */
+    --am-token-input-background: 24 27 33; /* close to bg-panel */
+    --am-token-border: 48 54 61; /* close to border */
+    --am-token-border-strong: 255 255 255;
+    --am-token-code-background: 0 0 0;
+
+    /* Alpha knobs (kept as plain numbers) */
+    --am-alpha-menu-item-hover: 0.06;
+    --am-alpha-menu-border: 0.10;
+    --am-alpha-menu-inner-border: 0.06;
+    --am-alpha-menu-divider: 0.08;
+
+    /* Shadows */
+    --am-shadow-menu: inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 18px 60px rgba(0, 0, 0, 0.55),
+      0 6px 22px rgba(0, 0, 0, 0.35);
+    --am-shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.03),
+      0 10px 28px rgba(0, 0, 0, 0.35),
+      0 2px 10px rgba(0, 0, 0, 0.25);
+  }
+
+  body {
+    background: rgb(var(--am-bg-app));
+    color: rgb(var(--am-text-main));
+  }
+}
+
+@layer components {
+  .am-card {
+    @apply rounded-xl border backdrop-blur;
+    border-color: rgb(var(--am-token-border) / 0.8);
+    background-color: rgb(var(--am-token-input-background) / 0.7);
+    box-shadow: var(--am-shadow-card);
+  }
+
+  .am-card-clickable {
+    @apply cursor-pointer transition-colors;
+  }
+
+  .am-card-clickable:hover {
+    background-color: rgb(var(--am-bg-panel-hover) / 0.8);
+  }
+
+  .am-divider {
+    @apply border-t;
+    border-color: rgb(255 255 255 / var(--am-alpha-menu-divider));
+  }
+
+  .am-label {
+    @apply text-[10px] font-medium uppercase tracking-wider;
+    color: rgb(var(--am-text-menu-label));
+  }
+
+  .am-icon-button {
+    @apply inline-flex items-center justify-center rounded-lg border transition-colors;
+    border-color: rgb(255 255 255 / var(--am-alpha-menu-divider));
+    background-color: rgb(var(--am-bg-panel) / 0.4);
+    color: rgb(var(--am-text-main));
+  }
+
+  .am-icon-button:hover {
+    background-color: rgb(var(--am-bg-panel-hover));
+  }
+
+  .am-scroll-fade {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 12px, black calc(100% - 12px), transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0, black 12px, black calc(100% - 12px), transparent 100%);
+  }
+
+  /* Compact timeline rows (Codex VSCode plugin-like density) */
+  .am-row {
+    border-radius: 8px;
+    padding: 2px 8px;
+    line-height: 1.25;
+    color: rgb(var(--am-text-muted));
+  }
+
+  .am-row-hover:hover {
+    background-color: rgb(var(--am-bg-panel-hover) / 0.14);
+  }
+
+  .am-row-muted {
+    color: rgb(var(--am-text-muted));
+  }
+
+  .am-row-title {
+    color: rgb(var(--am-text-muted));
+  }
+
+  .am-row-hover:hover .am-row-title {
+    color: rgb(var(--am-text-main) / 0.86);
+  }
+}
+
 html,
 body,
 #root {
@@ -7,8 +131,6 @@ body,
 }
 
 body {
-  background: #0f1115;
-  color: #ffffff;
   font-family:
     Inter,
     system-ui,

@@ -33,6 +33,7 @@ import {
 	SignalMedium,
 	SignalZero,
 	Slash,
+	Terminal,
 	Trash2,
 	Users,
 	Wrench,
@@ -42,6 +43,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../api/client';
+import { Collapse } from './ui/Collapse';
 import type {
 	AutoContextInfo,
 	CodexJsonRpcEvent,
@@ -133,7 +135,7 @@ const SIDEBAR_ICON_BUTTON_PX = SIDEBAR_WIDTH_PX * 0.7;
 function loadCodexChatSettings(): CodexChatSettings {
 	const defaults: CodexChatSettings = {
 		showReasoning: false,
-		defaultCollapseDetails: false,
+		defaultCollapseDetails: true,
 	};
 
 	if (typeof window === 'undefined') return defaults;
@@ -142,8 +144,11 @@ function loadCodexChatSettings(): CodexChatSettings {
 		if (!raw) return defaults;
 		const parsed = JSON.parse(raw) as Partial<CodexChatSettings>;
 		return {
-			showReasoning: Boolean(parsed.showReasoning),
-			defaultCollapseDetails: Boolean(parsed.defaultCollapseDetails),
+			showReasoning: typeof parsed.showReasoning === 'boolean' ? parsed.showReasoning : defaults.showReasoning,
+			defaultCollapseDetails:
+				typeof parsed.defaultCollapseDetails === 'boolean'
+					? parsed.defaultCollapseDetails
+					: defaults.defaultCollapseDetails,
 		};
 	} catch {
 		return defaults;
@@ -187,7 +192,7 @@ function ChatMarkdown({
 	dense?: boolean;
 }) {
 	const normalized = useMemo(() => markdownWithHardBreaks(text), [text]);
-	const leadingClass = dense ? 'leading-normal' : 'leading-relaxed';
+	const leadingClass = dense ? 'leading-[1.35]' : 'leading-relaxed';
 	const paragraphClass = dense
 		? 'my-0.5 whitespace-pre-wrap break-words'
 		: 'my-1 whitespace-pre-wrap break-words';
@@ -212,7 +217,7 @@ function ChatMarkdown({
 					li: ({ children }) => <li className="my-0.5">{children}</li>,
 					pre: ({ children }) => (
 						<pre
-							className={`${preClass} overflow-x-auto rounded-lg bg-black/30 px-3 py-2 text-[11px] leading-relaxed text-text-muted`}
+							className={`${preClass} overflow-x-auto rounded-lg bg-black/30 px-3 py-2 text-[11px] leading-snug text-text-muted`}
 						>
 							{children}
 						</pre>
@@ -460,6 +465,8 @@ interface ActivityBlockProps {
 	};
 	/** 审批回调 */
 	onApprove?: (requestId: number, decision: 'accept' | 'decline') => void;
+	/** 左侧图标（可选） */
+	icon?: React.ReactNode;
 }
 
 function ActivityBlock({
@@ -474,18 +481,20 @@ function ActivityBlock({
 	children,
 	approval,
 	onApprove,
+	icon,
 }: ActivityBlockProps) {
 	const contentNode =
 		typeof children === 'string' ? renderAnsiText(children) : children;
 	const showStatus = status && status !== 'completed';
+	const open = !collapsible || !collapsed;
 
 	return (
 		<div className="min-w-0">
-			{/* 标题栏 */}
+			{/* Summary row (compact) */}
 			<div
 				className={[
-					'group flex min-w-0 items-center justify-between gap-2 py-1',
-					collapsible && onToggleCollapse ? 'cursor-pointer' : '',
+					'am-row group flex min-w-0 items-center justify-between gap-2',
+					collapsible && onToggleCollapse ? 'am-row-hover cursor-pointer' : '',
 				].join(' ')}
 				role={collapsible && onToggleCollapse ? 'button' : undefined}
 				tabIndex={collapsible && onToggleCollapse ? 0 : undefined}
@@ -500,38 +509,53 @@ function ActivityBlock({
 					}
 				}}
 			>
-				<div className="min-w-0 flex-1 truncate text-xs text-text-main">
-					<span className="text-text-dim">{titlePrefix} </span>
-					<span className={titleMono ? 'font-mono' : ''}>{titleContent}</span>
+				<div className="min-w-0 flex-1 truncate text-[12px]">
+					<span className="inline-flex min-w-0 items-center gap-2">
+						{icon ? <span className="shrink-0 text-text-menuDesc">{icon}</span> : null}
+						<span className="shrink-0 text-text-menuLabel">{titlePrefix}</span>
+						<span className={['am-row-title truncate', titleMono ? 'font-mono' : ''].join(' ')}>
+							{titleContent}
+						</span>
+					</span>
 				</div>
-				<div className="flex shrink-0 items-center gap-1">
-					{showStatus ? <span className="text-[10px] text-text-muted">{status}</span> : null}
+				<div className="flex shrink-0 items-center gap-1.5">
+					{showStatus ? <span className="text-[10px] text-text-menuDesc">{status}</span> : null}
 					<button
 						type="button"
-						className="rounded p-1 text-text-muted opacity-0 transition-opacity hover:bg-white/10 hover:text-text-main group-hover:opacity-100"
+						className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
 						title="复制内容"
 						onClick={(ev) => {
 							ev.stopPropagation();
 							void navigator.clipboard.writeText(copyContent);
 						}}
 					>
-						<Copy className="h-3.5 w-3.5" />
+						<Copy className="h-4 w-4" />
 					</button>
+					{collapsible ? (
+						<ChevronDown
+							className={[
+								'h-4 w-4 text-text-menuDesc transition-transform',
+								open ? 'rotate-180' : '',
+							].join(' ')}
+						/>
+					) : null}
 				</div>
 			</div>
-			{/* 内容区域 */}
-			{children && (!collapsible || !collapsed) ? (
-				<div className="mt-1 pl-3">
-					<div className="max-h-[200px] overflow-auto pr-2">
-						<div className="min-w-max whitespace-pre font-mono text-[11px] text-text-muted">
-							{contentNode}
+
+			{/* Details (only when expanded) */}
+				{children ? (
+					<Collapse open={open} innerClassName="pt-0.5 pl-2 pr-1 pb-1">
+						<div className="am-scroll-fade max-h-[220px] overflow-auto rounded-md bg-token-codeBackground/8 px-2 py-1.5">
+							<div className="min-w-max whitespace-pre font-mono text-[10px] leading-snug text-text-menuDesc">
+								{contentNode}
+							</div>
 						</div>
-					</div>
-				</div>
-			) : null}
-			{/* 审批区域 */}
+					</Collapse>
+				) : null}
+
+			{/* Approval (compact, inline) */}
 			{approval && onApprove ? (
-				<div className="mt-1 flex items-center justify-between gap-3 px-3 py-2">
+				<div className="mt-1 flex flex-wrap items-center justify-between gap-2 pl-3 pr-1">
 					<div className="min-w-0 text-xs text-text-muted">
 						Approval required
 						{approval.reason ? `: ${approval.reason}` : ''}.
@@ -539,14 +563,14 @@ function ActivityBlock({
 					<div className="flex shrink-0 gap-2">
 						<button
 							type="button"
-							className="rounded-md bg-status-success/20 px-3 py-1 text-xs font-semibold text-status-success"
+							className="rounded-md bg-status-success/20 px-2.5 py-1 text-[11px] font-semibold text-status-success"
 							onClick={() => onApprove(approval.requestId, 'accept')}
 						>
 							批准
 						</button>
 						<button
 							type="button"
-							className="rounded-md bg-status-error/15 px-3 py-1 text-xs font-semibold text-status-error"
+							className="rounded-md bg-status-error/15 px-2.5 py-1 text-[11px] font-semibold text-status-error"
 							onClick={() => onApprove(approval.requestId, 'decline')}
 						>
 							拒绝
@@ -684,17 +708,17 @@ const MENU_STYLES = {
 	// 弹出菜单容器
 	popover: 'rounded-xl border border-border-menu bg-bg-menu/95 shadow-menu backdrop-blur ring-1 ring-border-menuInner',
 	// 弹出菜单标题
-	popoverTitle: 'px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wider text-text-menuLabel',
+	popoverTitle: 'px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-text-menuLabel',
 	// 弹出菜单选项
 	popoverItem:
-		'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] text-text-main hover:bg-bg-menuItemHover transition-colors group',
+		'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] text-text-main transition-colors hover:bg-bg-menuItemHover group',
 	// 弹出菜单选项（高亮/聚焦）- 与 hover 样式一致
 	popoverItemActive:
-		'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] bg-bg-menuItemHover text-text-main transition-colors group',
+		'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] bg-bg-menuItemHover text-text-main transition-colors group',
 	// 弹出菜单选项描述 - 单行截断，名称后空两格
-	popoverItemDesc: 'ml-4 shrink-0 max-w-[200px] truncate text-[10px] text-text-menuDesc',
+	popoverItemDesc: 'ml-2.5 shrink-0 max-w-[220px] truncate text-[10px] text-text-menuDesc',
 	// 图标尺寸
-	iconSm: 'h-4 w-4',
+	iconSm: 'h-3.5 w-3.5',
 	iconMd: 'h-4 w-4',
 	// 搜索输入框
 	searchInput: 'w-full bg-transparent text-[12px] text-text-muted outline-none placeholder:text-text-menuDesc',
@@ -1048,7 +1072,7 @@ export function CodexChat() {
 	} | null>(null);
 	const [turnOrder, setTurnOrder] = useState<string[]>([]);
 	const [turnsById, setTurnsById] = useState<Record<string, TurnBlock>>({});
-	const [collapsedRepliesByTurnId, setCollapsedRepliesByTurnId] = useState<Record<string, boolean>>({});
+	const [collapsedWorkingByTurnId, setCollapsedWorkingByTurnId] = useState<Record<string, boolean>>({});
 	const [_itemToTurnId, setItemToTurnId] = useState<Record<string, string>>({});
 	const [collapsedByEntryId, setCollapsedByEntryId] = useState<Record<string, boolean>>({});
 	const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
@@ -1320,14 +1344,14 @@ export function CodexChat() {
 	const selectSession = useCallback(
 		async (threadId: string) => {
 			setSelectedThreadId(threadId);
-			setTurnOrder([]);
-			setTurnsById({});
-			setThreadTokenUsage(null);
-			setCollapsedRepliesByTurnId({});
-			setCollapsedByEntryId({});
-			setItemToTurnId({});
-			itemToTurnRef.current = {};
-			setActiveThread(null);
+				setTurnOrder([]);
+				setTurnsById({});
+				setThreadTokenUsage(null);
+				setCollapsedWorkingByTurnId({});
+				setCollapsedByEntryId({});
+				setItemToTurnId({});
+				itemToTurnRef.current = {};
+				setActiveThread(null);
 			setActiveTurnId(null);
 			setIsSessionsOpen(false);
 
@@ -1360,14 +1384,14 @@ export function CodexChat() {
 				const nextTurns: Record<string, TurnBlock> = {};
 				const nextEntryCollapse: Record<string, boolean> = {};
 				const nextItemToTurn: Record<string, string> = {};
-				const nextRepliesCollapsed: Record<string, boolean> = {};
-				const typeCounts: Record<string, number> = {};
+					const nextWorkingCollapsed: Record<string, boolean> = {};
+					const typeCounts: Record<string, number> = {};
 
 				for (const turn of thread.turns ?? []) {
-					const turnId = turn.id;
-					if (!turnId) continue;
-					nextOrder.push(turnId);
-					nextRepliesCollapsed[turnId] = true;
+						const turnId = turn.id;
+						if (!turnId) continue;
+						nextOrder.push(turnId);
+						nextWorkingCollapsed[turnId] = true;
 
 					const turnEntries: ChatEntry[] = [];
 					for (const item of turn.items ?? []) {
@@ -1388,24 +1412,24 @@ export function CodexChat() {
 					};
 				}
 
-				if (nextOrder.length === 0) {
-					const turnId = PENDING_TURN_ID;
-					nextOrder.push(turnId);
-					nextRepliesCollapsed[turnId] = true;
-					nextTurns[turnId] = { id: turnId, status: 'unknown', entries: [] };
-				}
+					if (nextOrder.length === 0) {
+						const turnId = PENDING_TURN_ID;
+						nextOrder.push(turnId);
+						nextWorkingCollapsed[turnId] = true;
+						nextTurns[turnId] = { id: turnId, status: 'unknown', entries: [] };
+					}
 
 				if (import.meta.env.DEV) {
 					// eslint-disable-next-line no-console
 					console.info('[CodexChat] Resume thread item types:', typeCounts);
 				}
 
-				setTurnOrder(nextOrder);
-				setTurnsById(nextTurns);
-				setCollapsedRepliesByTurnId(nextRepliesCollapsed);
-				setCollapsedByEntryId(nextEntryCollapse);
-				setItemToTurnId(nextItemToTurn);
-				itemToTurnRef.current = nextItemToTurn;
+					setTurnOrder(nextOrder);
+					setTurnsById(nextTurns);
+					setCollapsedWorkingByTurnId(nextWorkingCollapsed);
+					setCollapsedByEntryId(nextEntryCollapse);
+					setItemToTurnId(nextItemToTurn);
+					itemToTurnRef.current = nextItemToTurn;
 			} catch (err) {
 				const turnId = PENDING_TURN_ID;
 				setTurnOrder([turnId]);
@@ -1429,13 +1453,13 @@ export function CodexChat() {
 	);
 
 	const createNewSession = useCallback(async () => {
-		setTurnOrder([]);
-		setTurnsById({});
-		setThreadTokenUsage(null);
-		setCollapsedRepliesByTurnId({});
-		setItemToTurnId({});
-		itemToTurnRef.current = {};
-		setCollapsedByEntryId({});
+			setTurnOrder([]);
+			setTurnsById({});
+			setThreadTokenUsage(null);
+			setCollapsedWorkingByTurnId({});
+			setItemToTurnId({});
+			itemToTurnRef.current = {};
+			setCollapsedByEntryId({});
 		setActiveThread(null);
 		setActiveTurnId(null);
 		setSelectedThreadId(null);
@@ -1670,22 +1694,38 @@ export function CodexChat() {
 		[settings.defaultCollapseDetails]
 	);
 
-	const toggleTurnReplies = useCallback((turnId: string) => {
+	const toggleTurnWorking = useCallback((turnId: string) => {
 		skipAutoScrollRef.current = true;
-		setCollapsedRepliesByTurnId((prev) => {
-			const nextCollapsed = !(prev[turnId] ?? false);
-			if (import.meta.env.DEV && !nextCollapsed) {
-				const turn = turnsById[turnId];
-				const counts = turn ? countEntryKinds(turn.entries) : {};
-				// eslint-disable-next-line no-console
-				console.info('[CodexChat] Expand turn:', {
-					turnId,
-					entryKinds: counts,
-				});
-			}
-			return { ...prev, [turnId]: nextCollapsed };
-		});
-	}, [turnsById]);
+		const turn = turnsById[turnId];
+		const collapsedExplicit = collapsedWorkingByTurnId[turnId];
+		const currentOpen = collapsedExplicit === undefined ? turn?.status === 'inProgress' : !collapsedExplicit;
+		const nextOpen = !currentOpen;
+		const nextCollapsedExplicit = !nextOpen;
+
+		if (turn && turn.status !== 'inProgress' && nextOpen) {
+			// 每次展开 "Finished working" 时，内部所有可折叠 block 强制折叠。
+			// 这样 AI 过程性输出再多，也不会默认铺开占高度。
+			setCollapsedByEntryId((prev) => {
+				const next = { ...prev };
+				for (const entry of turn.entries) {
+					if (isActivityEntry(entry)) next[entry.id] = true;
+					if (entry.kind === 'assistant' && entry.role === 'reasoning') next[entry.id] = true;
+				}
+				return next;
+			});
+		}
+
+		if (import.meta.env.DEV && turn && nextOpen) {
+			const counts = countEntryKinds(turn.entries);
+			// eslint-disable-next-line no-console
+			console.info('[CodexChat] Expand turn:', {
+				turnId,
+				entryKinds: counts,
+			});
+		}
+
+		setCollapsedWorkingByTurnId((prev) => ({ ...prev, [turnId]: nextCollapsedExplicit }));
+	}, [collapsedWorkingByTurnId, turnsById]);
 
 	// Context management callbacks
 	const addRelatedRepoDir = useCallback(async () => {
@@ -2515,40 +2555,36 @@ export function CodexChat() {
 				? turn.entries
 				: turn.entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning');
 
-			const chatEntries = visible.filter((e) => !isActivityEntry(e));
-			const activityEntries = visible.filter(isActivityEntry);
-			const userEntries = chatEntries.filter((e) => e.kind === 'user') as Extract<ChatEntry, { kind: 'user' }>[];
-			const replyEntries = chatEntries.filter((e) => e.kind !== 'user');
-			const assistantMessages = replyEntries.filter(
+			const userEntries = visible.filter((e) => e.kind === 'user') as Extract<ChatEntry, { kind: 'user' }>[];
+			const assistantMessageEntries = visible.filter(
 				(e): e is Extract<ChatEntry, { kind: 'assistant' }> => e.kind === 'assistant' && e.role === 'message'
 			);
-			const finalAssistantMessageId =
-				assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1].id : null;
+			const workingEntries = visible.filter((e) => {
+				if (isActivityEntry(e)) return true;
+				if (e.kind === 'system') return true;
+				if (e.kind === 'assistant' && e.role === 'reasoning') return true;
+				return false;
+			});
 
 			return {
 				id: turn.id,
 				status: turn.status,
-				chatEntries,
 				userEntries,
-				replyEntries,
-				finalAssistantMessageId,
-				activityEntries,
+				assistantMessageEntries,
+				workingEntries,
 			};
 		});
 	}, [settings.showReasoning, turnBlocks]);
 
 		const renderCount = useMemo(() => {
 			return renderTurns.reduce((acc, t) => {
-				const repliesCollapsed = collapsedRepliesByTurnId[t.id] ?? false;
-
-				const visibleRepliesCount = repliesCollapsed
-					? t.replyEntries.filter((e) => e.kind === 'system').length + (t.finalAssistantMessageId ? 1 : 0)
-					: t.replyEntries.length;
-				const visibleActivityCount = !repliesCollapsed ? t.activityEntries.length : 0;
-
-				return acc + t.userEntries.length + visibleRepliesCount + visibleActivityCount;
+				const collapsedExplicit = collapsedWorkingByTurnId[t.id];
+				const workingOpen = collapsedExplicit === undefined ? t.status === 'inProgress' : !collapsedExplicit;
+				const workingHeaderCount = t.workingEntries.length > 0 ? 1 : 0;
+				const visibleWorkingCount = workingOpen ? t.workingEntries.length : 0;
+				return acc + t.userEntries.length + workingHeaderCount + visibleWorkingCount + t.assistantMessageEntries.length;
 			}, 0);
-		}, [collapsedRepliesByTurnId, renderTurns]);
+		}, [collapsedWorkingByTurnId, renderTurns]);
 
 	useEffect(() => {
 		const el = scrollRef.current;
@@ -2878,15 +2914,9 @@ export function CodexChat() {
 						className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4"
 					>
 						{renderTurns.map((turn) => {
-							const repliesCollapsed = collapsedRepliesByTurnId[turn.id] ?? false;
-							const hasActivity = turn.activityEntries.length > 0;
-							const showActivity = hasActivity && !repliesCollapsed;
-							const replyEntries = repliesCollapsed
-								? turn.replyEntries.filter((e) => {
-										if (e.kind === 'system') return true;
-										return e.kind === 'assistant' && e.role === 'message' && e.id === turn.finalAssistantMessageId;
-								  })
-								: turn.replyEntries;
+							const collapsedExplicit = collapsedWorkingByTurnId[turn.id];
+							const workingOpen = collapsedExplicit === undefined ? turn.status === 'inProgress' : !collapsedExplicit;
+							const hasWorking = turn.workingEntries.length > 0;
 
 							return (
 								<div
@@ -2939,174 +2969,224 @@ export function CodexChat() {
 										))}
 									</div>
 
-									<div className="flex items-center justify-between gap-2 text-xs text-text-dim">
-										<button
-											type="button"
-											className="rounded-full border border-white/10 bg-bg-panelHover px-3 py-1 text-[11px] hover:border-white/20"
-											onClick={() => toggleTurnReplies(turn.id)}
-										>
-											<span className="inline-flex items-center gap-1">
-												<span className="truncate">
-													{turnStatusLabel(turn.status)}
+										{hasWorking ? (
+											<button
+												type="button"
+												className="inline-flex items-center gap-2 rounded-full border border-border-menuDivider bg-bg-panel/20 px-3 py-1 text-left text-[12px] text-text-muted transition-colors hover:bg-bg-panelHover/30 hover:text-text-main"
+												onClick={() => toggleTurnWorking(turn.id)}
+											>
+												<div className="flex items-center gap-2 text-[11px] text-text-muted">
+													<span className="truncate">
+														{turnStatusLabel(turn.status)}
 													{turn.id === PENDING_TURN_ID ? ' (pending)' : ''}
 												</span>
-												{repliesCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-											</span>
+												<span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-text-menuDesc">
+													{turn.workingEntries.length}
+												</span>
+											</div>
+											<ChevronDown
+												className={[
+													'h-4 w-4 text-text-menuDesc transition-transform',
+													workingOpen ? 'rotate-180' : '',
+												].join(' ')}
+											/>
 										</button>
-									</div>
+									) : null}
 
-									{showActivity ? (
-										<div className="space-y-2">
-											{turn.activityEntries.map((e) => {
-												if (e.kind === 'command') {
-													const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-													// 构建完整内容用于复制
-													const displayContent = [
-														`$ ${e.command}`,
-														e.cwd ? `cwd: ${e.cwd}` : '',
-														e.output ?? '',
-													]
-														.filter(Boolean)
-														.join('\n');
-													return (
-														<ActivityBlock
-															key={e.id}
-															titlePrefix="Ran"
-															titleContent={e.command}
-															titleMono
-															status={e.status}
-															copyContent={displayContent.replace(/\x1b\[[0-9;]*m/g, '')}
-															collapsible
-															collapsed={collapsed}
-															onToggleCollapse={() => toggleEntryCollapse(e.id)}
-															approval={e.approval}
-															onApprove={approve}
-														>
-															{displayContent}
-														</ActivityBlock>
-													);
-												}
+										{hasWorking ? (
+										<Collapse open={workingOpen} innerClassName="pt-0.5">
+											<div className="space-y-0">
+												{turn.workingEntries.map((e) => {
+													if (e.kind === 'command') {
+														const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+														const displayContent = [
+															`$ ${e.command}`,
+															e.cwd ? `cwd: ${e.cwd}` : '',
+															e.output ?? '',
+														]
+															.filter(Boolean)
+															.join('\n');
+														return (
+															<ActivityBlock
+																key={e.id}
+																titlePrefix="Ran"
+																titleContent={e.command}
+																titleMono
+																status={e.status}
+																copyContent={displayContent.replace(/\x1b\[[0-9;]*m/g, '')}
+																icon={<Terminal className="h-3.5 w-3.5" />}
+																collapsible
+																collapsed={collapsed}
+																onToggleCollapse={() => toggleEntryCollapse(e.id)}
+																approval={e.approval}
+																onApprove={approve}
+															>
+																{displayContent}
+															</ActivityBlock>
+														);
+													}
 
-												if (e.kind === 'fileChange') {
-													const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-													// 构建完整内容用于复制
-													const fullContent = e.changes
-														.map((c) => `${c.path}\n${c.diff ?? ''}`)
-														.join('\n\n');
-													return (
-														<ActivityBlock
-															key={e.id}
-															titlePrefix="Edited"
-															titleContent={e.changes.map((c) => c.path).join(', ')}
-															status={e.status}
-															copyContent={fullContent}
-															collapsible
-															collapsed={collapsed}
-															onToggleCollapse={() => toggleEntryCollapse(e.id)}
-															approval={e.approval}
-															onApprove={approve}
-														>
-															{fullContent}
-														</ActivityBlock>
-													);
-												}
+													if (e.kind === 'fileChange') {
+														const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+														const fullContent = e.changes
+															.map((c) => `${c.path}\n${c.diff ?? ''}`)
+															.join('\n\n');
+														return (
+															<ActivityBlock
+																key={e.id}
+																titlePrefix="Edited"
+																titleContent={e.changes.map((c) => c.path).join(', ')}
+																status={e.status}
+																copyContent={fullContent}
+																icon={<FileText className="h-3.5 w-3.5" />}
+																collapsible
+																collapsed={collapsed}
+																onToggleCollapse={() => toggleEntryCollapse(e.id)}
+																approval={e.approval}
+																onApprove={approve}
+															>
+																{fullContent}
+															</ActivityBlock>
+														);
+													}
 
-												if (e.kind === 'webSearch') {
-													const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-													return (
-														<ActivityBlock
-															key={e.id}
-															titlePrefix="Web search"
-															titleContent={e.query}
-															copyContent={e.query}
-															collapsible
-															collapsed={collapsed}
-															onToggleCollapse={() => toggleEntryCollapse(e.id)}
-														>
-															{e.query}
-														</ActivityBlock>
-													);
-												}
+													if (e.kind === 'webSearch') {
+														const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+														return (
+															<ActivityBlock
+																key={e.id}
+																titlePrefix="Web search"
+																titleContent={e.query}
+																copyContent={e.query}
+																icon={<Search className="h-3.5 w-3.5" />}
+																collapsible
+																collapsed={collapsed}
+																onToggleCollapse={() => toggleEntryCollapse(e.id)}
+															>
+																{e.query}
+															</ActivityBlock>
+														);
+													}
 
-												if (e.kind === 'mcp') {
-													const toolCall = `${e.server}.${e.tool}`;
-													const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-													const content = e.message ? `${toolCall}\n${e.message}` : toolCall;
-													return (
-														<ActivityBlock
-															key={e.id}
-															titlePrefix="MCP"
-															titleContent={toolCall}
-															titleMono
-															status={e.status}
-															copyContent={content}
-															collapsible
-															collapsed={collapsed}
-															onToggleCollapse={() => toggleEntryCollapse(e.id)}
-														>
-															{content}
-														</ActivityBlock>
-													);
-												}
+													if (e.kind === 'mcp') {
+														const toolCall = `${e.server}.${e.tool}`;
+														const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+														const content = e.message ? `${toolCall}\n${e.message}` : toolCall;
+														return (
+															<ActivityBlock
+																key={e.id}
+																titlePrefix="MCP"
+																titleContent={toolCall}
+																titleMono
+																status={e.status}
+																copyContent={content}
+																icon={<Wrench className="h-3.5 w-3.5" />}
+																collapsible
+																collapsed={collapsed}
+																onToggleCollapse={() => toggleEntryCollapse(e.id)}
+															>
+																{content}
+															</ActivityBlock>
+														);
+													}
 
-												return null;
-											})}
-										</div>
+														if (e.kind === 'assistant' && e.role === 'reasoning') {
+															const collapsed = e.streaming
+																? false
+																: (collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails);
+															return (
+																<div key={e.id} className="min-w-0">
+																	<div
+																		className={[
+																			'am-row group flex min-w-0 items-center justify-between gap-2',
+																			'am-row-hover cursor-pointer',
+																		].join(' ')}
+																		role="button"
+																		tabIndex={0}
+																		onClick={() => toggleEntryCollapse(e.id)}
+																		onKeyDown={(ev) => {
+																			if (ev.key === 'Enter' || ev.key === ' ') {
+																				ev.preventDefault();
+																				toggleEntryCollapse(e.id);
+																			}
+																		}}
+																	>
+																		<div className="min-w-0 flex-1 truncate text-[12px]">
+																			<span className="inline-flex min-w-0 items-center gap-2">
+																				<span className="shrink-0 text-text-menuDesc">
+																					<Brain className="h-3.5 w-3.5" />
+																				</span>
+																				<span className="am-row-title truncate">Thinking</span>
+																			</span>
+																			{e.streaming ? (
+																				<span className="ml-2 text-[10px] text-text-menuDesc">Streaming…</span>
+																			) : null}
+																		</div>
+																		<ChevronDown
+																			className={[
+																				'h-4 w-4 text-text-menuDesc transition-transform',
+																				!collapsed ? 'rotate-180' : '',
+																			].join(' ')}
+																		/>
+																	</div>
+																		<Collapse open={!collapsed} innerClassName="pt-0.5 pl-2 pr-1 pb-1">
+																			<div className="am-scroll-fade max-h-[260px] overflow-auto rounded-md bg-token-codeBackground/8 px-2 py-1.5">
+																				<ChatMarkdown
+																					text={e.text}
+																					className="text-[11px] text-text-menuDesc"
+																					dense
+																				/>
+																			</div>
+																		</Collapse>
+																</div>
+															);
+														}
+
+														if (e.kind === 'system') {
+															const tone = e.tone ?? 'info';
+															const color =
+																tone === 'error'
+																	? 'bg-status-error/10 text-status-error'
+																	: tone === 'warning'
+																		? 'bg-status-warning/10 text-status-warning'
+																		: 'bg-bg-panel/10 text-text-muted';
+
+															return (
+																<div
+																	key={e.id}
+																	className={`am-row am-row-hover text-xs ${color}`}
+																>
+																	<div className="whitespace-pre-wrap break-words">{e.text}</div>
+																</div>
+															);
+														}
+
+													return null;
+												})}
+											</div>
+										</Collapse>
 									) : null}
 
 									<div className="space-y-2">
-										{replyEntries.map((e) => {
-											if (e.kind === 'assistant') {
-												const isReasoning = e.role === 'reasoning';
-												return (
-													<div
-														key={e.id}
-														className={[
-															'px-1 py-1',
-															isReasoning
-																? 'text-text-muted'
-																: 'text-text-muted',
-														].join(' ')}
-													>
-														{isReasoning ? <div className="mb-1 text-[10px] text-text-dim">Reasoning</div> : null}
-														{e.streaming ? <div className="mb-1 text-[10px] text-text-dim">Streaming…</div> : null}
-														<ChatMarkdown
-															text={e.text}
-															className={isReasoning ? 'text-text-dim' : 'text-text-muted'}
-															dense
-														/>
-													</div>
-												);
-											}
-
-											if (e.kind === 'system') {
-												const tone = e.tone ?? 'info';
-												const color =
-													tone === 'error'
-														? 'border-status-error/30 bg-status-error/10 text-status-error'
-														: tone === 'warning'
-														? 'border-status-warning/30 bg-status-warning/10 text-status-warning'
-														: 'border-white/10 bg-bg-panelHover text-text-muted';
-
-												return (
-													<div
-														key={e.id}
-														className={`rounded-lg border px-3 py-2 text-xs ${color}`}
-													>
-														<div className="whitespace-pre-wrap break-words">{e.text}</div>
-													</div>
-												);
-											}
-
-											return null;
-										})}
+										{turn.assistantMessageEntries.map((e) => (
+											<div
+												key={e.id}
+												className="px-1 py-1 text-text-muted"
+											>
+												<ChatMarkdown
+													text={e.text}
+													className="text-text-muted"
+													dense
+												/>
+											</div>
+										))}
 									</div>
 								</div>
 							);
 						})}
 					</div>
 
-					<div className="relative -mx-6 mt-3 rounded-xl border border-white/10 bg-bg-panel/70 px-4 py-3 backdrop-blur">
+					<div className="relative -mx-6 mt-3 rounded-xl border border-token-border/80 bg-token-inputBackground/70 px-4 py-3 backdrop-blur">
 						{/* Popup Menu - shared container for +, / and $ menus */}
 						{isSlashMenuOpen || isAddContextOpen || isSkillMenuOpen ? (
 							<>
@@ -3564,7 +3644,7 @@ export function CodexChat() {
 								{/* + Add Context Button */}
 								<button
 									type="button"
-									className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
+									className="am-icon-button h-7 w-7"
 									title="Add context"
 									onClick={() => setIsAddContextOpen((v) => !v)}
 								>
@@ -3574,7 +3654,7 @@ export function CodexChat() {
 								{/* / Slash Commands Button */}
 								<button
 									type="button"
-									className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
+									className="am-icon-button h-7 w-7"
 									title="Commands"
 									onClick={() => setIsSlashMenuOpen((v) => !v)}
 								>

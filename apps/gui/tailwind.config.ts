@@ -1,48 +1,57 @@
 import type { Config } from "tailwindcss";
 
+const rgb = (cssVar: string) => `rgb(var(${cssVar}) / <alpha-value>)`;
+
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
         bg: {
-          app: "#0f1115",
-          panel: "#181b21",
-          panelHover: "#1f232b",
+          app: rgb("--am-bg-app"),
+          panel: rgb("--am-bg-panel"),
+          panelHover: rgb("--am-bg-panel-hover"),
           // Menus / popovers
-          menu: "#1c2028",
-          menuItemHover: "rgb(255 255 255 / 0.06)",
+          menu: rgb("--am-bg-menu"),
+          menuItemHover: "rgb(255 255 255 / var(--am-alpha-menu-item-hover))",
         },
         primary: {
-          DEFAULT: "#646cff",
-          hover: "#7b83ff",
+          DEFAULT: rgb("--am-primary"),
+          hover: rgb("--am-primary-hover"),
         },
-        accent: "#00e5ff",
+        accent: rgb("--am-accent"),
         text: {
-          main: "#ffffff",
-          muted: "#8b949e",
-          dim: "#484f58",
+          main: rgb("--am-text-main"),
+          muted: rgb("--am-text-muted"),
+          dim: rgb("--am-text-dim"),
           // Menus / popovers
-          menuLabel: "#7d8590",
-          menuDesc: "#66707d",
+          menuLabel: rgb("--am-text-menu-label"),
+          menuDesc: rgb("--am-text-menu-desc"),
         },
         border: {
-          DEFAULT: "#30363d",
-          active: "#539bf5",
+          DEFAULT: rgb("--am-border"),
+          active: rgb("--am-border-active"),
           // Menus / popovers
-          menu: "rgb(255 255 255 / 0.10)",
-          menuInner: "rgb(255 255 255 / 0.06)",
-          menuDivider: "rgb(255 255 255 / 0.08)",
+          menu: "rgb(255 255 255 / var(--am-alpha-menu-border))",
+          menuInner: "rgb(255 255 255 / var(--am-alpha-menu-inner-border))",
+          menuDivider: "rgb(255 255 255 / var(--am-alpha-menu-divider))",
+        },
+        token: {
+          inputBackground: rgb("--am-token-input-background"),
+          border: rgb("--am-token-border"),
+          borderStrong: rgb("--am-token-border-strong"),
+          codeBackground: rgb("--am-token-code-background"),
         },
         status: {
-          success: "#238636",
-          warning: "#d29922",
-          error: "#da3633",
-          info: "#0969da",
+          success: rgb("--am-status-success"),
+          warning: rgb("--am-status-warning"),
+          error: rgb("--am-status-error"),
+          info: rgb("--am-status-info"),
         },
       },
       boxShadow: {
-        menu: "inset 0 1px 0 rgba(255,255,255,0.04), 0 18px 60px rgba(0,0,0,0.55), 0 6px 22px rgba(0,0,0,0.35)",
+        menu: "var(--am-shadow-menu)",
+        card: "var(--am-shadow-card)",
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
