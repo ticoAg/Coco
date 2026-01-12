@@ -674,7 +674,7 @@ function formatTokenCount(value: number): string {
 
 function statusBarItemClass(active: boolean): string {
 	return [
-		'inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-2 text-[11px] transition',
+		'inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-border-menuDivider bg-bg-panel/30 px-2 text-[11px] transition-colors',
 		active ? 'bg-bg-panelHover text-text-main' : 'text-text-muted hover:bg-bg-panelHover hover:text-text-main',
 	].join(' ');
 }
@@ -682,22 +682,22 @@ function statusBarItemClass(active: boolean): string {
 // 公共样式配置
 const MENU_STYLES = {
 	// 弹出菜单容器
-	popover: 'rounded-xl border border-white/10 bg-bg-panel/95 shadow-xl backdrop-blur',
+	popover: 'rounded-xl border border-border-menu bg-bg-menu/95 shadow-menu backdrop-blur ring-1 ring-border-menuInner',
 	// 弹出菜单标题
-	popoverTitle: 'px-2 py-1 text-[11px] text-text-dim',
+	popoverTitle: 'px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wider text-text-menuLabel',
 	// 弹出菜单选项
 	popoverItem:
-		'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11px] text-text-main hover:bg-white/5 group',
+		'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] text-text-main hover:bg-bg-menuItemHover transition-colors group',
 	// 弹出菜单选项（高亮/聚焦）- 与 hover 样式一致
 	popoverItemActive:
-		'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11px] bg-white/5 text-text-main group',
+		'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] bg-bg-menuItemHover text-text-main transition-colors group',
 	// 弹出菜单选项描述 - 单行截断，名称后空两格
-	popoverItemDesc: 'ml-4 shrink-0 max-w-[200px] truncate text-[10px] text-text-dim',
+	popoverItemDesc: 'ml-4 shrink-0 max-w-[200px] truncate text-[10px] text-text-menuDesc',
 	// 图标尺寸
-	iconSm: 'h-3 w-3',
-	iconMd: 'h-3.5 w-3.5',
+	iconSm: 'h-4 w-4',
+	iconMd: 'h-4 w-4',
 	// 搜索输入框
-	searchInput: 'w-full bg-transparent text-[11px] text-text-muted outline-none placeholder:text-text-dim',
+	searchInput: 'w-full bg-transparent text-[12px] text-text-muted outline-none placeholder:text-text-menuDesc',
 	// 弹出菜单位置（输入框上方全宽）
 	popoverPosition: 'absolute bottom-full left-0 right-0 z-50 mb-2 p-2',
 	// 列表容器
@@ -2581,7 +2581,7 @@ export function CodexChat() {
 					<div className="relative shrink-0">
 						<button
 							type="button"
-							className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-sm font-medium text-text-main hover:bg-white/5"
+							className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border-menuDivider bg-bg-panel/40 px-2.5 text-[13px] font-medium text-text-main hover:bg-bg-panelHover transition-colors"
 							onClick={() => setIsWorkspaceMenuOpen((v) => !v)}
 							title={activeThread?.cwd ?? workspaceRoot ?? ''}
 						>
@@ -2590,7 +2590,7 @@ export function CodexChat() {
 									? repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? '')
 									: 'Select Project'}
 							</span>
-							<ChevronDown className="h-3.5 w-3.5 text-text-dim" />
+							<ChevronDown className="h-4 w-4 text-text-menuLabel" />
 						</button>
 
 						{isWorkspaceMenuOpen ? (
@@ -2601,61 +2601,57 @@ export function CodexChat() {
 									role="button"
 									tabIndex={0}
 								/>
-								<div className="absolute left-0 top-full z-50 mt-1 w-[260px] rounded-lg border border-white/10 bg-[#2a2a2a] py-1.5 shadow-2xl">
+								<div className={`absolute left-0 top-full z-50 mt-2 w-[260px] p-1.5 ${MENU_STYLES.popover}`}>
 									{/* CURRENT PROJECT */}
-									<div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-text-dim">
-										Current Project
-									</div>
+									<div className={MENU_STYLES.popoverTitle}>Current Project</div>
 									<button
 										type="button"
-										className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-white/5"
+										className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left hover:bg-bg-menuItemHover transition-colors"
 										title={activeThread?.cwd ?? workspaceRoot ?? ''}
 									>
 										<div className="flex min-w-0 items-center gap-2">
-											<Folder className="h-4 w-4 shrink-0 text-text-dim" />
+											<Folder className="h-4 w-4 shrink-0 text-text-menuLabel" />
 											<div className="min-w-0">
-												<div className="truncate font-medium text-text-main">
+												<div className="truncate text-[12px] font-medium text-text-main">
 													{repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? '') || 'Not set'}
 												</div>
-												<div className="truncate text-[11px] text-text-muted">
+												<div className="truncate text-[11px] text-text-menuDesc">
 													{activeThread?.cwd ?? workspaceRoot
 														? `~${(activeThread?.cwd ?? workspaceRoot ?? '').replace(/^\/Users\/[^/]+/, '')}`
 														: 'No project selected'}
 												</div>
 											</div>
 										</div>
-										<ChevronRight className="h-4 w-4 shrink-0 text-text-dim" />
+										<ChevronRight className="h-4 w-4 shrink-0 text-text-menuLabel" />
 									</button>
 
-									<div className="my-1.5 border-t border-white/10" />
+									<div className="mx-2 my-1.5 border-t border-border-menuDivider" />
 
 									{/* New Window */}
 									<button
 										type="button"
-										className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-white/5"
+										className={MENU_STYLES.popoverItem}
 										onClick={() => void openNewWindow()}
 									>
-										<Box className="h-4 w-4 text-text-dim" />
+										<Box className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 										<span>New Window</span>
 									</button>
 
 									{/* Open Project */}
 									<button
 										type="button"
-										className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-white/5"
+										className={MENU_STYLES.popoverItem}
 										onClick={() => void openWorkspaceDialog()}
 									>
-										<Folder className="h-4 w-4 text-text-dim" />
+										<Folder className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 										<span>Open Project</span>
 									</button>
 
 									{/* RECENT PROJECTS */}
 									{recentWorkspaces.filter((p) => p !== (activeThread?.cwd ?? workspaceRoot)).length > 0 ? (
 										<>
-											<div className="my-1.5 border-t border-white/10" />
-											<div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-text-dim">
-												Recent Projects
-											</div>
+											<div className="mx-2 my-1.5 border-t border-border-menuDivider" />
+											<div className={MENU_STYLES.popoverTitle}>Recent Projects</div>
 											<div>
 												{recentWorkspaces
 													.filter((p) => p !== (activeThread?.cwd ?? workspaceRoot))
@@ -2664,16 +2660,16 @@ export function CodexChat() {
 														<button
 															key={path}
 															type="button"
-															className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/5"
+															className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-bg-menuItemHover transition-colors"
 															onClick={() => void applyWorkspaceRoot(path)}
 															title={path}
 														>
-															<Folder className="h-4 w-4 shrink-0 text-text-dim" />
+															<Folder className="h-4 w-4 shrink-0 text-text-menuLabel" />
 															<div className="min-w-0">
-																<div className="truncate text-sm font-medium text-text-main">
+																<div className="truncate text-[12px] font-medium text-text-main">
 																	{repoNameFromPath(path)}
 																</div>
-																<div className="truncate text-[11px] text-text-muted">
+																<div className="truncate text-[11px] text-text-menuDesc">
 																	{`~${path.replace(/^\/Users\/[^/]+/, '')}`}
 																</div>
 															</div>
@@ -2683,25 +2679,25 @@ export function CodexChat() {
 										</>
 									) : null}
 
-									<div className="my-1.5 border-t border-white/10" />
+									<div className="mx-2 my-1.5 border-t border-border-menuDivider" />
 
 									{/* About */}
 									<button
 										type="button"
-										className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-white/5"
+										className={MENU_STYLES.popoverItem}
 										onClick={() => void showAbout()}
 									>
-										<Info className="h-4 w-4 text-text-dim" />
+										<Info className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 										<span>About AgentMesh</span>
 									</button>
 
 									{/* Check for Updates */}
 									<button
 										type="button"
-										className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-white/5"
+										className={MENU_STYLES.popoverItem}
 										onClick={() => void showUpdates()}
 									>
-										<RotateCw className="h-4 w-4 text-text-dim" />
+										<RotateCw className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 										<span>Check for Updates...</span>
 									</button>
 								</div>
@@ -2751,7 +2747,7 @@ export function CodexChat() {
 				<div className="relative mr-3 flex shrink-0 items-center gap-1.5">
 					<button
 						type="button"
-						className="flex h-8 w-8 items-center justify-center rounded-lg text-text-main hover:bg-white/5"
+						className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-menuDivider bg-bg-panel/40 text-text-main hover:bg-bg-panelHover transition-colors"
 						onClick={() => {
 							setIsSettingsMenuOpen(false);
 							setIsSessionsOpen(true);
@@ -2763,7 +2759,7 @@ export function CodexChat() {
 
 					<button
 						type="button"
-						className="flex h-8 w-8 items-center justify-center rounded-lg text-text-main hover:bg-white/5"
+						className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-menuDivider bg-bg-panel/40 text-text-main hover:bg-bg-panelHover transition-colors"
 						onClick={() => setIsSettingsMenuOpen((v) => !v)}
 						title="Menu"
 					>
@@ -2778,11 +2774,11 @@ export function CodexChat() {
 								role="button"
 								tabIndex={0}
 							/>
-							<div className="absolute right-0 top-[44px] z-50 w-[220px] rounded-2xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
-								<div className="px-3 py-2 text-[11px] uppercase tracking-wide text-text-dim">Menu</div>
+							<div className={`absolute right-0 top-[44px] z-50 w-[220px] p-1.5 ${MENU_STYLES.popover}`}>
+								<div className={MENU_STYLES.popoverTitle}>Menu</div>
 								<button
 									type="button"
-									className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
+									className={MENU_STYLES.popoverItem}
 									onClick={() => {
 										setIsSettingsMenuOpen(false);
 										void openWorkspaceDialog();
@@ -2792,7 +2788,7 @@ export function CodexChat() {
 								</button>
 								<button
 									type="button"
-									className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
+									className={MENU_STYLES.popoverItem}
 									onClick={() => {
 										setIsSettingsMenuOpen(false);
 										setIsSettingsOpen(true);
@@ -2802,7 +2798,7 @@ export function CodexChat() {
 								</button>
 								<button
 									type="button"
-									className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
+									className={MENU_STYLES.popoverItem}
 									onClick={() => {
 										setIsSettingsMenuOpen(false);
 										void openConfig();
@@ -2812,7 +2808,7 @@ export function CodexChat() {
 								</button>
 								<button
 									type="button"
-									className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
+									className={MENU_STYLES.popoverItem}
 									onClick={() => {
 										setIsSettingsMenuOpen(false);
 										void createNewSession();
@@ -3269,7 +3265,7 @@ export function CodexChat() {
 														onClick={() => executeSkillSelection(skill)}
 														onMouseEnter={() => setSkillHighlightIndex(idx)}
 													>
-														<Zap className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+														<Zap className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
 														<span>
 															{indices && indices.length > 0
 																? highlightMatches(skill.name, indices)
@@ -3340,7 +3336,7 @@ export function CodexChat() {
 																	onClick={() => executeSlashCommand(cmd.id)}
 																	onMouseEnter={() => setSlashHighlightIndex(idx)}
 																>
-																	<IconComponent className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+																	<IconComponent className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
 																	<span>
 																		{indices && indices.length > 0
 																			? highlightMatches(cmd.label, indices)
@@ -3355,7 +3351,13 @@ export function CodexChat() {
 												{/* Prompts section */}
 												{filteredPromptsForSlashMenu.length > 0 && (
 													<>
-														<div className={`${MENU_STYLES.popoverTitle} ${filteredSlashCommands.length > 0 ? 'mt-2 border-t border-white/10 pt-2' : ''}`}>Prompts</div>
+														<div
+															className={`${MENU_STYLES.popoverTitle} ${
+																filteredSlashCommands.length > 0 ? 'mt-2 border-t border-border-menuDivider pt-2' : ''
+															}`}
+														>
+															Prompts
+														</div>
 														{filteredPromptsForSlashMenu.map(({ prompt, indices }, idx) => {
 															const globalIdx = filteredSlashCommands.length + idx;
 															return (
@@ -3369,7 +3371,7 @@ export function CodexChat() {
 																	onClick={() => executePromptSelection(prompt)}
 																	onMouseEnter={() => setSlashHighlightIndex(globalIdx)}
 																>
-																	<FileText className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+																	<FileText className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
 																	<span>
 																		{indices && indices.length > 0
 																			? highlightMatches(`prompts:${prompt.name}`, indices)
@@ -3386,7 +3388,15 @@ export function CodexChat() {
 												{/* Skills section */}
 												{filteredSkillsForSlashMenu.length > 0 && (
 													<>
-														<div className={`${MENU_STYLES.popoverTitle} ${(filteredSlashCommands.length > 0 || filteredPromptsForSlashMenu.length > 0) ? 'mt-2 border-t border-white/10 pt-2' : ''}`}>Skills</div>
+														<div
+															className={`${MENU_STYLES.popoverTitle} ${
+																filteredSlashCommands.length > 0 || filteredPromptsForSlashMenu.length > 0
+																	? 'mt-2 border-t border-border-menuDivider pt-2'
+																	: ''
+															}`}
+														>
+															Skills
+														</div>
 														{filteredSkillsForSlashMenu.map(({ skill, indices }, idx) => {
 															const globalIdx = filteredSlashCommands.length + filteredPromptsForSlashMenu.length + idx;
 															return (
@@ -3400,7 +3410,7 @@ export function CodexChat() {
 																	onClick={() => executeSkillSelection(skill)}
 																	onMouseEnter={() => setSlashHighlightIndex(globalIdx)}
 																>
-																	<Zap className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+																	<Zap className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
 																	<span>
 																		{indices && indices.length > 0
 																			? highlightMatches(skill.name, indices)
@@ -3431,9 +3441,9 @@ export function CodexChat() {
 															onClick={() => void addFileAttachment(f)}
 														>
 															{f.isDirectory ? (
-																<Folder className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+																<Folder className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
 															) : (
-																<File className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+																<File className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
 															)}
 															<span className="truncate">{f.path}</span>
 														</button>
@@ -3446,13 +3456,13 @@ export function CodexChat() {
 									</div>
 									{/* Add image option (only for + menu) */}
 									{isAddContextOpen ? (
-										<div className="mt-1.5 border-t border-white/10 pt-1.5">
+										<div className="mt-1.5 border-t border-border-menuDivider pt-1.5">
 											<button
 												type="button"
 												className={MENU_STYLES.popoverItem}
 												onClick={() => fileInputRef.current?.click()}
 											>
-												<Image className={`${MENU_STYLES.iconSm} shrink-0 text-text-dim`} />
+												<Image className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
 												<span>Add image</span>
 											</button>
 										</div>
@@ -3683,7 +3693,7 @@ export function CodexChat() {
 											}}
 											title="需要用户批准所有操作"
 										>
-											<Users className={`${MENU_STYLES.iconSm} text-text-dim`} />
+											<Users className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 											<span>Agent</span>
 											<Check
 												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${
@@ -3700,7 +3710,7 @@ export function CodexChat() {
 											}}
 											title="自动执行所有操作，无需批准"
 										>
-											<Zap className={`${MENU_STYLES.iconSm} text-text-dim`} />
+											<Zap className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 											<span>Agent (full access)</span>
 											<Check
 												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${
@@ -3717,7 +3727,7 @@ export function CodexChat() {
 											}}
 											title="使用 config.toml 自定义批准策略"
 										>
-											<FileText className={`${MENU_STYLES.iconSm} text-text-dim`} />
+											<FileText className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 											<span>Custom (config.toml)</span>
 											<Check
 												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${
@@ -3739,7 +3749,7 @@ export function CodexChat() {
 									}}
 									title="model"
 								>
-									<Box className="h-3 w-3 text-text-dim" />
+									<Box className="h-3.5 w-3.5 text-text-menuLabel" />
 									<span className="truncate">{selectedModelInfo?.displayName ?? selectedModel ?? 'model'}</span>
 									<ChevronDown className="h-3 w-3" />
 								</button>
@@ -3836,9 +3846,9 @@ export function CodexChat() {
 									title="model_reasoning_effort"
 								>
 									{selectedEffort ? (
-										reasoningEffortIcon(selectedEffort, 'h-3 w-3 text-text-dim')
+										reasoningEffortIcon(selectedEffort, 'h-3.5 w-3.5 text-text-menuLabel')
 									) : (
-										<Brain className="h-3 w-3 text-text-dim" />
+										<Brain className="h-3.5 w-3.5 text-text-menuLabel" />
 									)}
 									<span className="truncate">
 										{selectedEffort ? reasoningEffortLabelEn(selectedEffort) : 'Default'}
@@ -3863,7 +3873,7 @@ export function CodexChat() {
 															onClick={() => void applyReasoningEffort(opt.reasoningEffort)}
 															title={translateReasoningDesc(opt.description)}
 														>
-															{reasoningEffortIcon(opt.reasoningEffort, `${MENU_STYLES.iconSm} text-text-dim`)}
+															{reasoningEffortIcon(opt.reasoningEffort, `${MENU_STYLES.iconSm} text-text-menuLabel`)}
 															<span>{reasoningEffortLabelEn(opt.reasoningEffort)}</span>
 															<Check
 																className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`}
