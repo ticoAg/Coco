@@ -123,3 +123,5 @@ target/
 # If 'codex' is a local clone for dev only and not a submodule, ignore it:
 codex/
 CLAUDE.md
+
+docs/implementation-notes/codex-vscode-plugin/plugin-index.js
