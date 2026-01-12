@@ -17,6 +17,7 @@ Auto context 是一个“IDE 上下文自动引入”的可切换能力：
 - 持久化存储：`persistedAtom("composer-auto-context-enabled", true)`。
 - 默认值：`true`（首次进入时为开启）。
 - 触发开关时同时更新本地状态与持久化原子，保证刷新后仍保留用户偏好。
+- 溯源：`aDefaultComposerAutoContext` / `composer-auto-context-enabled`（`plugin-index.js:51202-51203`）。
 
 ## IDE IPC 获取链路
 
@@ -40,6 +41,7 @@ Auto context 是一个“IDE 上下文自动引入”的可切换能力：
   - `electron` 且有 root：`{ workspaceRoot }`
   - 其他情况：不传 `params`
 - 返回结构中取 `ideContext` 字段作为上下文结果。
+- 溯源：`useIdeContext`（`plugin-index.js:166918`），`useFetchFromVSCode("ide-context")`（`plugin-index.js:166950`）。
 
 ## 连接状态与自动降级
 
@@ -48,6 +50,7 @@ Auto context 是一个“IDE 上下文自动引入”的可切换能力：
   - `electron`：根据 `useIdeContext()` 的 `isFetching/isSuccess/isError` 生成 `loading/connected/no-connection`。
   - `extension`：直接视为 `connected`（并提供一个 noop `refetch`）。
 - 断连降级：当 `isAutoContextOn == true` 且 `isError == true` 时，自动关闭 Auto context。
+- 溯源：`useIdeContextIpcStatus`（`plugin-index.js:167125`），`client-status-changed` 广播监听（`plugin-index.js:167138`）。
 
 ## UI 与交互入口
 
@@ -59,6 +62,7 @@ Auto context 是一个“IDE 上下文自动引入”的可切换能力：
   - “and other context”
   - 连接成功提示 “Connected to your IDE.”
 - 点击按钮：切换 `isAutoContextOn`，并同步更新持久化状态。
+- 溯源：`AutoContextButton`（`plugin-index.js:166959`）。
 
 ### Slash Command
 
@@ -66,12 +70,14 @@ Auto context 是一个“IDE 上下文自动引入”的可切换能力：
 - 标题文案随状态切换：
   - `enableAutoContext` / `disableAutoContext`
 - 命令在未连接时不可用（`enabled: false`）。
+- 溯源：`useProvideSlashCommand` 注册（`plugin-index.js:166991`）。
 
 ## 安全获取与错误处理
 
 - `fetchIdeContextSafe(...)` 封装了 `fetchFromVSCode("ide-context")`：
   - 异常时记录日志：`[Composer] failed to fetch ide-context: ...`
   - 返回 `null`，避免影响主流程。
+- 溯源：`fetchIdeContextSafe`（`plugin-index.js:196238`），错误日志（`plugin-index.js:196249`）。
 
 ## GUI 复用要点（建议）
 
@@ -87,3 +93,4 @@ Auto context 是一个“IDE 上下文自动引入”的可切换能力：
 - IPC 请求：`active-workspace-roots`、`ide-context`
 - IPC 广播：`client-status-changed`
 - Slash command id：`auto-context`
+- 溯源：`composer-auto-context-enabled`（`plugin-index.js:51203`），`client-status-changed`（`plugin-index.js:167138`），`auto-context`（`plugin-index.js:166991`）。

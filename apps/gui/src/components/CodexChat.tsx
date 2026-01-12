@@ -26,7 +26,7 @@ import {
 	Plus,
 	RotateCw,
 	Search,
-	Settings2,
+	Settings,
 	Shield,
 	SignalHigh,
 	SignalLow,
@@ -127,6 +127,8 @@ type CodexChatSettings = {
 };
 
 const SETTINGS_STORAGE_KEY = 'agentmesh.codexChat.settings.v1';
+const SIDEBAR_WIDTH_PX = 48 * 0.7;
+const SIDEBAR_ICON_BUTTON_PX = SIDEBAR_WIDTH_PX * 0.7;
 
 function loadCodexChatSettings(): CodexChatSettings {
 	const defaults: CodexChatSettings = {
@@ -2558,6 +2560,9 @@ export function CodexChat() {
 		el.scrollTop = el.scrollHeight;
 	}, [renderCount]);
 
+	const sidebarIconButtonPx = Math.round(SIDEBAR_ICON_BUTTON_PX);
+	const sidebarIconSizePx = Math.max(10, Math.round(sidebarIconButtonPx * 0.62));
+
 	return (
 		<div className="flex h-full min-w-0 flex-col overflow-x-hidden">
 			{/* 自定义标题栏 */}
@@ -2571,132 +2576,249 @@ export function CodexChat() {
 					data-tauri-drag-region
 				/>
 
-				{/* 项目选择下拉菜单 */}
-				<div className="relative shrink-0">
+				<div className="flex min-w-0 items-center gap-2">
+					{/* 项目选择下拉菜单 */}
+					<div className="relative shrink-0">
+						<button
+							type="button"
+							className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-sm font-medium text-text-main hover:bg-white/5"
+							onClick={() => setIsWorkspaceMenuOpen((v) => !v)}
+							title={activeThread?.cwd ?? workspaceRoot ?? ''}
+						>
+							<span className="truncate">
+								{activeThread?.cwd || workspaceRoot
+									? repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? '')
+									: 'Select Project'}
+							</span>
+							<ChevronDown className="h-3.5 w-3.5 text-text-dim" />
+						</button>
+
+						{isWorkspaceMenuOpen ? (
+							<>
+								<div
+									className="fixed inset-0 z-40"
+									onClick={() => setIsWorkspaceMenuOpen(false)}
+									role="button"
+									tabIndex={0}
+								/>
+								<div className="absolute left-0 top-full z-50 mt-1 w-[260px] rounded-lg border border-white/10 bg-[#2a2a2a] py-1.5 shadow-2xl">
+									{/* CURRENT PROJECT */}
+									<div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-text-dim">
+										Current Project
+									</div>
+									<button
+										type="button"
+										className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-white/5"
+										title={activeThread?.cwd ?? workspaceRoot ?? ''}
+									>
+										<div className="flex min-w-0 items-center gap-2">
+											<Folder className="h-4 w-4 shrink-0 text-text-dim" />
+											<div className="min-w-0">
+												<div className="truncate font-medium text-text-main">
+													{repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? '') || 'Not set'}
+												</div>
+												<div className="truncate text-[11px] text-text-muted">
+													{activeThread?.cwd ?? workspaceRoot
+														? `~${(activeThread?.cwd ?? workspaceRoot ?? '').replace(/^\/Users\/[^/]+/, '')}`
+														: 'No project selected'}
+												</div>
+											</div>
+										</div>
+										<ChevronRight className="h-4 w-4 shrink-0 text-text-dim" />
+									</button>
+
+									<div className="my-1.5 border-t border-white/10" />
+
+									{/* New Window */}
+									<button
+										type="button"
+										className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-white/5"
+										onClick={() => void openNewWindow()}
+									>
+										<Box className="h-4 w-4 text-text-dim" />
+										<span>New Window</span>
+									</button>
+
+									{/* Open Project */}
+									<button
+										type="button"
+										className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-white/5"
+										onClick={() => void openWorkspaceDialog()}
+									>
+										<Folder className="h-4 w-4 text-text-dim" />
+										<span>Open Project</span>
+									</button>
+
+									{/* RECENT PROJECTS */}
+									{recentWorkspaces.filter((p) => p !== (activeThread?.cwd ?? workspaceRoot)).length > 0 ? (
+										<>
+											<div className="my-1.5 border-t border-white/10" />
+											<div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-text-dim">
+												Recent Projects
+											</div>
+											<div>
+												{recentWorkspaces
+													.filter((p) => p !== (activeThread?.cwd ?? workspaceRoot))
+													.slice(0, 5)
+													.map((path) => (
+														<button
+															key={path}
+															type="button"
+															className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/5"
+															onClick={() => void applyWorkspaceRoot(path)}
+															title={path}
+														>
+															<Folder className="h-4 w-4 shrink-0 text-text-dim" />
+															<div className="min-w-0">
+																<div className="truncate text-sm font-medium text-text-main">
+																	{repoNameFromPath(path)}
+																</div>
+																<div className="truncate text-[11px] text-text-muted">
+																	{`~${path.replace(/^\/Users\/[^/]+/, '')}`}
+																</div>
+															</div>
+														</button>
+													))}
+											</div>
+										</>
+									) : null}
+
+									<div className="my-1.5 border-t border-white/10" />
+
+									{/* About */}
+									<button
+										type="button"
+										className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-white/5"
+										onClick={() => void showAbout()}
+									>
+										<Info className="h-4 w-4 text-text-dim" />
+										<span>About AgentMesh</span>
+									</button>
+
+									{/* Check for Updates */}
+									<button
+										type="button"
+										className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-white/5"
+										onClick={() => void showUpdates()}
+									>
+										<RotateCw className="h-4 w-4 text-text-dim" />
+										<span>Check for Updates...</span>
+									</button>
+								</div>
+							</>
+						) : null}
+					</div>
+
+					{activeThread?.cwd && relatedRepoPaths.length > 0 ? (
+						<div className="flex min-w-0 flex-nowrap items-center gap-1.5">
+							{relatedRepoPaths.map((path) => (
+								<div
+									key={path}
+									className="group inline-flex h-7 items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 text-[11px] leading-none text-text-main"
+									title={path}
+								>
+									<span className="max-w-[140px] truncate">{repoNameFromPath(path)}</span>
+									<button
+										type="button"
+										className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-red-300 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto hover:bg-red-500/70 hover:text-white"
+										onClick={() => removeRelatedRepoDir(path)}
+										aria-label={`Remove related repo ${repoNameFromPath(path)}`}
+									>
+										-
+									</button>
+								</div>
+							))}
+						</div>
+					) : null}
+
+					{selectedThreadId && activeThread?.cwd && relatedRepoPaths.length < 3 ? (
+						<button
+							type="button"
+							className="inline-flex h-7 items-center rounded px-2 text-[11px] leading-none text-text-muted hover:bg-white/5 hover:text-text-main"
+							onClick={() => void addRelatedRepoDir()}
+							title="Add related dir"
+						>
+							+ add dir
+						</button>
+					) : null}
+				</div>
+
+				<div
+					className="flex-1"
+					data-tauri-drag-region
+				/>
+
+				<div className="relative mr-3 flex shrink-0 items-center gap-1.5">
 					<button
 						type="button"
-						className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-sm font-medium text-text-main hover:bg-white/5"
-						onClick={() => setIsWorkspaceMenuOpen((v) => !v)}
-						title={activeThread?.cwd ?? workspaceRoot ?? ''}
+						className="flex h-8 w-8 items-center justify-center rounded-lg text-text-main hover:bg-white/5"
+						onClick={() => {
+							setIsSettingsMenuOpen(false);
+							setIsSessionsOpen(true);
+						}}
+						title="Sessions"
 					>
-						<span className="truncate">
-							{activeThread?.cwd || workspaceRoot
-								? repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? '')
-								: 'Select Project'}
-						</span>
-						<ChevronDown className="h-3.5 w-3.5 text-text-dim" />
+						<Menu className="h-5 w-5" />
 					</button>
 
-					{isWorkspaceMenuOpen ? (
+					<button
+						type="button"
+						className="flex h-8 w-8 items-center justify-center rounded-lg text-text-main hover:bg-white/5"
+						onClick={() => setIsSettingsMenuOpen((v) => !v)}
+						title="Menu"
+					>
+						<Settings className="h-5 w-5" />
+					</button>
+
+					{isSettingsMenuOpen ? (
 						<>
 							<div
 								className="fixed inset-0 z-40"
-								onClick={() => setIsWorkspaceMenuOpen(false)}
+								onClick={() => setIsSettingsMenuOpen(false)}
 								role="button"
 								tabIndex={0}
 							/>
-							<div className="absolute left-0 top-full z-50 mt-1 w-[260px] rounded-lg border border-white/10 bg-[#2a2a2a] py-1.5 shadow-2xl">
-								{/* CURRENT PROJECT */}
-								<div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-text-dim">
-									Current Project
-								</div>
+							<div className="absolute right-0 top-[44px] z-50 w-[220px] rounded-2xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
+								<div className="px-3 py-2 text-[11px] uppercase tracking-wide text-text-dim">Menu</div>
 								<button
 									type="button"
-									className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-white/5"
-									title={activeThread?.cwd ?? workspaceRoot ?? ''}
+									className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
+									onClick={() => {
+										setIsSettingsMenuOpen(false);
+										void openWorkspaceDialog();
+									}}
 								>
-									<div className="flex min-w-0 items-center gap-2">
-										<Folder className="h-4 w-4 shrink-0 text-text-dim" />
-										<div className="min-w-0">
-											<div className="truncate font-medium text-text-main">
-												{repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? '') || 'Not set'}
-											</div>
-											<div className="truncate text-[11px] text-text-muted">
-												{activeThread?.cwd ?? workspaceRoot
-													? `~${(activeThread?.cwd ?? workspaceRoot ?? '').replace(/^\/Users\/[^/]+/, '')}`
-													: 'No project selected'}
-											</div>
-										</div>
-									</div>
-									<ChevronRight className="h-4 w-4 shrink-0 text-text-dim" />
+									Switch workspace…
 								</button>
-
-								<div className="my-1.5 border-t border-white/10" />
-
-								{/* New Window */}
 								<button
 									type="button"
-									className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-white/5"
-									onClick={() => void openNewWindow()}
+									className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
+									onClick={() => {
+										setIsSettingsMenuOpen(false);
+										setIsSettingsOpen(true);
+									}}
 								>
-									<Box className="h-4 w-4 text-text-dim" />
-									<span>New Window</span>
+									Settings
 								</button>
-
-								{/* Open Project */}
 								<button
 									type="button"
-									className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-white/5"
-									onClick={() => void openWorkspaceDialog()}
+									className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
+									onClick={() => {
+										setIsSettingsMenuOpen(false);
+										void openConfig();
+									}}
 								>
-									<Folder className="h-4 w-4 text-text-dim" />
-									<span>Open Project</span>
+									Edit config.toml
 								</button>
-
-								{/* RECENT PROJECTS */}
-								{recentWorkspaces.filter((p) => p !== (activeThread?.cwd ?? workspaceRoot)).length > 0 ? (
-									<>
-										<div className="my-1.5 border-t border-white/10" />
-										<div className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-text-dim">
-											Recent Projects
-										</div>
-										<div>
-											{recentWorkspaces
-												.filter((p) => p !== (activeThread?.cwd ?? workspaceRoot))
-												.slice(0, 5)
-												.map((path) => (
-													<button
-														key={path}
-														type="button"
-														className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/5"
-														onClick={() => void applyWorkspaceRoot(path)}
-														title={path}
-													>
-														<Folder className="h-4 w-4 shrink-0 text-text-dim" />
-														<div className="min-w-0">
-															<div className="truncate text-sm font-medium text-text-main">
-																{repoNameFromPath(path)}
-															</div>
-															<div className="truncate text-[11px] text-text-muted">
-																{`~${path.replace(/^\/Users\/[^/]+/, '')}`}
-															</div>
-														</div>
-													</button>
-												))}
-										</div>
-									</>
-								) : null}
-
-								<div className="my-1.5 border-t border-white/10" />
-
-								{/* About */}
 								<button
 									type="button"
-									className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-white/5"
-									onClick={() => void showAbout()}
+									className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
+									onClick={() => {
+										setIsSettingsMenuOpen(false);
+										void createNewSession();
+									}}
 								>
-									<Info className="h-4 w-4 text-text-dim" />
-									<span>About AgentMesh</span>
-								</button>
-
-								{/* Check for Updates */}
-								<button
-									type="button"
-									className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-main hover:bg-white/5"
-									onClick={() => void showUpdates()}
-								>
-									<RotateCw className="h-4 w-4 text-text-dim" />
-									<span>Check for Updates...</span>
+									New session
 								</button>
 							</div>
 						</>
@@ -2706,158 +2828,52 @@ export function CodexChat() {
 
 			{/* 主内容区域 */}
 			<div className="flex min-h-0 min-w-0 flex-1">
-				<aside className="flex w-[72px] shrink-0 flex-col items-center gap-4 border-r border-white/10 bg-bg-panel/40 pt-6 pb-0.5">
-					<button
-						type="button"
-						className="flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/40 bg-primary/10 text-lg text-text-main"
-						title="Codex"
-					>
-						✷
-					</button>
-
-					<div className="mt-auto flex flex-col items-center gap-3">
+				<div
+					className="relative shrink-0"
+					style={{ width: SIDEBAR_WIDTH_PX }}
+				>
+					<aside className="flex h-full w-full flex-col items-center gap-4 border-r border-white/10 bg-bg-panel/40 pt-6 pb-0.5">
 						<button
 							type="button"
-							className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-bg-panelHover text-lg text-text-main hover:border-white/20"
-							onClick={() => void createNewSession()}
-							title="New session"
+							className="flex items-center justify-center rounded-lg border border-primary/40 bg-primary/10 text-text-main"
+							title="Codex"
+							style={{ width: sidebarIconButtonPx, height: sidebarIconButtonPx }}
 						>
-							<Plus className="h-6 w-6" />
+							<span style={{ fontSize: sidebarIconSizePx, lineHeight: 1 }}>✷</span>
 						</button>
-					</div>
-				</aside>
+
+						<div className="flex flex-col items-center gap-3">
+							<button
+								type="button"
+								className="flex items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
+								onClick={() => void createNewSession()}
+								title="New session"
+								style={{ width: sidebarIconButtonPx, height: sidebarIconButtonPx }}
+							>
+								<Plus size={sidebarIconSizePx} />
+							</button>
+						</div>
+					</aside>
+				</div>
 
 				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-8 pt-6 pb-0.5">
 					<div className="relative flex items-center justify-between gap-4">
 						<div className="min-w-0 flex-1">
-							<div className="flex items-start justify-between gap-3">
-								<div className="min-w-0">
-									{selectedThreadId && activeThread?.cwd && relatedRepoPaths.length < 3 ? (
-										<button
-											type="button"
-											className="mt-1 text-[11px] text-text-muted hover:text-text-main"
-											onClick={() => void addRelatedRepoDir()}
-										>
-											+ add dir
-										</button>
-									) : null}
-								</div>
-
-								{activeThread?.cwd && relatedRepoPaths.length > 0 ? (
-									<div className="flex flex-wrap justify-end gap-1.5">
-										{relatedRepoPaths.map((path) => (
-											<div
-												key={path}
-												className="group inline-flex items-center rounded-full border border-white/10 bg-bg-panelHover px-2 py-0.5 text-[11px] text-text-muted"
-												title={path}
-											>
-												<span className="max-w-[140px] truncate">{repoNameFromPath(path)}</span>
-												<button
-													type="button"
-													className="ml-1 rounded px-1 text-status-error opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto hover:bg-white/5"
-													onClick={() => removeRelatedRepoDir(path)}
-													aria-label={`Remove related repo ${repoNameFromPath(path)}`}
-												>
-													-
-												</button>
-											</div>
-										))}
-									</div>
-								) : null}
-							</div>
-
 							{workspaceRootError ? <div className="mt-2 text-xs text-status-warning">{workspaceRootError}</div> : null}
 						</div>
 
 						<div className="relative flex shrink-0 items-center">
-							<div className="inline-flex items-center rounded-xl border border-white/10 bg-bg-panel/40 p-1 backdrop-blur">
-								<button
-									type="button"
-									className="flex h-9 w-9 items-center justify-center rounded-lg text-sm text-text-main hover:bg-bg-panelHover"
-									onClick={() => {
-										setIsSettingsMenuOpen(false);
-										setIsSessionsOpen(true);
-									}}
-									title="Sessions"
-								>
-									<Menu className="h-5 w-5" />
-								</button>
-
-								<button
-									type="button"
-									className="flex h-9 w-9 items-center justify-center rounded-lg text-sm text-text-main hover:bg-bg-panelHover"
-									onClick={() => setIsSettingsMenuOpen((v) => !v)}
-									title="Menu"
-								>
-									<Settings2 className="h-5 w-5" />
-								</button>
-
-								<button
-									type="button"
-									className="flex h-9 w-9 items-center justify-center rounded-lg text-sm text-text-main hover:bg-bg-panelHover"
-									onClick={() => {
-										setIsSettingsMenuOpen(false);
-										void createNewSession();
-									}}
-									title="New session"
-								>
-									<Plus className="h-5 w-5" />
-								</button>
-							</div>
-
-							{isSettingsMenuOpen ? (
-								<>
-									<div
-										className="fixed inset-0 z-40"
-										onClick={() => setIsSettingsMenuOpen(false)}
-										role="button"
-										tabIndex={0}
-									/>
-									<div className="absolute right-0 top-[44px] z-50 w-[220px] rounded-2xl border border-white/10 bg-bg-panel/95 p-2 shadow-xl backdrop-blur">
-										<div className="px-3 py-2 text-[11px] uppercase tracking-wide text-text-dim">Menu</div>
-										<button
-											type="button"
-											className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
-											onClick={() => {
-												setIsSettingsMenuOpen(false);
-												void openWorkspaceDialog();
-											}}
-										>
-											Switch workspace…
-										</button>
-										<button
-											type="button"
-											className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
-											onClick={() => {
-												setIsSettingsMenuOpen(false);
-												setIsSettingsOpen(true);
-											}}
-										>
-											Settings
-										</button>
-										<button
-											type="button"
-											className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
-											onClick={() => {
-												setIsSettingsMenuOpen(false);
-												void openConfig();
-											}}
-										>
-											Edit config.toml
-										</button>
-										<button
-											type="button"
-											className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-bg-panelHover"
-											onClick={() => {
-												setIsSettingsMenuOpen(false);
-												void createNewSession();
-											}}
-										>
-											New session
-										</button>
-									</div>
-								</>
-							) : null}
+							<button
+								type="button"
+								className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#057812] text-white hover:bg-[#068414]"
+								onClick={() => {
+									setIsSettingsMenuOpen(false);
+									void createNewSession();
+								}}
+								title="New session"
+							>
+								<Plus className="h-5 w-5" />
+							</button>
 						</div>
 					</div>
 
