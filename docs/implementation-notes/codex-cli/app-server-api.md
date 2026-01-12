@@ -37,6 +37,10 @@ GUI 通过 Tauri 后端与 codex app-server 进程通信，使用 JSON-RPC 协�
 - **Tauri 命令**: `codex_thread_resume`
 - **前端 API**: `apiClient.codexThreadResume()`
 - **源码**: `lib.rs:878-886`
+- **备注（历史 Activity 恢复）**:
+  - Codex app-server 的 `thread/resume` 在某些版本/场景下可能只返回 `userMessage/agentMessage/reasoning`（即历史 `turn.items` 不含命令/文件变更/MCP/WebSearch）。
+  - 为了在 GUI 的 “Finished working” 展开后能稳定看到历史过程（command/fileChange/webSearch/mcp），AgentMesh 会在 Tauri 后端对 `thread/resume` 的返回做一次“补全”：读取 `thread.path` 指向的 rollout JSONL（位于 `~/.codex/sessions/.../rollout-*.jsonl`），按 `event_msg.user_message` 的 turn 边界重建 activity items，并注入到 `thread.turns[].items`。
+  - 目前补全的 block 类型：`commandExecution`（exec_command）、`fileChange`（apply_patch，整段 patch 作为 diff）、`mcpToolCall`（`server.tool`）、`webSearch`（web_search_call）。
 
 ### 4. turn/start
 - **描述**: 在会话中开始新的对话轮次

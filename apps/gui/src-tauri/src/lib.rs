@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod codex_app_server;
+mod codex_rollout_restore;
 
 use codex_app_server::CodexAppServer;
 use codex_app_server::CodexDiagnostics;
@@ -883,7 +884,8 @@ async fn codex_thread_resume(
 ) -> Result<serde_json::Value, String> {
     let codex = get_or_start_codex(&state, app).await?;
     let params = serde_json::json!({ "threadId": thread_id });
-    codex.request("thread/resume", Some(params)).await
+    let res = codex.request("thread/resume", Some(params)).await?;
+    codex_rollout_restore::augment_thread_resume_response(res, &thread_id).await
 }
 
 #[tauri::command]
@@ -1161,7 +1163,9 @@ fn codex_prompt_list() -> Result<PromptsListResponse, String> {
         .or_else(|| std::env::var_os("USERPROFILE"))
         .ok_or_else(|| "HOME directory not found".to_string())?;
 
-    let prompts_dir = std::path::PathBuf::from(home).join(".codex").join("prompts");
+    let prompts_dir = std::path::PathBuf::from(home)
+        .join(".codex")
+        .join("prompts");
 
     if !prompts_dir.exists() {
         return Ok(PromptsListResponse { prompts: vec![] });

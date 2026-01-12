@@ -9,6 +9,7 @@ import {
 	Check,
 	ChevronDown,
 	ChevronRight,
+	Copy,
 	Cpu,
 	File,
 	FilePlus,
@@ -38,6 +39,7 @@ import {
 	X,
 	Zap,
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../api/client';
 import type {
@@ -154,8 +156,404 @@ function persistCodexChatSettings(next: CodexChatSettings) {
 	}
 }
 
-function isCollapsibleEntry(entry: ChatEntry): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' }> {
-	return entry.kind === 'command' || entry.kind === 'fileChange';
+function markdownWithHardBreaks(text: string): string {
+	if (!text) return '';
+	const lines = text.split('\n');
+	let inFence = false;
+	const out: string[] = [];
+	for (const line of lines) {
+		const trimmed = line.trimStart();
+		if (trimmed.startsWith('```')) {
+			inFence = !inFence;
+			out.push(line);
+			continue;
+		}
+		// Mimic remark-breaks (single newline -> <br>) without pulling extra deps:
+		// add trailing "  " so markdown treats newline as a hard break.
+		out.push(inFence ? line : `${line}  `);
+	}
+	return out.join('\n');
+}
+
+function ChatMarkdown({
+	text,
+	className,
+	dense = false,
+}: {
+	text: string;
+	className?: string;
+	dense?: boolean;
+}) {
+	const normalized = useMemo(() => markdownWithHardBreaks(text), [text]);
+	const leadingClass = dense ? 'leading-normal' : 'leading-relaxed';
+	const paragraphClass = dense
+		? 'my-0.5 whitespace-pre-wrap break-words'
+		: 'my-1 whitespace-pre-wrap break-words';
+	const listClass = dense ? 'my-0.5' : 'my-1';
+	const preClass = dense ? 'my-1.5' : 'my-2';
+
+	return (
+		<div
+			className={[
+				'min-w-0',
+				// Align with VSCode plugin: remove first list top margin.
+				'[&>ol:first-child]:mt-0 [&>ul:first-child]:mt-0 [&>p:first-child]:mt-0',
+				`break-words ${leadingClass}`,
+				className ?? '',
+			].join(' ')}
+		>
+			<ReactMarkdown
+				components={{
+					p: ({ children }) => <p className={paragraphClass}>{children}</p>,
+					ul: ({ children }) => <ul className={`${listClass} list-disc pl-5`}>{children}</ul>,
+					ol: ({ children }) => <ol className={`${listClass} list-decimal pl-5`}>{children}</ol>,
+					li: ({ children }) => <li className="my-0.5">{children}</li>,
+					pre: ({ children }) => (
+						<pre
+							className={`${preClass} overflow-x-auto rounded-lg bg-black/30 px-3 py-2 text-[11px] leading-relaxed text-text-muted`}
+						>
+							{children}
+						</pre>
+					),
+					code: ({ className, children }) => {
+						const isBlock = typeof className === 'string' && className.includes('language-');
+						return !isBlock ? (
+							<code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[12px] text-text-main">
+								{children}
+							</code>
+						) : (
+							<code className="font-mono text-[11px] text-text-muted">{children}</code>
+						);
+					},
+					a: ({ href, children }) => (
+						<a
+							href={href}
+							className="text-blue-400 underline underline-offset-2 hover:text-blue-300"
+							target="_blank"
+							rel="noreferrer"
+						>
+							{children}
+						</a>
+					),
+				}}
+			>
+				{normalized}
+			</ReactMarkdown>
+		</div>
+	);
+}
+
+function isCollapsibleEntry(
+	entry: ChatEntry
+): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'webSearch' | 'mcp' }> {
+	return (
+		entry.kind === 'command' ||
+		entry.kind === 'fileChange' ||
+		entry.kind === 'webSearch' ||
+		entry.kind === 'mcp'
+	);
+}
+
+type AnsiTextStyle = {
+	fgClass?: string;
+	bgClass?: string;
+	bold?: boolean;
+	dim?: boolean;
+	underline?: boolean;
+};
+
+function ansiColorClass(code: number): string | undefined {
+	// Basic 16-color-ish mapping (focus on common git colors: red/green/yellow).
+	switch (code) {
+		// Normal
+		case 30:
+			return 'text-black';
+		case 31:
+			return 'text-red-400';
+		case 32:
+			return 'text-green-400';
+		case 33:
+			return 'text-yellow-400';
+		case 34:
+			return 'text-blue-400';
+		case 35:
+			return 'text-fuchsia-400';
+		case 36:
+			return 'text-cyan-400';
+		case 37:
+			return 'text-text-main';
+		// Bright
+		case 90:
+			return 'text-zinc-500';
+		case 91:
+			return 'text-red-400';
+		case 92:
+			return 'text-green-400';
+		case 93:
+			return 'text-yellow-400';
+		case 94:
+			return 'text-sky-400';
+		case 95:
+			return 'text-fuchsia-300';
+		case 96:
+			return 'text-cyan-300';
+		case 97:
+			return 'text-zinc-100';
+		default:
+			return undefined;
+	}
+}
+
+function ansiBgClass(code: number): string | undefined {
+	// Keep conservative: only a handful of backgrounds.
+	switch (code) {
+		case 40:
+			return 'bg-black';
+		case 41:
+			return 'bg-red-600/30';
+		case 42:
+			return 'bg-green-600/30';
+		case 43:
+			return 'bg-yellow-600/30';
+		case 44:
+			return 'bg-blue-600/30';
+		case 45:
+			return 'bg-fuchsia-600/30';
+		case 46:
+			return 'bg-cyan-600/30';
+		case 47:
+			return 'bg-white/10';
+		default:
+			return undefined;
+	}
+}
+
+function renderAnsiText(text: string): React.ReactNode {
+	// Parse SGR sequences like: \x1b[32m ... \x1b[0m
+	const parts: React.ReactNode[] = [];
+	const re = /\x1b\[([0-9;]*)m/g;
+	let lastIndex = 0;
+	let match: RegExpExecArray | null;
+	let style: AnsiTextStyle = {};
+	let segmentKey = 0;
+
+	const pushText = (chunk: string) => {
+		if (!chunk) return;
+		const classNames = [
+			style.fgClass,
+			style.bgClass,
+			style.bold ? 'font-semibold' : undefined,
+			style.dim ? 'opacity-70' : undefined,
+			style.underline ? 'underline' : undefined,
+		]
+			.filter(Boolean)
+			.join(' ');
+
+		if (!classNames) {
+			parts.push(chunk);
+			return;
+		}
+
+		parts.push(
+			<span key={`ansi-${segmentKey++}`} className={classNames}>
+				{chunk}
+			</span>
+		);
+	};
+
+	while ((match = re.exec(text)) !== null) {
+		const idx = match.index;
+		if (idx > lastIndex) pushText(text.slice(lastIndex, idx));
+
+		const codesRaw = match[1] ?? '';
+		const codes = codesRaw
+			.split(';')
+			.filter((c) => c.length > 0)
+			.map((c) => Number(c))
+			.filter((n) => Number.isFinite(n));
+
+		// Empty code list means reset in many terminals.
+		const effectiveCodes = codes.length === 0 ? [0] : codes;
+		for (const code of effectiveCodes) {
+			if (code === 0) {
+				style = {};
+				continue;
+			}
+			if (code === 1) {
+				style.bold = true;
+				continue;
+			}
+			if (code === 2) {
+				style.dim = true;
+				continue;
+			}
+			if (code === 4) {
+				style.underline = true;
+				continue;
+			}
+			if (code === 22) {
+				style.bold = false;
+				style.dim = false;
+				continue;
+			}
+			if (code === 24) {
+				style.underline = false;
+				continue;
+			}
+			if (code === 39) {
+				style.fgClass = undefined;
+				continue;
+			}
+			if (code === 49) {
+				style.bgClass = undefined;
+				continue;
+			}
+
+			if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) {
+				style.fgClass = ansiColorClass(code);
+				continue;
+			}
+			if (code >= 40 && code <= 47) {
+				style.bgClass = ansiBgClass(code);
+				continue;
+			}
+			if (code >= 100 && code <= 107) {
+				// Bright backgrounds - approximate
+				style.bgClass = 'bg-white/10';
+				continue;
+			}
+		}
+
+		lastIndex = re.lastIndex;
+	}
+
+	if (lastIndex < text.length) pushText(text.slice(lastIndex));
+	return parts.length === 1 ? parts[0] : parts;
+}
+
+// 通用 Activity Block 组件
+interface ActivityBlockProps {
+	/** 标题前缀，如 "Ran", "Edited" */
+	titlePrefix: string;
+	/** 标题主要内容 */
+	titleContent: string;
+	/** 标题是否使用等宽字体 */
+	titleMono?: boolean;
+	/** 状态文本 */
+	status?: string;
+	/** 复制内容 */
+	copyContent: string;
+	/** 是否可折叠 */
+	collapsible?: boolean;
+	/** 是否已折叠 */
+	collapsed?: boolean;
+	/** 切换折叠状态 */
+	onToggleCollapse?: () => void;
+	/** 内容区域 */
+	children?: React.ReactNode;
+	/** 审批信息 */
+	approval?: {
+		requestId: number;
+		reason?: string | null;
+	};
+	/** 审批回调 */
+	onApprove?: (requestId: number, decision: 'accept' | 'decline') => void;
+}
+
+function ActivityBlock({
+	titlePrefix,
+	titleContent,
+	titleMono = false,
+	status,
+	copyContent,
+	collapsible = false,
+	collapsed = true,
+	onToggleCollapse,
+	children,
+	approval,
+	onApprove,
+}: ActivityBlockProps) {
+	const contentNode =
+		typeof children === 'string' ? renderAnsiText(children) : children;
+	const showStatus = status && status !== 'completed';
+
+	return (
+		<div className="min-w-0">
+			{/* 标题栏 */}
+			<div
+				className={[
+					'group flex min-w-0 items-center justify-between gap-2 py-1',
+					collapsible && onToggleCollapse ? 'cursor-pointer' : '',
+				].join(' ')}
+				role={collapsible && onToggleCollapse ? 'button' : undefined}
+				tabIndex={collapsible && onToggleCollapse ? 0 : undefined}
+				onClick={() => {
+					if (collapsible && onToggleCollapse) onToggleCollapse();
+				}}
+				onKeyDown={(e) => {
+					if (!collapsible || !onToggleCollapse) return;
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						onToggleCollapse();
+					}
+				}}
+			>
+				<div className="min-w-0 flex-1 truncate text-xs text-text-main">
+					<span className="text-text-dim">{titlePrefix} </span>
+					<span className={titleMono ? 'font-mono' : ''}>{titleContent}</span>
+				</div>
+				<div className="flex shrink-0 items-center gap-1">
+					{showStatus ? <span className="text-[10px] text-text-muted">{status}</span> : null}
+					<button
+						type="button"
+						className="rounded p-1 text-text-muted opacity-0 transition-opacity hover:bg-white/10 hover:text-text-main group-hover:opacity-100"
+						title="复制内容"
+						onClick={(ev) => {
+							ev.stopPropagation();
+							void navigator.clipboard.writeText(copyContent);
+						}}
+					>
+						<Copy className="h-3.5 w-3.5" />
+					</button>
+				</div>
+			</div>
+			{/* 内容区域 */}
+			{children && (!collapsible || !collapsed) ? (
+				<div className="mt-1 pl-3">
+					<div className="max-h-[200px] overflow-auto pr-2">
+						<div className="min-w-max whitespace-pre font-mono text-[11px] text-text-muted">
+							{contentNode}
+						</div>
+					</div>
+				</div>
+			) : null}
+			{/* 审批区域 */}
+			{approval && onApprove ? (
+				<div className="mt-1 flex items-center justify-between gap-3 px-3 py-2">
+					<div className="min-w-0 text-xs text-text-muted">
+						Approval required
+						{approval.reason ? `: ${approval.reason}` : ''}.
+					</div>
+					<div className="flex shrink-0 gap-2">
+						<button
+							type="button"
+							className="rounded-md bg-status-success/20 px-3 py-1 text-xs font-semibold text-status-success"
+							onClick={() => onApprove(approval.requestId, 'accept')}
+						>
+							批准
+						</button>
+						<button
+							type="button"
+							className="rounded-md bg-status-error/15 px-3 py-1 text-xs font-semibold text-status-error"
+							onClick={() => onApprove(approval.requestId, 'decline')}
+						>
+							拒绝
+						</button>
+					</div>
+				</div>
+			) : null}
+		</div>
+	);
 }
 
 type ApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never';
@@ -341,6 +739,14 @@ function safeString(value: unknown): string {
 	return typeof value === 'string' ? value : '';
 }
 
+function countEntryKinds(entries: ChatEntry[]): Record<string, number> {
+	const counts: Record<string, number> = {};
+	for (const entry of entries) {
+		counts[entry.kind] = (counts[entry.kind] ?? 0) + 1;
+	}
+	return counts;
+}
+
 function isCodexTextInput(value: CodexUserInput): value is Extract<CodexUserInput, { type: 'text' }> {
 	return value.type === 'text' && typeof (value as { text?: unknown }).text === 'string';
 }
@@ -351,51 +757,75 @@ function extractUserText(item: Extract<CodexThreadItem, { type: 'userMessage' }>
 }
 
 function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
-	switch (item.type) {
-		case 'userMessage':
-			return { kind: 'user', id: item.id, text: extractUserText(item) };
-		case 'agentMessage':
+	const rawType = safeString((item as unknown as { type?: unknown })?.type);
+	// Backend payloads may use different naming conventions; normalize for compatibility.
+	const typeKey = rawType.replace(/[-_]/g, '').toLowerCase();
+
+	switch (typeKey) {
+		case 'usermessage': {
+			const it = item as Extract<CodexThreadItem, { type: 'userMessage' }>;
+			return { kind: 'user', id: it.id, text: extractUserText(it) };
+		}
+		case 'agentmessage': {
+			const it = item as Extract<CodexThreadItem, { type: 'agentMessage' }>;
 			return {
 				kind: 'assistant',
-				id: item.id,
+				id: it.id,
 				role: 'message',
-				text: item.text,
+				text: it.text,
 			};
-		case 'reasoning':
+		}
+		case 'reasoning': {
+			const it = item as Extract<CodexThreadItem, { type: 'reasoning' }>;
 			return {
 				kind: 'assistant',
-				id: item.id,
+				id: it.id,
 				role: 'reasoning',
-				text: [...(item.summary ?? []), ...(item.content ?? [])].filter(Boolean).join('\n'),
+				text: [...(it.summary ?? []), ...(it.content ?? [])].filter(Boolean).join('\n'),
 			};
-		case 'commandExecution':
+		}
+		case 'commandexecution': {
+			const it = item as Extract<CodexThreadItem, { type: 'commandExecution' }>;
 			return {
 				kind: 'command',
-				id: item.id,
-				command: item.command,
-				status: item.status,
-				cwd: item.cwd,
-				output: item.aggregatedOutput ?? null,
+				id: it.id,
+				command: it.command,
+				status: it.status,
+				cwd: it.cwd,
+				output: it.aggregatedOutput ?? null,
 			};
-		case 'fileChange':
+		}
+		case 'filechange': {
+			const it = item as Extract<CodexThreadItem, { type: 'fileChange' }>;
 			return {
 				kind: 'fileChange',
-				id: item.id,
-				status: item.status,
-				changes: item.changes.map((c) => ({ path: c.path, diff: c.diff })),
+				id: it.id,
+				status: it.status,
+				changes: it.changes.map((c) => ({ path: c.path, diff: c.diff })),
 			};
-		case 'webSearch':
-			return { kind: 'webSearch', id: item.id, query: item.query };
-		case 'mcpToolCall':
+		}
+		case 'websearch': {
+			const it = item as Extract<CodexThreadItem, { type: 'webSearch' }>;
+			return { kind: 'webSearch', id: it.id, query: it.query };
+		}
+		case 'mcptoolcall': {
+			const it = item as Extract<CodexThreadItem, { type: 'mcpToolCall' }>;
 			return {
 				kind: 'mcp',
-				id: item.id,
-				server: item.server,
-				tool: item.tool,
-				status: item.status,
+				id: it.id,
+				server: it.server,
+				tool: it.tool,
+				status: it.status,
+				message: it.error?.message ?? undefined,
 			};
-		default:
+		}
+		default: {
+			if (typeof window !== 'undefined' && rawType) {
+				// eslint-disable-next-line no-console
+				console.debug('[CodexChat] Unknown thread item type:', rawType, item);
+			}
 			return null;
+		}
 	}
 }
 
@@ -616,7 +1046,6 @@ export function CodexChat() {
 	} | null>(null);
 	const [turnOrder, setTurnOrder] = useState<string[]>([]);
 	const [turnsById, setTurnsById] = useState<Record<string, TurnBlock>>({});
-	const [collapsedActivityByTurnId, setCollapsedActivityByTurnId] = useState<Record<string, boolean>>({});
 	const [collapsedRepliesByTurnId, setCollapsedRepliesByTurnId] = useState<Record<string, boolean>>({});
 	const [_itemToTurnId, setItemToTurnId] = useState<Record<string, string>>({});
 	const [collapsedByEntryId, setCollapsedByEntryId] = useState<Record<string, boolean>>({});
@@ -656,6 +1085,7 @@ export function CodexChat() {
 	const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
 	const itemToTurnRef = useRef<Record<string, string>>({});
 	const relatedRepoPathsByThreadIdRef = useRef<Record<string, string[]>>({});
+	const skipAutoScrollRef = useRef(false);
 
 	// Context management state
 	const [autoContext, setAutoContext] = useState<AutoContextInfo | null>(null);
@@ -891,10 +1321,10 @@ export function CodexChat() {
 			setTurnOrder([]);
 			setTurnsById({});
 			setThreadTokenUsage(null);
-			setCollapsedActivityByTurnId({});
+			setCollapsedRepliesByTurnId({});
+			setCollapsedByEntryId({});
 			setItemToTurnId({});
 			itemToTurnRef.current = {};
-			setCollapsedByEntryId({});
 			setActiveThread(null);
 			setActiveTurnId(null);
 			setIsSessionsOpen(false);
@@ -919,25 +1349,29 @@ export function CodexChat() {
 							],
 						},
 					});
-					setCollapsedActivityByTurnId({ [turnId]: true });
 					return;
 				}
 
 				setActiveThread(thread);
+
 				const nextOrder: string[] = [];
 				const nextTurns: Record<string, TurnBlock> = {};
 				const nextEntryCollapse: Record<string, boolean> = {};
 				const nextItemToTurn: Record<string, string> = {};
-				const nextActivityCollapse: Record<string, boolean> = {};
+				const nextRepliesCollapsed: Record<string, boolean> = {};
+				const typeCounts: Record<string, number> = {};
 
 				for (const turn of thread.turns ?? []) {
 					const turnId = turn.id;
 					if (!turnId) continue;
 					nextOrder.push(turnId);
-					nextActivityCollapse[turnId] = true;
+					nextRepliesCollapsed[turnId] = true;
 
 					const turnEntries: ChatEntry[] = [];
 					for (const item of turn.items ?? []) {
+						const rawType = safeString((item as unknown as { type?: unknown })?.type);
+						if (rawType) typeCounts[rawType] = (typeCounts[rawType] ?? 0) + 1;
+
 						const entry = entryFromThreadItem(item);
 						if (!entry) continue;
 						turnEntries.push(entry);
@@ -955,13 +1389,18 @@ export function CodexChat() {
 				if (nextOrder.length === 0) {
 					const turnId = PENDING_TURN_ID;
 					nextOrder.push(turnId);
-					nextActivityCollapse[turnId] = true;
+					nextRepliesCollapsed[turnId] = true;
 					nextTurns[turnId] = { id: turnId, status: 'unknown', entries: [] };
+				}
+
+				if (import.meta.env.DEV) {
+					// eslint-disable-next-line no-console
+					console.info('[CodexChat] Resume thread item types:', typeCounts);
 				}
 
 				setTurnOrder(nextOrder);
 				setTurnsById(nextTurns);
-				setCollapsedActivityByTurnId(nextActivityCollapse);
+				setCollapsedRepliesByTurnId(nextRepliesCollapsed);
 				setCollapsedByEntryId(nextEntryCollapse);
 				setItemToTurnId(nextItemToTurn);
 				itemToTurnRef.current = nextItemToTurn;
@@ -982,7 +1421,6 @@ export function CodexChat() {
 						],
 					},
 				});
-				setCollapsedActivityByTurnId({ [turnId]: true });
 			}
 		},
 		[settings.defaultCollapseDetails]
@@ -992,7 +1430,7 @@ export function CodexChat() {
 		setTurnOrder([]);
 		setTurnsById({});
 		setThreadTokenUsage(null);
-		setCollapsedActivityByTurnId({});
+		setCollapsedRepliesByTurnId({});
 		setItemToTurnId({});
 		itemToTurnRef.current = {};
 		setCollapsedByEntryId({});
@@ -1022,11 +1460,10 @@ export function CodexChat() {
 							text: errorMessage(err, 'Failed to start thread'),
 						},
 					],
-				},
-			});
-			setCollapsedActivityByTurnId({ [turnId]: true });
-		}
-	}, [listSessions, selectedModel]);
+					},
+				});
+			}
+		}, [listSessions, selectedModel]);
 
 	const applyWorkspaceRoot = useCallback(
 		async (nextRoot: string) => {
@@ -1154,16 +1591,13 @@ export function CodexChat() {
 				id: `user-${crypto.randomUUID()}`,
 				text: trimmedInput,
 				attachments: attachments.length > 0 ? attachments : undefined,
-			};
+				};
 
-			setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]));
-			setCollapsedActivityByTurnId((prev) =>
-				Object.prototype.hasOwnProperty.call(prev, PENDING_TURN_ID) ? prev : { ...prev, [PENDING_TURN_ID]: true }
-			);
-			setTurnsById((prev) => {
-				const existing = prev[PENDING_TURN_ID] ?? {
-					id: PENDING_TURN_ID,
-					status: 'inProgress' as const,
+				setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]));
+				setTurnsById((prev) => {
+					const existing = prev[PENDING_TURN_ID] ?? {
+						id: PENDING_TURN_ID,
+						status: 'inProgress' as const,
 					entries: [],
 				};
 				return {
@@ -1185,15 +1619,12 @@ export function CodexChat() {
 				id: `system-send-${crypto.randomUUID()}`,
 				tone: 'error',
 				text: errorMessage(err, 'Failed to send'),
-			};
-			setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]));
-			setCollapsedActivityByTurnId((prev) =>
-				Object.prototype.hasOwnProperty.call(prev, PENDING_TURN_ID) ? prev : { ...prev, [PENDING_TURN_ID]: true }
-			);
-			setTurnsById((prev) => {
-				const existing = prev[PENDING_TURN_ID] ?? {
-					id: PENDING_TURN_ID,
-					status: 'failed' as const,
+				};
+				setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]));
+				setTurnsById((prev) => {
+					const existing = prev[PENDING_TURN_ID] ?? {
+						id: PENDING_TURN_ID,
+						status: 'failed' as const,
 					entries: [],
 				};
 				return {
@@ -1237,25 +1668,22 @@ export function CodexChat() {
 		[settings.defaultCollapseDetails]
 	);
 
-	const toggleTurnActivity = useCallback((turnId: string) => {
-		setCollapsedActivityByTurnId((prev) => ({
-			...prev,
-			[turnId]: !(prev[turnId] ?? true),
-		}));
-	}, []);
-
 	const toggleTurnReplies = useCallback((turnId: string) => {
+		skipAutoScrollRef.current = true;
 		setCollapsedRepliesByTurnId((prev) => {
 			const nextCollapsed = !(prev[turnId] ?? false);
-			if (nextCollapsed) {
-				setCollapsedActivityByTurnId((activityPrev) => ({
-					...activityPrev,
-					[turnId]: true,
-				}));
+			if (import.meta.env.DEV && !nextCollapsed) {
+				const turn = turnsById[turnId];
+				const counts = turn ? countEntryKinds(turn.entries) : {};
+				// eslint-disable-next-line no-console
+				console.info('[CodexChat] Expand turn:', {
+					turnId,
+					entryKinds: counts,
+				});
 			}
 			return { ...prev, [turnId]: nextCollapsed };
 		});
-	}, []);
+	}, [turnsById]);
 
 	// Context management callbacks
 	const addRelatedRepoDir = useCallback(async () => {
@@ -1612,7 +2040,6 @@ export function CodexChat() {
 				case 'clear':
 					setTurnOrder([]);
 					setTurnsById({});
-					setCollapsedActivityByTurnId({});
 					setCollapsedByEntryId({});
 					break;
 				case 'context':
@@ -1825,28 +2252,20 @@ export function CodexChat() {
 					return;
 				}
 
-				if (method === 'turn/started') {
-					const turnId = safeString(params?.turn?.id ?? params?.turnId);
-					if (!turnId) return;
+					if (method === 'turn/started') {
+						const turnId = safeString(params?.turn?.id ?? params?.turnId);
+						if (!turnId) return;
 
-					setActiveTurnId(turnId);
-					setTurnOrder((prev) => {
-						const withoutPending = prev.filter((id) => id !== PENDING_TURN_ID);
-						if (withoutPending.includes(turnId)) return withoutPending;
-						return [...withoutPending, turnId];
-					});
-					setCollapsedActivityByTurnId((prev) => {
-						const next: Record<string, boolean> = {
-							...prev,
-							[turnId]: prev[turnId] ?? true,
-						};
-						delete next[PENDING_TURN_ID];
-						return next;
-					});
-					setTurnsById((prev) => {
-						const pending = prev[PENDING_TURN_ID];
-						const existing = prev[turnId];
-						const mergedEntries = [...(pending?.entries ?? []), ...(existing?.entries ?? [])];
+						setActiveTurnId(turnId);
+						setTurnOrder((prev) => {
+							const withoutPending = prev.filter((id) => id !== PENDING_TURN_ID);
+							if (withoutPending.includes(turnId)) return withoutPending;
+							return [...withoutPending, turnId];
+						});
+						setTurnsById((prev) => {
+							const pending = prev[PENDING_TURN_ID];
+							const existing = prev[turnId];
+							const mergedEntries = [...(pending?.entries ?? []), ...(existing?.entries ?? [])];
 
 						const next: Record<string, TurnBlock> = {
 							...prev,
@@ -1893,10 +2312,7 @@ export function CodexChat() {
 					};
 					setItemToTurnId(itemToTurnRef.current);
 
-					setTurnOrder((prev) => (prev.includes(turnId) ? prev : [...prev, turnId]));
-					setCollapsedActivityByTurnId((prev) =>
-						Object.prototype.hasOwnProperty.call(prev, turnId) ? prev : { ...prev, [turnId]: true }
-					);
+						setTurnOrder((prev) => (prev.includes(turnId) ? prev : [...prev, turnId]));
 					setTurnsById((prev) => {
 						const existing = prev[turnId] ?? {
 							id: turnId,
@@ -2119,28 +2535,31 @@ export function CodexChat() {
 		});
 	}, [settings.showReasoning, turnBlocks]);
 
-	const renderCount = useMemo(() => {
-		return renderTurns.reduce((acc, t) => {
-			const repliesCollapsed = collapsedRepliesByTurnId[t.id] ?? false;
-			const activityCollapsed = collapsedActivityByTurnId[t.id] ?? true;
+		const renderCount = useMemo(() => {
+			return renderTurns.reduce((acc, t) => {
+				const repliesCollapsed = collapsedRepliesByTurnId[t.id] ?? false;
 
-			const visibleRepliesCount = repliesCollapsed
-				? t.replyEntries.filter((e) => e.kind === 'system').length + (t.finalAssistantMessageId ? 1 : 0)
-				: t.replyEntries.length;
-			const visibleActivityCount = !repliesCollapsed && !activityCollapsed ? t.activityEntries.length : 0;
+				const visibleRepliesCount = repliesCollapsed
+					? t.replyEntries.filter((e) => e.kind === 'system').length + (t.finalAssistantMessageId ? 1 : 0)
+					: t.replyEntries.length;
+				const visibleActivityCount = !repliesCollapsed ? t.activityEntries.length : 0;
 
-			return acc + t.userEntries.length + visibleRepliesCount + visibleActivityCount;
-		}, 0);
-	}, [collapsedActivityByTurnId, collapsedRepliesByTurnId, renderTurns]);
+				return acc + t.userEntries.length + visibleRepliesCount + visibleActivityCount;
+			}, 0);
+		}, [collapsedRepliesByTurnId, renderTurns]);
 
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
+		if (skipAutoScrollRef.current) {
+			skipAutoScrollRef.current = false;
+			return;
+		}
 		el.scrollTop = el.scrollHeight;
 	}, [renderCount]);
 
 	return (
-		<div className="flex h-full flex-col">
+		<div className="flex h-full min-w-0 flex-col overflow-x-hidden">
 			{/* 自定义标题栏 */}
 			<div
 				className="flex h-10 shrink-0 items-center border-b border-white/10 bg-bg-panel/60"
@@ -2286,7 +2705,7 @@ export function CodexChat() {
 			</div>
 
 			{/* 主内容区域 */}
-			<div className="flex min-h-0 flex-1">
+			<div className="flex min-h-0 min-w-0 flex-1">
 				<aside className="flex w-[72px] shrink-0 flex-col items-center gap-4 border-r border-white/10 bg-bg-panel/40 pt-6 pb-0.5">
 					<button
 						type="button"
@@ -2308,7 +2727,7 @@ export function CodexChat() {
 					</div>
 				</aside>
 
-				<div className="relative flex min-h-0 flex-1 flex-col px-8 pt-6 pb-0.5">
+				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-8 pt-6 pb-0.5">
 					<div className="relative flex items-center justify-between gap-4">
 						<div className="min-w-0 flex-1">
 							<div className="flex items-start justify-between gap-3">
@@ -2444,12 +2863,12 @@ export function CodexChat() {
 
 					<div
 						ref={scrollRef}
-						className="mt-4 min-h-0 flex-1 space-y-4 overflow-auto pb-4"
+						className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4"
 					>
 						{renderTurns.map((turn) => {
-							const activityCollapsed = collapsedActivityByTurnId[turn.id] ?? true;
 							const repliesCollapsed = collapsedRepliesByTurnId[turn.id] ?? false;
 							const hasActivity = turn.activityEntries.length > 0;
+							const showActivity = hasActivity && !repliesCollapsed;
 							const replyEntries = repliesCollapsed
 								? turn.replyEntries.filter((e) => {
 										if (e.kind === 'system') return true;
@@ -2468,7 +2887,7 @@ export function CodexChat() {
 												key={e.id}
 												className="flex justify-end"
 											>
-												<div className="max-w-[75%] rounded-xl bg-primary/15 px-3 py-2 text-sm text-text-main">
+												<div className="max-w-[77%] rounded-2xl bg-white/5 px-3 py-2 text-sm text-text-main">
 													{/* Attachments in message bubble */}
 													{e.attachments && e.attachments.length > 0 ? (
 														<div className="mb-2 flex flex-wrap gap-1">
@@ -2498,7 +2917,11 @@ export function CodexChat() {
 															))}
 														</div>
 													) : null}
-													<div className="whitespace-pre-wrap break-words">{e.text}</div>
+													<ChatMarkdown
+														text={e.text}
+														className="text-text-main"
+														dense
+													/>
 												</div>
 											</div>
 										))}
@@ -2518,23 +2941,106 @@ export function CodexChat() {
 												{repliesCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
 											</span>
 										</button>
-										{hasActivity && !repliesCollapsed ? (
-											<button
-												type="button"
-												className="shrink-0 rounded-full border border-white/10 bg-bg-panelHover px-2 py-0.5 text-[10px] hover:border-white/20"
-												onClick={() => toggleTurnActivity(turn.id)}
-											>
-												<span className="inline-flex items-center gap-1">
-													<span>Activity ({turn.activityEntries.length})</span>
-													{activityCollapsed ? (
-														<ChevronRight className="h-3 w-3" />
-													) : (
-														<ChevronDown className="h-3 w-3" />
-													)}
-												</span>
-											</button>
-										) : null}
 									</div>
+
+									{showActivity ? (
+										<div className="space-y-2">
+											{turn.activityEntries.map((e) => {
+												if (e.kind === 'command') {
+													const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+													// 构建完整内容用于复制
+													const displayContent = [
+														`$ ${e.command}`,
+														e.cwd ? `cwd: ${e.cwd}` : '',
+														e.output ?? '',
+													]
+														.filter(Boolean)
+														.join('\n');
+													return (
+														<ActivityBlock
+															key={e.id}
+															titlePrefix="Ran"
+															titleContent={e.command}
+															titleMono
+															status={e.status}
+															copyContent={displayContent.replace(/\x1b\[[0-9;]*m/g, '')}
+															collapsible
+															collapsed={collapsed}
+															onToggleCollapse={() => toggleEntryCollapse(e.id)}
+															approval={e.approval}
+															onApprove={approve}
+														>
+															{displayContent}
+														</ActivityBlock>
+													);
+												}
+
+												if (e.kind === 'fileChange') {
+													const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+													// 构建完整内容用于复制
+													const fullContent = e.changes
+														.map((c) => `${c.path}\n${c.diff ?? ''}`)
+														.join('\n\n');
+													return (
+														<ActivityBlock
+															key={e.id}
+															titlePrefix="Edited"
+															titleContent={e.changes.map((c) => c.path).join(', ')}
+															status={e.status}
+															copyContent={fullContent}
+															collapsible
+															collapsed={collapsed}
+															onToggleCollapse={() => toggleEntryCollapse(e.id)}
+															approval={e.approval}
+															onApprove={approve}
+														>
+															{fullContent}
+														</ActivityBlock>
+													);
+												}
+
+												if (e.kind === 'webSearch') {
+													const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+													return (
+														<ActivityBlock
+															key={e.id}
+															titlePrefix="Web search"
+															titleContent={e.query}
+															copyContent={e.query}
+															collapsible
+															collapsed={collapsed}
+															onToggleCollapse={() => toggleEntryCollapse(e.id)}
+														>
+															{e.query}
+														</ActivityBlock>
+													);
+												}
+
+												if (e.kind === 'mcp') {
+													const toolCall = `${e.server}.${e.tool}`;
+													const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+													const content = e.message ? `${toolCall}\n${e.message}` : toolCall;
+													return (
+														<ActivityBlock
+															key={e.id}
+															titlePrefix="MCP"
+															titleContent={toolCall}
+															titleMono
+															status={e.status}
+															copyContent={content}
+															collapsible
+															collapsed={collapsed}
+															onToggleCollapse={() => toggleEntryCollapse(e.id)}
+														>
+															{content}
+														</ActivityBlock>
+													);
+												}
+
+												return null;
+											})}
+										</div>
+									) : null}
 
 									<div className="space-y-2">
 										{replyEntries.map((e) => {
@@ -2544,15 +3050,19 @@ export function CodexChat() {
 													<div
 														key={e.id}
 														className={[
-															'rounded-lg border border-white/10 px-3 py-2',
+															'px-1 py-1',
 															isReasoning
-																? 'bg-black/20 text-text-muted'
-																: 'bg-bg-panel/60 text-text-main backdrop-blur',
+																? 'text-text-muted'
+																: 'text-text-muted',
 														].join(' ')}
 													>
 														{isReasoning ? <div className="mb-1 text-[10px] text-text-dim">Reasoning</div> : null}
 														{e.streaming ? <div className="mb-1 text-[10px] text-text-dim">Streaming…</div> : null}
-														<div className="whitespace-pre-wrap break-words text-sm">{e.text}</div>
+														<ChatMarkdown
+															text={e.text}
+															className={isReasoning ? 'text-text-dim' : 'text-text-muted'}
+															dense
+														/>
 													</div>
 												);
 											}
@@ -2579,173 +3089,6 @@ export function CodexChat() {
 											return null;
 										})}
 									</div>
-
-									{!repliesCollapsed && !activityCollapsed && hasActivity ? (
-										<div className="space-y-2">
-											{turn.activityEntries.map((e) => {
-												if (e.kind === 'command') {
-													const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-													return (
-														<div
-															key={e.id}
-															className="rounded-lg border border-white/10 bg-bg-panel/70 p-3 backdrop-blur"
-														>
-															<div className="flex items-start justify-between gap-2">
-																<div className="min-w-0">
-																	<div className="truncate text-xs text-text-dim">Run</div>
-																	<div className="mt-1 font-mono text-xs text-text-main">{e.command}</div>
-																	{e.cwd ? <div className="mt-1 text-[11px] text-text-dim">cwd: {e.cwd}</div> : null}
-																</div>
-																<div className="flex shrink-0 items-center gap-2">
-																	<div className="text-xs text-text-muted">{e.status}</div>
-																	<button
-																		type="button"
-																		className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-[11px] hover:border-white/20"
-																		onClick={() => toggleEntryCollapse(e.id)}
-																	>
-																		{collapsed ? 'Expand' : 'Collapse'}
-																	</button>
-																</div>
-															</div>
-															{e.approval ? (
-																<div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-																	<div className="min-w-0 text-xs text-text-muted">
-																		Approval required
-																		{e.approval.reason ? `: ${e.approval.reason}` : ''}.
-																	</div>
-																	<div className="flex shrink-0 gap-2">
-																		<button
-																			type="button"
-																			className="rounded-md bg-status-success/20 px-3 py-1 text-xs font-semibold text-status-success"
-																			onClick={() => void approve(e.approval!.requestId, 'accept')}
-																		>
-																			批准
-																		</button>
-																		<button
-																			type="button"
-																			className="rounded-md bg-status-error/15 px-3 py-1 text-xs font-semibold text-status-error"
-																			onClick={() => void approve(e.approval!.requestId, 'decline')}
-																		>
-																			拒绝
-																		</button>
-																	</div>
-																</div>
-															) : null}
-															{!collapsed && e.output ? (
-																<pre className="mt-3 max-h-[220px] overflow-auto rounded-lg bg-black/20 p-3 text-[11px] text-text-muted">
-																	{e.output}
-																</pre>
-															) : null}
-														</div>
-													);
-												}
-
-												if (e.kind === 'fileChange') {
-													const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-													return (
-														<div
-															key={e.id}
-															className="rounded-lg border border-white/10 bg-bg-panel/70 p-3 backdrop-blur"
-														>
-															<div className="flex items-start justify-between gap-2">
-																<div className="min-w-0">
-																	<div className="text-xs text-text-dim">Edited</div>
-																	<div className="mt-0.5 text-xs text-text-muted">
-																		{e.changes.map((c) => c.path).join(', ')}
-																	</div>
-																</div>
-																<div className="flex shrink-0 items-center gap-1.5">
-																	<div className="text-[10px] text-text-muted">{e.status}</div>
-																	<button
-																		type="button"
-																		className="rounded border border-white/10 bg-bg-panelHover px-1.5 py-0.5 text-[10px] hover:border-white/20"
-																		onClick={() => toggleEntryCollapse(e.id)}
-																	>
-																		{collapsed ? 'Expand' : 'Collapse'}
-																	</button>
-																</div>
-															</div>
-															{!collapsed ? (
-																<div className="mt-2 space-y-1.5">
-																	{e.changes.map((c, idx) => (
-																		<div
-																			key={`${e.id}-${idx}`}
-																			className="rounded border border-white/10 bg-black/20 p-2"
-																		>
-																			<div className="truncate text-xs font-semibold">{c.path}</div>
-																			{c.diff ? (
-																				<pre className="mt-1.5 max-h-[180px] overflow-auto text-[10px] text-text-muted">
-																					{c.diff}
-																				</pre>
-																			) : null}
-																		</div>
-																	))}
-																</div>
-															) : null}
-															{e.approval ? (
-																<div className="mt-2 flex items-center justify-between gap-2 rounded border border-white/10 bg-black/20 px-2 py-1.5">
-																	<div className="min-w-0 text-[10px] text-text-muted">
-																		Approval required
-																		{e.approval.reason ? `: ${e.approval.reason}` : ''}.
-																	</div>
-																	<div className="flex shrink-0 gap-1.5">
-																		<button
-																			type="button"
-																			className="rounded bg-status-success/20 px-2 py-0.5 text-[10px] font-semibold text-status-success"
-																			onClick={() => void approve(e.approval!.requestId, 'accept')}
-																		>
-																			批准
-																		</button>
-																		<button
-																			type="button"
-																			className="rounded bg-status-error/15 px-2 py-0.5 text-[10px] font-semibold text-status-error"
-																			onClick={() => void approve(e.approval!.requestId, 'decline')}
-																		>
-																			拒绝
-																		</button>
-																	</div>
-																</div>
-															) : null}
-														</div>
-													);
-												}
-
-												if (e.kind === 'webSearch') {
-													return (
-														<div
-															key={e.id}
-															className="rounded-lg border border-white/10 bg-bg-panel/70 p-2 backdrop-blur"
-														>
-															<div className="text-[10px] text-text-dim">Web search</div>
-															<div className="mt-1 text-xs text-text-main">{e.query}</div>
-														</div>
-													);
-												}
-
-												if (e.kind === 'mcp') {
-													return (
-														<div
-															key={e.id}
-															className="rounded-lg border border-white/10 bg-bg-panel/70 p-2 backdrop-blur"
-														>
-															<div className="flex items-center justify-between gap-2">
-																<div className="text-[10px] text-text-dim">MCP tool call</div>
-																<div className="text-[10px] text-text-muted">{e.status}</div>
-															</div>
-															<div className="mt-1 text-xs text-text-main">
-																<span className="font-mono text-[10px]">
-																	{e.server}.{e.tool}
-																</span>
-															</div>
-															{e.message ? <div className="mt-1 text-[10px] text-text-muted">{e.message}</div> : null}
-														</div>
-													);
-												}
-
-												return null;
-											})}
-										</div>
-									) : null}
 								</div>
 							);
 						})}
