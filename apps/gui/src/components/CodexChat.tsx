@@ -2498,7 +2498,7 @@ export function CodexChat() {
 															))}
 														</div>
 													) : null}
-													<div className="whitespace-pre-wrap">{e.text}</div>
+													<div className="whitespace-pre-wrap break-words">{e.text}</div>
 												</div>
 											</div>
 										))}
@@ -2552,7 +2552,7 @@ export function CodexChat() {
 													>
 														{isReasoning ? <div className="mb-1 text-[10px] text-text-dim">Reasoning</div> : null}
 														{e.streaming ? <div className="mb-1 text-[10px] text-text-dim">Streaming…</div> : null}
-														<div className="whitespace-pre-wrap text-sm">{e.text}</div>
+														<div className="whitespace-pre-wrap break-words text-sm">{e.text}</div>
 													</div>
 												);
 											}
@@ -2571,7 +2571,7 @@ export function CodexChat() {
 														key={e.id}
 														className={`rounded-lg border px-3 py-2 text-xs ${color}`}
 													>
-														{e.text}
+														<div className="whitespace-pre-wrap break-words">{e.text}</div>
 													</div>
 												);
 											}
