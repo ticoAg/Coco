@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agentmesh-app"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "agentmesh-core",
  "agentmesh-orchestrator",
@@ -26,7 +26,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-cli"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "agentmesh-core",
  "agentmesh-orchestrator",
@@ -38,7 +38,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-codex"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "agentmesh-core",
  "serde",
@@ -49,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "serde",
@@ -61,7 +61,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-orchestrator"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "agentmesh-core",
  "chrono",
