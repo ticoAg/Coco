@@ -12,7 +12,12 @@
 
 - Rust：`fmt-check / check / clippy / test`（CI 上会排除 Tauri app crate `agentmesh-app`，避免 Linux runner 的系统依赖问题）
 - GUI 前端：`npm ci && npm run build`
-- macOS：跑一次 `tauri build` 生成 `.app`（不签名），用于尽早发现打包链路问题
+- macOS：跑一次 `tauri build` 生成 `.app`（不签名），用于尽早发现打包链路问题（CI 不会保存产物）
+
+触发条件：
+
+- CI：`push` 到 `main` 或任意 `pull_request`
+- Release：`push` 形如 `vX.Y.Z` 的 tag 或手动触发（`workflow_dispatch`）
 
 ## 本地预检（推荐）
 

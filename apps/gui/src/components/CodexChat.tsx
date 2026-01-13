@@ -1938,12 +1938,44 @@ function highlightMatches(text: string, indices: number[]): React.ReactNode {
 	return result;
 }
 
+function SessionRunningIndicator({ className }: { className?: string }) {
+	return (
+		<svg
+			className={['h-3 w-3 animate-spin', className].filter(Boolean).join(' ')}
+			viewBox="0 0 32 32"
+			aria-label="Running"
+		>
+			<circle
+				cx="16"
+				cy="16"
+				r="14"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				className="text-white/20"
+			/>
+			<circle
+				cx="16"
+				cy="16"
+				r="14"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeDasharray="22 66"
+				strokeLinecap="round"
+				className="text-status-info/70"
+			/>
+		</svg>
+	);
+}
+
 export function CodexChat() {
 	const [settings, setSettings] = useState<CodexChatSettings>(() => loadCodexChatSettings());
 	const [sessions, setSessions] = useState<CodexThreadSummary[]>([]);
 	const [sessionsLoading, setSessionsLoading] = useState(true);
 	const [sessionsError, setSessionsError] = useState<string | null>(null);
 	const [isSessionsOpen, setIsSessionsOpen] = useState(false);
+	const [runningThreadIds, setRunningThreadIds] = useState<Record<string, boolean>>({});
 
 	const [models, setModels] = useState<CodexModelInfo[]>([]);
 	const [modelsError, setModelsError] = useState<string | null>(null);
@@ -2079,6 +2111,34 @@ export function CodexChat() {
 		} catch {
 			setRecentWorkspaces([]);
 		}
+	}, []);
+
+	const seedRunningThreads = useCallback(async () => {
+		try {
+			const res = await apiClient.codexThreadLoadedList(null, 200);
+			setRunningThreadIds((prev) => {
+				const next = { ...prev };
+				for (const threadId of res.data ?? []) {
+					next[threadId] = true;
+				}
+				return next;
+			});
+		} catch {
+			// Ignore seed failures; running state still updates from notifications.
+		}
+	}, []);
+
+	const setThreadRunning = useCallback((threadId: string, running: boolean) => {
+		setRunningThreadIds((prev) => {
+			if (running) {
+				if (prev[threadId]) return prev;
+				return { ...prev, [threadId]: true };
+			}
+			if (!prev[threadId]) return prev;
+			const next = { ...prev };
+			delete next[threadId];
+			return next;
+		});
 	}, []);
 
 	const listSessions = useCallback(async () => {
@@ -3160,12 +3220,21 @@ export function CodexChat() {
 
 	useEffect(() => {
 		listSessions();
+		void seedRunningThreads();
 		loadModelsAndChatDefaults();
 		void loadWorkspaceRoot();
 		void loadRecentWorkspaces();
 		void loadSkills();
 		void loadPrompts();
-	}, [listSessions, loadModelsAndChatDefaults, loadWorkspaceRoot, loadRecentWorkspaces, loadSkills, loadPrompts]);
+	}, [
+		listSessions,
+		seedRunningThreads,
+		loadModelsAndChatDefaults,
+		loadWorkspaceRoot,
+		loadRecentWorkspaces,
+		loadSkills,
+		loadPrompts,
+	]);
 
 	useEffect(() => {
 		let mounted = true;
@@ -3184,6 +3253,12 @@ export function CodexChat() {
 			if (payload.kind === 'notification') {
 				const params = message?.params ?? null;
 				const threadId = safeString(params?.threadId ?? params?.thread_id);
+				if (method === 'turn/started' && threadId) {
+					setThreadRunning(threadId, true);
+				}
+				if (method === 'turn/completed' && threadId) {
+					setThreadRunning(threadId, false);
+				}
 				if (selectedThreadId && threadId && threadId !== selectedThreadId) return;
 
 				if (method === 'thread/tokenUsage/updated') {
@@ -3440,7 +3515,7 @@ export function CodexChat() {
 					// ignore
 				});
 		};
-	}, [activeTurnId, selectedThreadId, settings.defaultCollapseDetails]);
+	}, [activeTurnId, selectedThreadId, setThreadRunning, settings.defaultCollapseDetails]);
 
 	const selectedModelInfo = useMemo(() => {
 		if (!selectedModel) return null;
@@ -5228,13 +5303,14 @@ export function CodexChat() {
 									) : sessions.length === 0 ? (
 										<div className="p-3 text-sm text-text-muted">No sessions yet.</div>
 									) : (
-										<div className="space-y-2">
-											{sessions.map((s) => {
-												const isSelected = s.id === selectedThreadId;
-												return (
-													<button
-														key={s.id}
-														type="button"
+											<div className="space-y-2">
+												{sessions.map((s) => {
+													const isSelected = s.id === selectedThreadId;
+													const isRunning = Boolean(runningThreadIds[s.id]);
+													return (
+														<button
+															key={s.id}
+															type="button"
 														className={[
 															'w-full rounded-xl border px-3 py-2 text-left transition',
 															isSelected
@@ -5245,13 +5321,16 @@ export function CodexChat() {
 													>
 														<div className="truncate text-sm font-semibold">{s.preview || '—'}</div>
 
-														<div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-text-dim">
-															<span className="truncate">{s.modelProvider}</span>
-															<span className="shrink-0">{formatSessionUpdatedAtMs(s)}</span>
-														</div>
-													</button>
-												);
-											})}
+															<div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-text-dim">
+																<span className="truncate">{s.modelProvider}</span>
+																<span className="flex shrink-0 items-center gap-1.5">
+																	{isRunning ? <SessionRunningIndicator /> : null}
+																	<span>{formatSessionUpdatedAtMs(s)}</span>
+																</span>
+															</div>
+														</button>
+													);
+												})}
 										</div>
 									)}
 								</div>

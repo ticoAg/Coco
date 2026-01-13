@@ -62,6 +62,13 @@ struct CodexThreadListResponse {
     next_cursor: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexThreadLoadedListResponse {
+    data: Vec<String>,
+    next_cursor: Option<String>,
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -82,6 +89,7 @@ pub fn run() {
             workspace_recent_list,
             window_new,
             codex_thread_list,
+            codex_thread_loaded_list,
             codex_thread_start,
             codex_thread_resume,
             codex_turn_start,
@@ -872,6 +880,42 @@ async fn codex_thread_list(
 
     Ok(CodexThreadListResponse {
         data: threads,
+        next_cursor,
+    })
+}
+
+#[tauri::command]
+async fn codex_thread_loaded_list(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    cursor: Option<String>,
+    limit: Option<u32>,
+) -> Result<CodexThreadLoadedListResponse, String> {
+    let codex = get_or_start_codex(&state, app).await?;
+    let params = serde_json::json!({
+        "cursor": cursor,
+        "limit": limit,
+    });
+
+    let result = codex.request("thread/loaded/list", Some(params)).await?;
+    let data = result
+        .get("data")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "invalid thread/loaded/list response: data".to_string())?;
+    let next_cursor = result
+        .get("nextCursor")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+
+    let mut thread_ids = Vec::with_capacity(data.len());
+    for entry in data {
+        if let Some(thread_id) = entry.as_str() {
+            thread_ids.push(thread_id.to_string());
+        }
+    }
+
+    Ok(CodexThreadLoadedListResponse {
+        data: thread_ids,
         next_cursor,
     })
 }

@@ -23,6 +23,11 @@ export interface CodexThreadListResponse {
   nextCursor: string | null;
 }
 
+export interface CodexThreadLoadedListResponse {
+  data: string[];
+  nextCursor: string | null;
+}
+
 export type ReasoningEffort =
   | "none"
   | "minimal"

@@ -14,6 +14,7 @@ import type {
 import type {
   AutoContextInfo,
   CodexModelListResponse,
+  CodexThreadLoadedListResponse,
   CodexThreadListResponse,
   CodexUserInput,
   FileInfo,
@@ -119,6 +120,16 @@ export async function codexThreadList(
   limit?: number | null,
 ): Promise<CodexThreadListResponse> {
   return invoke<CodexThreadListResponse>("codex_thread_list", {
+    cursor: cursor ?? null,
+    limit: limit ?? null,
+  });
+}
+
+export async function codexThreadLoadedList(
+  cursor?: string | null,
+  limit?: number | null,
+): Promise<CodexThreadLoadedListResponse> {
+  return invoke<CodexThreadLoadedListResponse>("codex_thread_loaded_list", {
     cursor: cursor ?? null,
     limit: limit ?? null,
   });
@@ -303,6 +314,7 @@ export const apiClient = {
   codexDiagnostics,
   codexSkillList,
   codexPromptList,
+  codexThreadLoadedList,
   workspaceRootGet,
   workspaceRootSet,
   workspaceRecentList,
