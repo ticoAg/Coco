@@ -1231,6 +1231,7 @@ interface ActivityBlockProps {
 		icon,
 	}: ActivityBlockProps) {
 		const [summaryHover, setSummaryHover] = useState(false);
+		const [didCopy, setDidCopy] = useState(false);
 		const isStringChild = typeof children === 'string';
 		const effectiveVariant: ActivityContentVariant = contentVariant;
 		const useMono = contentMono ?? effectiveVariant === 'ansi';
@@ -1269,9 +1270,15 @@ interface ActivityBlockProps {
 					role={collapsible && onToggleCollapse ? 'button' : undefined}
 					tabIndex={collapsible && onToggleCollapse ? 0 : undefined}
 					onMouseEnter={() => setSummaryHover(true)}
-					onMouseLeave={() => setSummaryHover(false)}
+					onMouseLeave={() => {
+						setSummaryHover(false);
+						setDidCopy(false);
+					}}
 					onFocus={() => setSummaryHover(true)}
-					onBlur={() => setSummaryHover(false)}
+					onBlur={() => {
+						setSummaryHover(false);
+						setDidCopy(false);
+					}}
 					onClick={() => {
 						if (collapsible && onToggleCollapse) onToggleCollapse();
 					}}
@@ -1302,17 +1309,28 @@ interface ActivityBlockProps {
 					onClick={(ev) => {
 							ev.stopPropagation();
 							void navigator.clipboard.writeText(copyContent);
+							setDidCopy(true);
 						}}
 					>
-						<Copy className="h-3.5 w-3.5" />
+						{didCopy ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
 					</button>
-					{collapsible ? (
-						<ChevronRight
-							className={[
-								'h-4 w-4 text-text-menuDesc transition-transform duration-200',
-								open ? 'rotate-90' : '',
-							].join(' ')}
-						/>
+					{collapsible && onToggleCollapse ? (
+						<button
+							type="button"
+							className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
+							title={open ? 'Collapse' : 'Expand'}
+							onClick={(ev) => {
+								ev.stopPropagation();
+								onToggleCollapse();
+							}}
+						>
+							<ChevronRight
+								className={[
+									'h-4 w-4 transition-transform duration-200',
+									open ? 'rotate-90' : '',
+								].join(' ')}
+							/>
+						</button>
 					) : null}
 				</div>
 			</div>

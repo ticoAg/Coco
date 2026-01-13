@@ -47,7 +47,7 @@
 ### 2.2 Accordion 动画（framer-motion）
 
 - 通用折叠组件：`apps/gui/src/components/ui/Collapse.tsx`
-- 动画常量：`ACCORDION_TRANSITION`
+- 动画常量：`ACCORDION_TRANSITION`（本项目已调成“几乎无动画”的更快参数）
   - `duration: 0.3`
   - `ease: [0.19, 1, 0.22, 1]`
 

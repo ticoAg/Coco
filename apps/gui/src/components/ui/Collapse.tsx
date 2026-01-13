@@ -2,8 +2,8 @@ import React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 export const ACCORDION_TRANSITION = {
-	duration: 0.3,
-	ease: [0.19, 1, 0.22, 1] as const,
+	duration: 0.08,
+	ease: [0.2, 0, 0, 1] as const,
 };
 
 export function Collapse(props: {
