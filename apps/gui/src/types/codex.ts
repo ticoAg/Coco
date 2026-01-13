@@ -57,6 +57,44 @@ export type CodexUserInput =
   | { type: "localImage"; path: string }
   | { type: "skill"; name: string; path: string };
 
+export type CommandAction =
+  | { type: "read"; command: string; name: string; path: string }
+  | { type: "listFiles"; command: string; path?: string | null }
+  | { type: "search"; command: string; query?: string | null; path?: string | null }
+  | { type: "unknown"; command: string };
+
+export type McpContentBlock =
+  | { type: "text"; text: string; annotations?: unknown }
+  | { type: "image"; data: string; mimeType: string; annotations?: unknown }
+  | { type: "audio"; data: string; mimeType: string; annotations?: unknown }
+  | {
+      type: "resource_link";
+      uri: string;
+      name: string;
+      title?: string | null;
+      description?: string | null;
+      mimeType?: string | null;
+      size?: number | null;
+      annotations?: unknown;
+    }
+  | {
+      type: "resource" | "embedded_resource";
+      resource: {
+        uri: string;
+        mimeType?: string | null;
+        text?: string;
+        blob?: string;
+      };
+      annotations?: unknown;
+    };
+
+export type McpToolCallResult = {
+  content: McpContentBlock[];
+  structuredContent?: unknown | null;
+};
+
+export type McpToolCallError = { message: string };
+
 export type CodexThreadItem =
   | { type: "userMessage"; id: string; content: CodexUserInput[] }
   | { type: "agentMessage"; id: string; text: string }
@@ -75,7 +113,7 @@ export type CodexThreadItem =
       cwd: string;
       processId: string | null;
       status: "inProgress" | "completed" | "failed" | "declined";
-      commandActions: unknown[];
+      commandActions: CommandAction[];
       aggregatedOutput: string | null;
       exitCode: number | null;
       durationMs: number | null;
@@ -93,8 +131,8 @@ export type CodexThreadItem =
       tool: string;
       status: "inProgress" | "completed" | "failed";
       arguments: unknown;
-      result?: { content: unknown[]; structuredContent?: unknown } | null;
-      error?: { message: string } | null;
+      result?: McpToolCallResult | null;
+      error?: McpToolCallError | null;
       durationMs: number | null;
     }
   | { type: "webSearch"; id: string; query: string }

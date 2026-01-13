@@ -56,6 +56,25 @@ fn parse_json_string(s: &str) -> Option<Value> {
     serde_json::from_str::<Value>(s).ok()
 }
 
+fn extract_text_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.to_string()),
+        Value::Object(map) => map
+            .get("text")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        _ => None,
+    }
+}
+
+fn extract_text_list(value: Option<&Value>) -> Vec<String> {
+    match value {
+        Some(Value::Array(items)) => items.iter().filter_map(extract_text_value).collect(),
+        Some(other) => extract_text_value(other).map(|v| vec![v]).unwrap_or_default(),
+        None => Vec::new(),
+    }
+}
+
 fn parse_exec_command_from_args(arguments: &str) -> (String, Option<String>) {
     let parsed = parse_json_string(arguments);
     let cmd = parsed
@@ -244,6 +263,31 @@ async fn parse_rollout_activity_by_turn(
         let turn_index = turn_index.min(per_turn.len().saturating_sub(1));
 
         match item_type {
+            "reasoning" => {
+                let summary = extract_text_list(payload.get("summary"));
+                let content = extract_text_list(payload.get("content"));
+                if summary.is_empty() && content.is_empty() {
+                    continue;
+                }
+                let id = payload
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| {
+                        format!(
+                            "reasoning-{}-{}",
+                            turn_index,
+                            per_turn[turn_index].len() + 1
+                        )
+                    });
+                let item = serde_json::json!({
+                    "type": "reasoning",
+                    "id": id,
+                    "summary": summary,
+                    "content": content,
+                });
+                per_turn[turn_index].push(item);
+            }
             "function_call" => {
                 let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let arguments = payload

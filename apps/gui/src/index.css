@@ -97,6 +97,7 @@
   .am-scroll-fade {
     -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 12px, black calc(100% - 12px), transparent 100%);
     mask-image: linear-gradient(to bottom, transparent 0, black 12px, black calc(100% - 12px), transparent 100%);
+    color: rgb(var(--am-text-muted));
   }
 
   /* Compact timeline rows (Codex VSCode plugin-like density) */

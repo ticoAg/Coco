@@ -5,6 +5,7 @@ import {
 	ArrowUp,
 	AtSign,
 	Box,
+	BookOpen,
 	Brain,
 	Check,
 	ChevronDown,
@@ -51,6 +52,7 @@ import {
 } from './codex/assistantMessage';
 import type {
 	AutoContextInfo,
+	CommandAction,
 	CodexJsonRpcEvent,
 	CodexModelInfo,
 	CodexThread,
@@ -60,6 +62,9 @@ import type {
 	CustomPrompt,
 	FileAttachment,
 	FileInfo,
+	McpContentBlock,
+	McpToolCallError,
+	McpToolCallResult,
 	ReasoningEffort,
 	SkillMetadata,
 } from '../types/codex';
@@ -72,79 +77,84 @@ type AttachmentItem =
 
 type ChatEntry =
 	| {
-			kind: 'user';
-			id: string;
-			text: string;
-			attachments?: AttachmentItem[];
-	  }
+		kind: 'user';
+		id: string;
+		text: string;
+		attachments?: AttachmentItem[];
+	}
 	| {
-			kind: 'assistant';
-			id: string;
-			text: string;
-			role: 'message' | 'reasoning';
-			streaming?: boolean;
-			completed?: boolean;
-			renderPlaceholderWhileStreaming?: boolean;
-			structuredOutput?: ReturnType<typeof parseCodeReviewStructuredOutputFromMessage> | null;
-	  }
+		kind: 'assistant';
+		id: string;
+		text: string;
+		role: 'message' | 'reasoning';
+		streaming?: boolean;
+		completed?: boolean;
+		renderPlaceholderWhileStreaming?: boolean;
+		structuredOutput?: ReturnType<typeof parseCodeReviewStructuredOutputFromMessage> | null;
+	}
 	| {
-			kind: 'command';
-			id: string;
-			command: string;
-			status: string;
-			cwd?: string;
-			output?: string | null;
-			approval?: {
-				requestId: number;
-				decision?: 'accept' | 'decline';
-				reason?: string | null;
-			};
-	  }
+		kind: 'command';
+		id: string;
+		command: string;
+		status: string;
+		cwd?: string;
+		output?: string | null;
+		commandActions?: CommandAction[];
+		approval?: {
+			requestId: number;
+			decision?: 'accept' | 'decline';
+			reason?: string | null;
+		};
+	}
 	| {
-			kind: 'fileChange';
-			id: string;
-			status: string;
-			changes: Array<{ path: string; diff?: string }>;
-			approval?: {
-				requestId: number;
-				decision?: 'accept' | 'decline';
-				reason?: string | null;
-			};
-	  }
+		kind: 'fileChange';
+		id: string;
+		status: string;
+		changes: Array<{ path: string; diff?: string }>;
+		approval?: {
+			requestId: number;
+			decision?: 'accept' | 'decline';
+			reason?: string | null;
+		};
+	}
 	| {
-			kind: 'webSearch';
-			id: string;
-			query: string;
-	  }
+		kind: 'webSearch';
+		id: string;
+		query: string;
+	}
 	| {
-			kind: 'mcp';
-			id: string;
-			server: string;
-			tool: string;
-			status: string;
-			message?: string;
-	  }
+		kind: 'mcp';
+		id: string;
+		server: string;
+		tool: string;
+		arguments?: unknown;
+		result?: McpToolCallResult | null;
+		error?: McpToolCallError | null;
+		durationMs?: number | null;
+		status: string;
+		message?: string;
+	}
 	| {
-			kind: 'system';
-			id: string;
-			text: string;
-			tone?: 'info' | 'warning' | 'error';
-			willRetry?: boolean | null;
-			additionalDetails?: string | null;
-	  };
+		kind: 'system';
+		id: string;
+		text: string;
+		tone?: 'info' | 'warning' | 'error';
+		willRetry?: boolean | null;
+		additionalDetails?: string | null;
+	};
 
 type CodexChatSettings = {
 	showReasoning: boolean;
 	defaultCollapseDetails: boolean;
 };
 
-const SETTINGS_STORAGE_KEY = 'agentmesh.codexChat.settings.v1';
+const SETTINGS_STORAGE_KEY = 'agentmesh.codexChat.settings.v2';
 const SIDEBAR_WIDTH_PX = 48 * 0.7;
 const SIDEBAR_ICON_BUTTON_PX = SIDEBAR_WIDTH_PX * 0.7;
 
 function loadCodexChatSettings(): CodexChatSettings {
 	const defaults: CodexChatSettings = {
-		showReasoning: false,
+		showReasoning: true,
 		defaultCollapseDetails: true,
 	};
 
@@ -170,6 +180,312 @@ function persistCodexChatSettings(next: CodexChatSettings) {
 		window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next));
 	} catch {
 		// ignore
+	}
+}
+
+// ============================================================================
+// VS Code Codex Plugin Parity: Command Parsing, Heading Extraction, MCP Preview
+// ============================================================================
+
+type ParsedCmdType = 'search' | 'read' | 'list_files' | 'format' | 'test' | 'lint' | 'noop' | 'unknown';
+
+interface ParsedCmd {
+	type: ParsedCmdType;
+	cmd: string;
+	name?: string; // file name for read
+	query?: string; // search query
+	path?: string; // optional path hint
+}
+
+/**
+ * Parse a command string to extract semantic type and parameters.
+ * Matches VS Code Codex plugin's command classification logic.
+ */
+function parseCommand(cmdString: string): ParsedCmd {
+	const cmd = cmdString?.trim() ?? '';
+	if (!cmd) {
+		return { type: 'unknown', cmd: '' };
+	}
+	const lowerCmd = cmd.toLowerCase();
+
+	// Pattern: grep/rg/ag search commands
+	if (/^(grep|rg|ag|ack)\s/.test(lowerCmd)) {
+		const match = cmd.match(/^(?:grep|rg|ag|ack)\s+(?:-[^\s]+\s+)*['"]?([^'"]+)['"]?\s*(.*)$/i);
+		if (match) {
+			return { type: 'search', cmd, query: match[1], path: match[2] || undefined };
+		}
+		return { type: 'search', cmd };
+	}
+
+	// Pattern: find command
+	if (/^find\s/.test(lowerCmd)) {
+		const match = cmd.match(/-name\s+['"]?([^'"]+)['"]?/i);
+		if (match) {
+			return { type: 'search', cmd, query: match[1] };
+		}
+		return { type: 'list_files', cmd };
+	}
+
+	// Pattern: ls/dir/tree commands
+	if (/^(ls|dir|tree)\b/.test(lowerCmd)) {
+		const parts = cmd
+			.split(/\s+/)
+			.slice(1)
+			.filter((part) => part && !part.startsWith('-'));
+		const path = parts.length > 0 ? parts[0] : undefined;
+		return { type: 'list_files', cmd, path };
+	}
+
+	// Pattern: cat/head/tail/less/more (read file)
+	if (/^(cat|head|tail|less|more|bat)\s/.test(lowerCmd)) {
+		const match = cmd.match(/^(?:cat|head|tail|less|more|bat)\s+(?:-[^\s]+\s+)*(.+)$/i);
+		if (match) {
+			const name = match[1].split(/\s+/)[0]; // first argument as filename
+			return { type: 'read', cmd, name };
+		}
+		return { type: 'read', cmd };
+	}
+
+	// Pattern: format/prettier/black/gofmt
+	if (/^(prettier|black|gofmt|rustfmt|clang-format|autopep8)\b/.test(lowerCmd)) {
+		return { type: 'format', cmd };
+	}
+
+	// Pattern: test commands
+	if (/^(npm\s+test|yarn\s+test|pytest|jest|cargo\s+test|go\s+test|rspec|mocha)\b/.test(lowerCmd)) {
+		return { type: 'test', cmd };
+	}
+
+	// Pattern: lint commands
+	if (/^(eslint|pylint|flake8|clippy|golint|tslint|rubocop)\b/.test(lowerCmd)) {
+		return { type: 'lint', cmd };
+	}
+
+	// Pattern: echo/true/: (noop)
+	if (/^(echo|true|:)\b/.test(lowerCmd)) {
+		return { type: 'noop', cmd };
+	}
+
+	return { type: 'unknown', cmd };
+}
+
+function normalizeCommandActions(value: unknown): CommandAction[] {
+	if (!Array.isArray(value)) return [];
+	const out: CommandAction[] = [];
+	for (const action of value) {
+		if (!isRecord(action)) continue;
+		const type = safeString(action.type);
+		const command = safeString(action.command);
+		if (!type || !command) continue;
+		if (type === 'read') {
+			const name = safeString(action.name);
+			const path = safeString(action.path) || name;
+			if (!name) continue;
+			out.push({ type: 'read', command, name, path });
+			continue;
+		}
+		if (type === 'listFiles') {
+			const path = safeString(action.path) || undefined;
+			out.push({ type: 'listFiles', command, path: path || undefined });
+			continue;
+		}
+		if (type === 'search') {
+			const query = safeString(action.query) || undefined;
+			const path = safeString(action.path) || undefined;
+			out.push({ type: 'search', command, query, path });
+			continue;
+		}
+		if (type === 'unknown') {
+			out.push({ type: 'unknown', command });
+		}
+	}
+	return out;
+}
+
+function parsedCmdFromAction(action: CommandAction): ParsedCmd {
+	switch (action.type) {
+		case 'read':
+			return { type: 'read', cmd: action.command, name: action.name, path: action.path };
+		case 'listFiles':
+			return { type: 'list_files', cmd: action.command, path: action.path ?? undefined };
+		case 'search':
+			return {
+				type: 'search',
+				cmd: action.command,
+				query: action.query ?? undefined,
+				path: action.path ?? undefined,
+			};
+		case 'unknown':
+		default:
+			return { type: 'unknown', cmd: action.command };
+	}
+}
+
+function resolveParsedCmd(command: string, commandActions?: CommandAction[]): ParsedCmd {
+	const actions = Array.isArray(commandActions) ? commandActions : [];
+	if (actions.length > 0) {
+		return parsedCmdFromAction(actions[0]);
+	}
+	return parseCommand(command);
+}
+
+function normalizeMcpResult(value: unknown): McpToolCallResult | null {
+	if (!isRecord(value)) return null;
+	const contentRaw = value.content;
+	const content = Array.isArray(contentRaw) ? (contentRaw as McpContentBlock[]) : [];
+	const structuredContent =
+		(value as { structuredContent?: unknown; structured_content?: unknown }).structuredContent ??
+		(value as { structuredContent?: unknown; structured_content?: unknown }).structured_content ??
+		null;
+	return { content, structuredContent };
+}
+
+function normalizeMcpError(value: unknown): McpToolCallError | null {
+	if (!isRecord(value)) return null;
+	const message = safeString(value.message);
+	if (!message) return null;
+	return { message };
+}
+
+/**
+ * Generate a smart summary for a parsed command.
+ * Matches VS Code Codex plugin's CmdSummaryText behavior.
+ */
+function getCmdSummary(parsed: ParsedCmd, isFinished: boolean): { prefix: string; content: string } {
+	switch (parsed.type) {
+		case 'search':
+			if (parsed.query && parsed.path) {
+				return {
+					prefix: isFinished ? 'Searched for' : 'Searching for',
+					content: `${parsed.query} in ${parsed.path}`,
+				};
+			}
+			if (parsed.query) {
+				return {
+					prefix: isFinished ? 'Searched for' : 'Searching for',
+					content: parsed.query,
+				};
+			}
+			return {
+				prefix: isFinished ? 'Searched for' : 'Searching for',
+				content: 'files',
+			};
+		case 'read':
+			return {
+				prefix: isFinished ? 'Read' : 'Reading',
+				content: parsed.name || 'file',
+			};
+		case 'list_files':
+			if (parsed.path) {
+				return {
+					prefix: isFinished ? 'Listed files in' : 'Listing files in',
+					content: parsed.path,
+				};
+			}
+			return {
+				prefix: isFinished ? 'Explored' : 'Exploring',
+				content: 'files',
+			};
+		case 'format':
+		case 'test':
+		case 'lint':
+		case 'noop':
+		case 'unknown':
+		default:
+			return {
+				prefix: isFinished ? 'Ran' : 'Running',
+				content: parsed.cmd,
+			};
+	}
+}
+
+/**
+ * Extract heading from markdown content.
+ * Matches VS Code Codex plugin's useExtractHeading behavior.
+ */
+function extractHeadingFromMarkdown(text: string): { heading: string | null; body: string } {
+	if (!text) return { heading: null, body: '' };
+
+	const lines = text.split('\n');
+	let firstIdx = 0;
+	while (firstIdx < lines.length && lines[firstIdx]?.trim() === '') {
+		firstIdx += 1;
+	}
+	const firstLine = lines[firstIdx]?.trim() || '';
+	const secondLine = lines[firstIdx + 1]?.trim() || '';
+
+	// Check for markdown heading: # Heading
+	if (firstLine.startsWith('#')) {
+		const heading = firstLine.replace(/^#+\s*/, '').trim();
+		const body = lines.slice(firstIdx + 1).join('\n').trim();
+		return { heading: heading || null, body };
+	}
+
+	// Check for bold heading: **Heading**
+	const boldMatch = firstLine.match(/^\*\*(.+)\*\*$/);
+	if (boldMatch) {
+		const heading = boldMatch[1].trim();
+		const body = lines.slice(firstIdx + 1).join('\n').trim();
+		return { heading: heading || null, body };
+	}
+
+	// Check for setext-style heading
+	if (firstLine && (secondLine.match(/^=+$/) || secondLine.match(/^-+$/))) {
+		const heading = firstLine.trim();
+		const body = lines.slice(firstIdx + 2).join('\n').trim();
+		return { heading: heading || null, body };
+	}
+
+	return { heading: null, body: text };
+}
+
+/**
+ * Format MCP tool arguments for preview.
+ * Matches VS Code Codex plugin's formatArgumentsPreview behavior.
+ */
+function truncatePreview(value: string, max = 60): string {
+	return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+}
+
+function isPrimitive(value: unknown): value is string | number | boolean | null | undefined {
+	return value == null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
+function formatPrimitive(value: unknown): string {
+	if (typeof value === 'string') return truncatePreview(JSON.stringify(value));
+	if (value == null) return 'null';
+	return String(value);
+}
+
+function stringifyJsonSafe(value: unknown, indent = 2): string {
+	try {
+		return (
+			JSON.stringify(value, (_key, val) => (typeof val === 'bigint' ? val.toString() : val), indent) ?? 'null'
+		);
+	} catch {
+		try {
+			return String(value);
+		} catch {
+			return '';
+		}
+	}
+}
+
+function formatMcpArgsPreview(args: unknown): string {
+	if (args == null) return '';
+	if (typeof args !== 'object' || Array.isArray(args)) {
+		return truncatePreview(String(args));
+	}
+
+	try {
+		const values = Object.values(args as Record<string, unknown>);
+		if (values.length === 0) return '';
+		const first = values[0];
+		if (values.length === 1 && isPrimitive(first)) return formatPrimitive(first);
+		const json = stringifyJsonSafe(args);
+		return truncatePreview(json);
+	} catch {
+		return '';
 	}
 }
 
@@ -219,43 +535,43 @@ function ChatMarkdown({
 				className ?? '',
 			].join(' ')}
 		>
-			<ReactMarkdown
-				components={{
-					p: ({ children }) => <p className={paragraphClass}>{children}</p>,
-					ul: ({ children }) => <ul className={`${listClass} list-disc pl-5`}>{children}</ul>,
-					ol: ({ children }) => <ol className={`${listClass} list-decimal pl-5`}>{children}</ol>,
-					li: ({ children }) => <li className="my-0.5">{children}</li>,
-					pre: ({ children }) => (
-						<pre
-							className={`${preClass} overflow-x-auto rounded-lg bg-black/30 px-3 py-2 text-[11px] leading-snug text-text-muted`}
-						>
-							{children}
-						</pre>
-					),
-					code: ({ className, children }) => {
-						const isBlock = typeof className === 'string' && className.includes('language-');
-						return !isBlock ? (
-							<code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[12px] text-text-main">
+				<ReactMarkdown
+					components={{
+						p: ({ children }) => <p className={`${paragraphClass} text-text-muted`}>{children}</p>,
+						ul: ({ children }) => <ul className={`${listClass} list-disc pl-5 text-text-muted`}>{children}</ul>,
+						ol: ({ children }) => <ol className={`${listClass} list-decimal pl-5 text-text-muted`}>{children}</ol>,
+						li: ({ children }) => <li className="my-0.5 text-text-muted">{children}</li>,
+						pre: ({ children }) => (
+							<pre
+								className={`${preClass} whitespace-pre-wrap break-words rounded-lg bg-black/30 px-3 py-2 text-[11px] leading-snug text-text-muted`}
+							>
 								{children}
-							</code>
-						) : (
-							<code className="font-mono text-[11px] text-text-muted">{children}</code>
-						);
-					},
-					a: ({ href, children }) => (
-						<a
-							href={href}
-							className="text-blue-400 underline underline-offset-2 hover:text-blue-300"
-							target="_blank"
-							rel="noreferrer"
-						>
-							{children}
-						</a>
-					),
-				}}
-			>
-				{normalized}
-			</ReactMarkdown>
+							</pre>
+						),
+						code: ({ className, children }) => {
+							const isBlock = typeof className === 'string' && className.includes('language-');
+							return !isBlock ? (
+								<code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[12px] text-text-muted">
+									{children}
+								</code>
+							) : (
+								<code className="font-mono text-[11px] text-text-muted">{children}</code>
+							);
+						},
+						a: ({ href, children }) => (
+							<a
+								href={href}
+								className="text-blue-400 underline underline-offset-2 hover:text-blue-300"
+								target="_blank"
+								rel="noreferrer"
+							>
+								{children}
+							</a>
+						),
+					}}
+				>
+					{normalized}
+				</ReactMarkdown>
 		</div>
 	);
 }
@@ -298,7 +614,7 @@ function ansiColorClass(code: number): string | undefined {
 		case 36:
 			return 'text-cyan-400';
 		case 37:
-			return 'text-text-main';
+			return 'text-text-muted';
 		// Bright
 		case 90:
 			return 'text-zinc-500';
@@ -448,7 +764,149 @@ function renderAnsiText(text: string): React.ReactNode {
 	return parts.length === 1 ? parts[0] : parts;
 }
 
+function normalizeMcpContentBlock(block: unknown): McpContentBlock | null {
+	if (!isRecord(block)) return null;
+	const type = safeString(block.type);
+	if (!type) return null;
+	return block as McpContentBlock;
+}
+
+function mcpContentToText(blocks: unknown[]): string {
+	const parts: string[] = [];
+	for (const raw of blocks) {
+		const block = normalizeMcpContentBlock(raw);
+		if (!block) {
+			const fallback = stringifyJsonSafe(raw);
+			if (fallback) parts.push(fallback);
+			continue;
+		}
+		if (block.type === 'text') {
+			parts.push(block.text);
+			continue;
+		}
+		if (block.type === 'resource_link') {
+			const title = block.title || block.name || '';
+			const uri = block.uri || '';
+			parts.push([title, uri].filter(Boolean).join('\n'));
+			continue;
+		}
+		if (block.type === 'resource' || block.type === 'embedded_resource') {
+			const resource = block.resource ?? ({} as { uri?: string; text?: string; blob?: string });
+			if (resource.text) {
+				parts.push(resource.text);
+			} else if (resource.blob) {
+				parts.push(`[embedded resource blob: ${resource.blob.length} bytes]`);
+			} else if (resource.uri) {
+				parts.push(resource.uri);
+			}
+			continue;
+		}
+		if (block.type === 'image' || block.type === 'audio') {
+			const mime = block.mimeType || '';
+			const size = block.data?.length ?? 0;
+			parts.push(`[${block.type} ${mime} ${size} bytes]`);
+			continue;
+		}
+		const fallback = stringifyJsonSafe(block);
+		if (fallback) parts.push(fallback);
+	}
+	return parts.filter(Boolean).join('\n\n');
+}
+
+function renderMcpContentBlocks(blocks: unknown[]): React.ReactNode {
+	if (!Array.isArray(blocks) || blocks.length === 0) return null;
+	return (
+		<div className="space-y-2 whitespace-normal font-sans text-[11px] text-text-muted">
+			{blocks.map((raw, idx) => {
+				const block = normalizeMcpContentBlock(raw);
+				if (!block) {
+					return (
+						<pre key={`mcp-raw-${idx}`} className="whitespace-pre-wrap break-words rounded-md bg-white/5 px-2 py-1 text-[10px]">
+							{stringifyJsonSafe(raw)}
+						</pre>
+					);
+				}
+				if (block.type === 'text') {
+					return (
+						<ChatMarkdown key={`mcp-text-${idx}`} text={block.text} className="text-[11px] text-text-muted" dense />
+					);
+				}
+				if (block.type === 'image') {
+					const mime = block.mimeType || 'image/png';
+					const src = `data:${mime};base64,${block.data ?? ''}`;
+					return (
+						<img
+							key={`mcp-image-${idx}`}
+							className="max-h-48 w-max max-w-full rounded-md object-contain"
+							src={src}
+							alt=""
+						/>
+					);
+				}
+				if (block.type === 'audio') {
+					const mime = block.mimeType || 'audio/mpeg';
+					const src = `data:${mime};base64,${block.data ?? ''}`;
+					return (
+						<audio key={`mcp-audio-${idx}`} className="w-full" controls src={src} preload="metadata" />
+					);
+				}
+				if (block.type === 'resource_link') {
+					const title = block.title || block.name;
+					return (
+						<div key={`mcp-link-${idx}`} className="space-y-1 rounded-md bg-white/5 px-2 py-1">
+							<div className="text-[10px] font-medium text-text-muted">{title}</div>
+							{block.description ? (
+								<div className="text-[10px] leading-relaxed text-text-muted">{block.description}</div>
+							) : null}
+							<a
+								className="block break-all text-[10px] text-blue-400 underline"
+								href={block.uri}
+								target="_blank"
+								rel="noreferrer"
+							>
+								{block.uri}
+							</a>
+							{block.mimeType ? <div className="text-[9px] text-text-muted">{block.mimeType}</div> : null}
+						</div>
+					);
+				}
+				if (block.type === 'resource' || block.type === 'embedded_resource') {
+					const resource = block.resource ?? { uri: '' };
+					const mimeType = resource.mimeType ?? '';
+					const text = resource.text ?? '';
+					const blob = resource.blob ?? '';
+					return (
+						<div key={`mcp-resource-${idx}`} className="space-y-1 rounded-md bg-white/5 px-2 py-1">
+							{resource.uri ? (
+								<div className="text-[10px] text-text-muted">
+									<span className="font-medium">URI:</span>{' '}
+									<span className="break-all text-text-muted">{resource.uri}</span>
+								</div>
+							) : null}
+							{mimeType ? <div className="text-[9px] text-text-muted">MIME: {mimeType}</div> : null}
+							{text ? (
+								<pre className="whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 text-[10px] text-text-muted">
+									{text}
+								</pre>
+							) : blob ? (
+								<div className="text-[10px] text-text-muted">Embedded binary ({blob.length} bytes)</div>
+							) : null}
+						</div>
+					);
+				}
+				return (
+					<pre key={`mcp-unknown-${idx}`} className="whitespace-pre-wrap break-words rounded-md bg-white/5 px-2 py-1 text-[10px]">
+						{stringifyJsonSafe(block)}
+					</pre>
+				);
+			})}
+		</div>
+	);
+}
+
 // 通用 Activity Block 组件
+type ActivityContentVariant = 'plain' | 'markdown' | 'ansi';
+
 interface ActivityBlockProps {
 	/** 标题前缀，如 "Ran", "Edited" */
 	titlePrefix: string;
@@ -460,6 +918,12 @@ interface ActivityBlockProps {
 	status?: string;
 	/** 复制内容 */
 	copyContent: string;
+	/** 内容渲染类型 */
+	contentVariant?: ActivityContentVariant;
+	/** 内容是否强制等宽字体 */
+	contentMono?: boolean;
+	/** 内容区域额外样式 */
+	contentClassName?: string;
 	/** 是否可折叠 */
 	collapsible?: boolean;
 	/** 是否已折叠 */
@@ -485,6 +949,9 @@ function ActivityBlock({
 	titleMono = false,
 	status,
 	copyContent,
+	contentVariant = 'plain',
+	contentMono,
+	contentClassName,
 	collapsible = false,
 	collapsed = true,
 	onToggleCollapse,
@@ -493,8 +960,25 @@ function ActivityBlock({
 	onApprove,
 	icon,
 }: ActivityBlockProps) {
-	const contentNode =
-		typeof children === 'string' ? renderAnsiText(children) : children;
+	const isStringChild = typeof children === 'string';
+	const effectiveVariant: ActivityContentVariant = contentVariant;
+	const useMono = contentMono ?? effectiveVariant === 'ansi';
+		const contentNode = (() => {
+			if (!isStringChild) return children;
+			if (effectiveVariant === 'markdown') {
+				return (
+					<ChatMarkdown
+						text={children}
+						className="text-[11px] text-text-muted"
+						dense
+					/>
+				);
+			}
+		if (effectiveVariant === 'ansi') {
+			return renderAnsiText(children);
+		}
+		return children;
+	})();
 	const showStatus = status && status !== 'completed';
 	const open = !collapsible || !collapsed;
 
@@ -522,30 +1006,30 @@ function ActivityBlock({
 				<div className="min-w-0 flex-1 truncate text-[12px]">
 					<span className="inline-flex min-w-0 items-center gap-2">
 						{icon ? <span className="shrink-0 text-text-menuDesc">{icon}</span> : null}
-						<span className="shrink-0 text-text-menuLabel">{titlePrefix}</span>
-						<span className={['am-row-title truncate', titleMono ? 'font-mono' : ''].join(' ')}>
+						<span className="shrink-0 font-medium text-text-menuLabel">{titlePrefix}</span>
+						<span className={['am-row-title truncate text-text-main/90', titleMono ? 'font-mono text-[11px]' : ''].join(' ')}>
 							{titleContent}
 						</span>
 					</span>
 				</div>
 				<div className="flex shrink-0 items-center gap-1.5">
-					{showStatus ? <span className="text-[10px] text-text-menuDesc">{status}</span> : null}
+					{showStatus ? <span className="text-[10px] text-text-menuDesc opacity-80">{status}</span> : null}
 					<button
 						type="button"
 						className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
-						title="复制内容"
+						title="Copy content"
 						onClick={(ev) => {
 							ev.stopPropagation();
 							void navigator.clipboard.writeText(copyContent);
 						}}
 					>
-						<Copy className="h-4 w-4" />
+						<Copy className="h-3.5 w-3.5" />
 					</button>
 					{collapsible ? (
-						<ChevronDown
+						<ChevronRight
 							className={[
-								'h-4 w-4 text-text-menuDesc transition-transform',
-								open ? 'rotate-180' : '',
+								'h-4 w-4 text-text-menuDesc transition-transform duration-200',
+								open ? 'rotate-90' : '',
 							].join(' ')}
 						/>
 					) : null}
@@ -555,8 +1039,15 @@ function ActivityBlock({
 			{/* Details (only when expanded) */}
 				{children ? (
 					<Collapse open={open} innerClassName="pt-0.5 pl-2 pr-1 pb-1">
-						<div className="am-scroll-fade max-h-[220px] overflow-auto rounded-md bg-token-codeBackground/8 px-2 py-1.5">
-							<div className="min-w-max whitespace-pre font-mono text-[10px] leading-snug text-text-menuDesc">
+						<div className="am-scroll-fade max-h-[320px] overflow-auto rounded-md bg-token-codeBackground/30 border border-white/5 px-3 py-2">
+							<div
+								className={[
+									'min-w-0 text-[11px] leading-relaxed !text-text-muted',
+									useMono ? 'font-mono' : 'font-sans',
+									effectiveVariant === 'markdown' ? 'whitespace-normal' : 'whitespace-pre-wrap break-words',
+									contentClassName ?? '',
+								].join(' ')}
+							>
 								{contentNode}
 							</div>
 						</div>
@@ -573,17 +1064,17 @@ function ActivityBlock({
 					<div className="flex shrink-0 gap-2">
 						<button
 							type="button"
-							className="rounded-md bg-status-success/20 px-2.5 py-1 text-[11px] font-semibold text-status-success"
+							className="rounded-md bg-status-success/20 px-2.5 py-1 text-[11px] font-semibold text-status-success hover:bg-status-success/30 transition-colors"
 							onClick={() => onApprove(approval.requestId, 'accept')}
 						>
-							批准
+							Approve
 						</button>
 						<button
 							type="button"
-							className="rounded-md bg-status-error/15 px-2.5 py-1 text-[11px] font-semibold text-status-error"
+							className="rounded-md bg-status-error/15 px-2.5 py-1 text-[11px] font-semibold text-status-error hover:bg-status-error/25 transition-colors"
 							onClick={() => onApprove(approval.requestId, 'decline')}
 						>
-							拒绝
+							Decline
 						</button>
 					</div>
 				</div>
@@ -775,12 +1266,35 @@ function safeString(value: unknown): string {
 	return typeof value === 'string' ? value : '';
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function countEntryKinds(entries: ChatEntry[]): Record<string, number> {
 	const counts: Record<string, number> = {};
 	for (const entry of entries) {
 		counts[entry.kind] = (counts[entry.kind] ?? 0) + 1;
 	}
 	return counts;
+}
+
+function collectReadingGroupIds(entries: ChatEntry[]): string[] {
+	const ids: string[] = [];
+	let activeGroup = false;
+	for (const entry of entries) {
+		if (entry.kind === 'command') {
+			const parsed = resolveParsedCmd(entry.command, entry.commandActions);
+			if (parsed.type === 'read' && !entry.approval) {
+				if (!activeGroup) {
+					ids.push(`read-group-${entry.id}`);
+					activeGroup = true;
+				}
+				continue;
+			}
+		}
+		activeGroup = false;
+	}
+	return ids;
 }
 
 function isCodexTextInput(value: CodexUserInput): value is Extract<CodexUserInput, { type: 'text' }> {
@@ -837,6 +1351,10 @@ function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
 		}
 		case 'commandexecution': {
 			const it = item as Extract<CodexThreadItem, { type: 'commandExecution' }>;
+			const rawActions =
+				(it as unknown as { commandActions?: unknown; command_actions?: unknown })?.commandActions ??
+				(it as unknown as { commandActions?: unknown; command_actions?: unknown })?.command_actions;
+			const commandActions = normalizeCommandActions(rawActions);
 			return {
 				kind: 'command',
 				id: it.id,
@@ -844,6 +1362,7 @@ function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
 				status: it.status,
 				cwd: it.cwd,
 				output: it.aggregatedOutput ?? null,
+				commandActions,
 			};
 		}
 		case 'filechange': {
@@ -861,13 +1380,19 @@ function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
 		}
 		case 'mcptoolcall': {
 			const it = item as Extract<CodexThreadItem, { type: 'mcpToolCall' }>;
+			const result = normalizeMcpResult(it.result ?? null);
+			const error = normalizeMcpError(it.error ?? null);
 			return {
 				kind: 'mcp',
 				id: it.id,
 				server: it.server,
 				tool: it.tool,
+				arguments: it.arguments,
+				result,
+				error,
+				durationMs: it.durationMs ?? null,
 				status: it.status,
-				message: it.error?.message ?? undefined,
+				message: error?.message,
 			};
 		}
 		default: {
@@ -1400,14 +1925,14 @@ export function CodexChat() {
 	const selectSession = useCallback(
 		async (threadId: string) => {
 			setSelectedThreadId(threadId);
-				setTurnOrder([]);
-				setTurnsById({});
-				setThreadTokenUsage(null);
-				setCollapsedWorkingByTurnId({});
-				setCollapsedByEntryId({});
-				setItemToTurnId({});
-				itemToTurnRef.current = {};
-				setActiveThread(null);
+			setTurnOrder([]);
+			setTurnsById({});
+			setThreadTokenUsage(null);
+			setCollapsedWorkingByTurnId({});
+			setCollapsedByEntryId({});
+			setItemToTurnId({});
+			itemToTurnRef.current = {};
+			setActiveThread(null);
 			setActiveTurnId(null);
 			setIsSessionsOpen(false);
 
@@ -1440,14 +1965,14 @@ export function CodexChat() {
 				const nextTurns: Record<string, TurnBlock> = {};
 				const nextEntryCollapse: Record<string, boolean> = {};
 				const nextItemToTurn: Record<string, string> = {};
-					const nextWorkingCollapsed: Record<string, boolean> = {};
-					const typeCounts: Record<string, number> = {};
+				const nextWorkingCollapsed: Record<string, boolean> = {};
+				const typeCounts: Record<string, number> = {};
 
 				for (const turn of thread.turns ?? []) {
-						const turnId = turn.id;
-						if (!turnId) continue;
-						nextOrder.push(turnId);
-						nextWorkingCollapsed[turnId] = true;
+					const turnId = turn.id;
+					if (!turnId) continue;
+					nextOrder.push(turnId);
+					nextWorkingCollapsed[turnId] = true;
 
 					const turnEntries: ChatEntry[] = [];
 					const items = turn.items ?? [];
@@ -1486,24 +2011,24 @@ export function CodexChat() {
 					};
 				}
 
-					if (nextOrder.length === 0) {
-						const turnId = PENDING_TURN_ID;
-						nextOrder.push(turnId);
-						nextWorkingCollapsed[turnId] = true;
-						nextTurns[turnId] = { id: turnId, status: 'unknown', entries: [] };
-					}
+				if (nextOrder.length === 0) {
+					const turnId = PENDING_TURN_ID;
+					nextOrder.push(turnId);
+					nextWorkingCollapsed[turnId] = true;
+					nextTurns[turnId] = { id: turnId, status: 'unknown', entries: [] };
+				}
 
 				if (import.meta.env.DEV) {
 					// eslint-disable-next-line no-console
 					console.info('[CodexChat] Resume thread item types:', typeCounts);
 				}
 
-					setTurnOrder(nextOrder);
-					setTurnsById(nextTurns);
-					setCollapsedWorkingByTurnId(nextWorkingCollapsed);
-					setCollapsedByEntryId(nextEntryCollapse);
-					setItemToTurnId(nextItemToTurn);
-					itemToTurnRef.current = nextItemToTurn;
+				setTurnOrder(nextOrder);
+				setTurnsById(nextTurns);
+				setCollapsedWorkingByTurnId(nextWorkingCollapsed);
+				setCollapsedByEntryId(nextEntryCollapse);
+				setItemToTurnId(nextItemToTurn);
+				itemToTurnRef.current = nextItemToTurn;
 			} catch (err) {
 				const turnId = PENDING_TURN_ID;
 				setTurnOrder([turnId]);
@@ -1527,13 +2052,13 @@ export function CodexChat() {
 	);
 
 	const createNewSession = useCallback(async () => {
-			setTurnOrder([]);
-			setTurnsById({});
-			setThreadTokenUsage(null);
-			setCollapsedWorkingByTurnId({});
-			setItemToTurnId({});
-			itemToTurnRef.current = {};
-			setCollapsedByEntryId({});
+		setTurnOrder([]);
+		setTurnsById({});
+		setThreadTokenUsage(null);
+		setCollapsedWorkingByTurnId({});
+		setItemToTurnId({});
+		itemToTurnRef.current = {};
+		setCollapsedByEntryId({});
 		setActiveThread(null);
 		setActiveTurnId(null);
 		setSelectedThreadId(null);
@@ -1560,10 +2085,10 @@ export function CodexChat() {
 							text: errorMessage(err, 'Failed to start thread'),
 						},
 					],
-					},
-				});
-			}
-		}, [listSessions, selectedModel]);
+				},
+			});
+		}
+	}, [listSessions, selectedModel]);
 
 	const applyWorkspaceRoot = useCallback(
 		async (nextRoot: string) => {
@@ -1668,10 +2193,10 @@ export function CodexChat() {
 
 			const outgoingText = autoContextEnabled
 				? wrapUserInputWithRepoContext({
-						userInput,
-						currentRepoPath,
-						relatedRepoPaths,
-				  })
+					userInput,
+					currentRepoPath,
+					relatedRepoPaths,
+				})
 				: userInput;
 
 			// Build CodexUserInput array for API
@@ -1691,13 +2216,13 @@ export function CodexChat() {
 				id: `user-${crypto.randomUUID()}`,
 				text: trimmedInput,
 				attachments: attachments.length > 0 ? attachments : undefined,
-				};
+			};
 
-				setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]));
-				setTurnsById((prev) => {
-					const existing = prev[PENDING_TURN_ID] ?? {
-						id: PENDING_TURN_ID,
-						status: 'inProgress' as const,
+			setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]));
+			setTurnsById((prev) => {
+				const existing = prev[PENDING_TURN_ID] ?? {
+					id: PENDING_TURN_ID,
+					status: 'inProgress' as const,
 					entries: [],
 				};
 				return {
@@ -1719,12 +2244,12 @@ export function CodexChat() {
 				id: `system-send-${crypto.randomUUID()}`,
 				tone: 'error',
 				text: errorMessage(err, 'Failed to send'),
-				};
-				setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]));
-				setTurnsById((prev) => {
-					const existing = prev[PENDING_TURN_ID] ?? {
-						id: PENDING_TURN_ID,
-						status: 'failed' as const,
+			};
+			setTurnOrder((prev) => (prev.includes(PENDING_TURN_ID) ? prev : [...prev, PENDING_TURN_ID]));
+			setTurnsById((prev) => {
+				const existing = prev[PENDING_TURN_ID] ?? {
+					id: PENDING_TURN_ID,
+					status: 'failed' as const,
 					entries: [],
 				};
 				return {
@@ -1784,6 +2309,9 @@ export function CodexChat() {
 				for (const entry of turn.entries) {
 					if (isActivityEntry(entry)) next[entry.id] = true;
 					if (entry.kind === 'assistant' && entry.role === 'reasoning') next[entry.id] = true;
+				}
+				for (const groupId of collectReadingGroupIds(turn.entries)) {
+					next[groupId] = true;
 				}
 				return next;
 			});
@@ -2368,20 +2896,20 @@ export function CodexChat() {
 					return;
 				}
 
-					if (method === 'turn/started') {
-						const turnId = safeString(params?.turn?.id ?? params?.turnId);
-						if (!turnId) return;
+				if (method === 'turn/started') {
+					const turnId = safeString(params?.turn?.id ?? params?.turnId);
+					if (!turnId) return;
 
-						setActiveTurnId(turnId);
-						setTurnOrder((prev) => {
-							const withoutPending = prev.filter((id) => id !== PENDING_TURN_ID);
-							if (withoutPending.includes(turnId)) return withoutPending;
-							return [...withoutPending, turnId];
-						});
-						setTurnsById((prev) => {
-							const pending = prev[PENDING_TURN_ID];
-							const existing = prev[turnId];
-							const mergedEntries = [...(pending?.entries ?? []), ...(existing?.entries ?? [])];
+					setActiveTurnId(turnId);
+					setTurnOrder((prev) => {
+						const withoutPending = prev.filter((id) => id !== PENDING_TURN_ID);
+						if (withoutPending.includes(turnId)) return withoutPending;
+						return [...withoutPending, turnId];
+					});
+					setTurnsById((prev) => {
+						const pending = prev[PENDING_TURN_ID];
+						const existing = prev[turnId];
+						const mergedEntries = [...(pending?.entries ?? []), ...(existing?.entries ?? [])];
 
 						const next: Record<string, TurnBlock> = {
 							...prev,
@@ -2438,7 +2966,7 @@ export function CodexChat() {
 					};
 					setItemToTurnId(itemToTurnRef.current);
 
-						setTurnOrder((prev) => (prev.includes(turnId) ? prev : [...prev, turnId]));
+					setTurnOrder((prev) => (prev.includes(turnId) ? prev : [...prev, turnId]));
 					setTurnsById((prev) => {
 						const existing = prev[turnId] ?? {
 							id: turnId,
@@ -2672,15 +3200,15 @@ export function CodexChat() {
 		});
 	}, [settings.showReasoning, turnBlocks]);
 
-		const renderCount = useMemo(() => {
-			return renderTurns.reduce((acc, t) => {
-				const collapsedExplicit = collapsedWorkingByTurnId[t.id];
-				const workingOpen = collapsedExplicit === undefined ? t.status === 'inProgress' : !collapsedExplicit;
-				const workingHeaderCount = t.workingEntries.length > 0 ? 1 : 0;
-				const visibleWorkingCount = workingOpen ? t.workingEntries.length : 0;
-				return acc + t.userEntries.length + workingHeaderCount + visibleWorkingCount + t.assistantMessageEntries.length;
-			}, 0);
-		}, [collapsedWorkingByTurnId, renderTurns]);
+	const renderCount = useMemo(() => {
+		return renderTurns.reduce((acc, t) => {
+			const collapsedExplicit = collapsedWorkingByTurnId[t.id];
+			const workingOpen = collapsedExplicit === undefined ? t.status === 'inProgress' : !collapsedExplicit;
+			const workingHeaderCount = t.workingEntries.length > 0 ? 1 : 0;
+			const visibleWorkingCount = workingOpen ? t.workingEntries.length : 0;
+			return acc + t.userEntries.length + workingHeaderCount + visibleWorkingCount + t.assistantMessageEntries.length;
+		}, 0);
+	}, [collapsedWorkingByTurnId, renderTurns]);
 
 	useEffect(() => {
 		const el = scrollRef.current;
@@ -3065,200 +3593,346 @@ export function CodexChat() {
 										))}
 									</div>
 
-										{hasWorking ? (
-											<button
-												type="button"
-												className="inline-flex items-center gap-2 rounded-full border border-border-menuDivider bg-bg-panel/20 px-3 py-1 text-left text-[12px] text-text-muted transition-colors hover:bg-bg-panelHover/30 hover:text-text-main"
-												onClick={() => toggleTurnWorking(turn.id)}
-											>
-												<div className="flex items-center gap-2 text-[11px] text-text-muted">
-													<span className="truncate">
-														{turnStatusLabel(turn.status)}
+									{hasWorking ? (
+										<button
+											type="button"
+											className="inline-flex items-center gap-2 rounded-full border border-border-menuDivider bg-bg-panel/20 px-3 py-1 text-left text-[12px] text-text-muted transition-colors hover:bg-bg-panelHover/30 hover:text-text-main"
+											onClick={() => toggleTurnWorking(turn.id)}
+										>
+											<div className="flex items-center gap-2 text-[11px] text-text-muted">
+												<span className="truncate font-medium">
+													{turn.status === 'inProgress' ? 'Exploring…' : 'Explored'}
 													{turn.id === PENDING_TURN_ID ? ' (pending)' : ''}
 												</span>
 												<span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-text-menuDesc">
 													{turn.workingEntries.length}
 												</span>
 											</div>
-											<ChevronDown
+											<ChevronRight
 												className={[
-													'h-4 w-4 text-text-menuDesc transition-transform',
-													workingOpen ? 'rotate-180' : '',
+													'h-3.5 w-3.5 text-text-menuDesc transition-transform duration-200',
+													workingOpen ? 'rotate-90' : '',
 												].join(' ')}
 											/>
 										</button>
 									) : null}
 
-										{hasWorking ? (
+									{hasWorking ? (
 										<Collapse open={workingOpen} innerClassName="pt-0.5">
 											<div className="space-y-0">
-												{turn.workingEntries.map((e) => {
-													if (e.kind === 'assistant' && e.role === 'message') {
-														const showPlaceholder = !!e.renderPlaceholderWhileStreaming && !e.completed;
-														const structured = e.structuredOutput && e.structuredOutput.type === 'code-review' ? e.structuredOutput : null;
-														return (
-															<div key={e.id} className="px-2 py-1">
-																{showPlaceholder ? (
-																	<div className="text-[11px] text-text-menuDesc">Generating…</div>
-																) : structured ? (
-																	<CodeReviewAssistantMessage
-																		output={structured}
-																		completed={!!e.completed}
-																	/>
-																) : (
-																	<ChatMarkdown
-																		text={e.text}
-																		className="text-[11px] text-text-menuDesc"
-																		dense
-																	/>
-																)}
-															</div>
-														);
+												{(() => {
+													// Group sequential "read" commands into a single "Reading" block
+													const grouped: (ChatEntry | { kind: 'readingGroup'; id: string; entries: Extract<ChatEntry, { kind: 'command' }>[] })[] = [];
+													for (const e of turn.workingEntries) {
+														if (e.kind === 'command') {
+															const parsed = resolveParsedCmd(e.command, e.commandActions);
+															if (parsed.type === 'read' && !e.approval) {
+																const last = grouped[grouped.length - 1];
+																if (last && 'kind' in last && last.kind === 'readingGroup') {
+																	last.entries.push(e);
+																	continue;
+																}
+																grouped.push({ kind: 'readingGroup', id: `read-group-${e.id}`, entries: [e] });
+																continue;
+															}
+														}
+														grouped.push(e);
 													}
 
-													if (e.kind === 'command') {
-														const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-														const displayContent = [
-															`$ ${e.command}`,
-															e.cwd ? `cwd: ${e.cwd}` : '',
-															e.output ?? '',
-														]
-															.filter(Boolean)
-															.join('\n');
-														return (
-															<ActivityBlock
-																key={e.id}
-																titlePrefix="Ran"
-																titleContent={e.command}
-																titleMono
-																status={e.status}
-																copyContent={displayContent.replace(/\x1b\[[0-9;]*m/g, '')}
-																icon={<Terminal className="h-3.5 w-3.5" />}
-																collapsible
-																collapsed={collapsed}
-																onToggleCollapse={() => toggleEntryCollapse(e.id)}
-																approval={e.approval}
-																onApprove={approve}
-															>
-																{displayContent}
-															</ActivityBlock>
-														);
-													}
+													return grouped.map((item) => {
+														if ('kind' in item && item.kind === 'readingGroup') {
+															const isFinished = item.entries.every(e => e.status !== 'inProgress');
+															const collapsed = collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails;
+															const parsedEntries = item.entries.map((entry) => ({
+																entry,
+																parsed: resolveParsedCmd(entry.command, entry.commandActions),
+															}));
+															const uniqueByName: typeof parsedEntries = [];
+															const seen = new Set<string>();
+															for (let i = parsedEntries.length - 1; i >= 0; i -= 1) {
+																const name = parsedEntries[i]?.parsed.name;
+																if (!name) continue;
+																if (seen.has(name)) continue;
+																seen.add(name);
+																uniqueByName.push(parsedEntries[i]);
+															}
+															uniqueByName.reverse();
 
-													if (e.kind === 'fileChange') {
-														const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-														const fullContent = e.changes
-															.map((c) => `${c.path}\n${c.diff ?? ''}`)
-															.join('\n\n');
-														return (
-															<ActivityBlock
-																key={e.id}
-																titlePrefix="Edited"
-																titleContent={e.changes.map((c) => c.path).join(', ')}
-																status={e.status}
-																copyContent={fullContent}
-																icon={<FileText className="h-3.5 w-3.5" />}
-																collapsible
-																collapsed={collapsed}
-																onToggleCollapse={() => toggleEntryCollapse(e.id)}
-																approval={e.approval}
-																onApprove={approve}
-															>
-																{fullContent}
-															</ActivityBlock>
-														);
-													}
+															const lastUnique = uniqueByName[uniqueByName.length - 1];
+															const lastName = lastUnique?.parsed.name || 'file';
+															const count = Math.max(0, uniqueByName.length - 1);
 
-													if (e.kind === 'webSearch') {
-														const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-														return (
-															<ActivityBlock
-																key={e.id}
-																titlePrefix="Web search"
-																titleContent={e.query}
-																copyContent={e.query}
-																icon={<Search className="h-3.5 w-3.5" />}
-																collapsible
-																collapsed={collapsed}
-																onToggleCollapse={() => toggleEntryCollapse(e.id)}
-															>
-																{e.query}
-															</ActivityBlock>
-														);
-													}
+															const prefix = isFinished ? 'Read' : 'Reading';
+															const title = uniqueByName.length === 0
+																? 'files'
+																: uniqueByName.length === 1
+																	? lastName
+																	: `${lastName} +${count}`;
 
-													if (e.kind === 'mcp') {
-														const toolCall = `${e.server}.${e.tool}`;
-														const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-														const content = e.message ? `${toolCall}\n${e.message}` : toolCall;
-														return (
-															<ActivityBlock
-																key={e.id}
-																titlePrefix="MCP"
-																titleContent={toolCall}
-																titleMono
-																status={e.status}
-																copyContent={content}
-																icon={<Wrench className="h-3.5 w-3.5" />}
-																collapsible
-																collapsed={collapsed}
-																onToggleCollapse={() => toggleEntryCollapse(e.id)}
-															>
-																{content}
-															</ActivityBlock>
-														);
-													}
+															const copyContent = item.entries
+																.map(e => [`$ ${e.command}`, e.output ?? ''].filter(Boolean).join('\n'))
+																.join('\n\n');
+
+															const uniqueForChips: typeof parsedEntries = [];
+															const seenChipNames = new Set<string>();
+															for (const entry of parsedEntries) {
+																const name = entry.parsed.name;
+																if (!name) continue;
+																if (seenChipNames.has(name)) continue;
+																seenChipNames.add(name);
+																uniqueForChips.push(entry);
+															}
+
+																return (
+																	<ActivityBlock
+																		key={item.id}
+																		titlePrefix={prefix}
+																		titleContent={title}
+																		status={!isFinished ? 'in progress' : undefined}
+																		copyContent={copyContent.replace(/\x1b\[[0-9;]*m/g, '')}
+																		icon={<BookOpen className="h-3.5 w-3.5" />}
+																		contentClassName="font-sans"
+																		collapsible
+																		collapsed={collapsed}
+																		onToggleCollapse={() => toggleEntryCollapse(item.id)}
+																	>
+																		<div className="flex flex-wrap gap-1.5 py-1">
+																			{uniqueForChips.map((e) => (
+																				<div
+																					key={e.entry.id}
+																					className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-text-muted"
+																				>
+																					<FileText className="h-3 w-3 opacity-60" />
+																					<span>{e.parsed.name || 'file'}</span>
+																				</div>
+																			))}
+																		</div>
+																		{parsedEntries.some(({ entry }) => entry.output) ? (
+																			<div className="mt-2 space-y-2 border-t border-white/5 pt-2">
+																				{parsedEntries
+																					.filter(({ entry }) => entry.output)
+																					.map(({ entry, parsed }) => (
+																						<div key={entry.id} className="space-y-1">
+																							<div className="text-[9px] font-medium text-text-muted">
+																								{parsed.name || 'file'}
+																							</div>
+																							<div className="whitespace-pre-wrap break-words font-mono text-[10px] text-text-muted">
+																								{renderAnsiText(entry.output!)}
+																							</div>
+																						</div>
+																					))}
+																			</div>
+																		) : null}
+																	</ActivityBlock>
+															);
+														}
+
+														const e = item as ChatEntry;
+														if (e.kind === 'assistant' && e.role === 'message') {
+															const showPlaceholder = !!e.renderPlaceholderWhileStreaming && !e.completed;
+															const structured = e.structuredOutput && e.structuredOutput.type === 'code-review' ? e.structuredOutput : null;
+															return (
+																<div key={e.id} className="px-2 py-1">
+																	{showPlaceholder ? (
+																		<div className="text-[11px] text-text-menuDesc">Generating…</div>
+																	) : structured ? (
+																		<CodeReviewAssistantMessage
+																			output={structured}
+																			completed={!!e.completed}
+																		/>
+																	) : (
+																		<ChatMarkdown
+																			text={e.text}
+																			className="text-[11px] text-text-menuDesc"
+																			dense
+																		/>
+																	)}
+																</div>
+															);
+														}
+
+														if (e.kind === 'command') {
+															const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+															const displayContent = [
+																`$ ${e.command}`,
+																e.cwd ? `cwd: ${e.cwd}` : '',
+																e.output ?? '',
+															]
+																.filter(Boolean)
+																.join('\n');
+															// Smart command parsing for better titles
+															const parsed = resolveParsedCmd(e.command, e.commandActions);
+															const isFinished = e.status !== 'inProgress';
+															const summary = getCmdSummary(parsed, isFinished);
+															const useMono = parsed.type === 'unknown' || parsed.type === 'format' || parsed.type === 'test' || parsed.type === 'lint';
+																return (
+																	<ActivityBlock
+																		key={e.id}
+																		titlePrefix={summary.prefix}
+																		titleContent={summary.content}
+																		titleMono={useMono}
+																		status={e.status !== 'completed' ? e.status : undefined}
+																		copyContent={displayContent.replace(/\x1b\[[0-9;]*m/g, '')}
+																		icon={<Terminal className="h-3.5 w-3.5" />}
+																		contentVariant="ansi"
+																		collapsible
+																		collapsed={collapsed}
+																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
+																		approval={e.approval}
+																		onApprove={approve}
+																>
+																	{displayContent}
+																</ActivityBlock>
+															);
+														}
+
+														if (e.kind === 'fileChange') {
+															const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+															const fullContent = e.changes
+																.map((c) => `${c.path}\n${c.diff ?? ''}`)
+																.join('\n\n');
+
+															const isFinished = e.status === 'completed';
+															const titlePrefix = isFinished ? 'Edited' : 'Editing';
+
+																return (
+																	<ActivityBlock
+																		key={e.id}
+																		titlePrefix={titlePrefix}
+																		titleContent={e.changes.map((c) => c.path).join(', ')}
+																		status={e.status !== 'completed' ? e.status : undefined}
+																		copyContent={fullContent}
+																		icon={<FileText className="h-3.5 w-3.5" />}
+																		contentClassName="font-sans"
+																		collapsible
+																		collapsed={collapsed}
+																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
+																		approval={e.approval}
+																		onApprove={approve}
+																	>
+																		<div className="space-y-4">
+																			{e.changes.map((change) => (
+																				<div key={change.path} className="space-y-1">
+																					<div className="text-[10px] font-medium text-text-muted">{change.path}</div>
+																					{change.diff ? (
+																						<div className="whitespace-pre-wrap break-words font-mono text-[11px] text-text-muted">
+																							{renderAnsiText(change.diff)}
+																						</div>
+																					) : (
+																						<div className="text-[10px] italic text-text-muted">No changes yet</div>
+																					)}
+																				</div>
+																			))}
+																		</div>
+																	</ActivityBlock>
+															);
+														}
+
+														if (e.kind === 'webSearch') {
+															const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+																return (
+																	<ActivityBlock
+																		key={e.id}
+																		titlePrefix="Web search"
+																		titleContent={e.query}
+																		copyContent={e.query}
+																		icon={<Search className="h-3.5 w-3.5" />}
+																		contentVariant="plain"
+																		collapsible
+																		collapsed={collapsed}
+																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
+																	>
+																		{e.query}
+																</ActivityBlock>
+															);
+														}
+
+														if (e.kind === 'mcp') {
+															const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+															const contentBlocks = Array.isArray(e.result?.content) ? e.result?.content ?? [] : [];
+															const structuredContent = e.result?.structuredContent ?? null;
+															const errorMessage = e.error?.message;
+															const progressMessage = !e.result && !e.error ? e.message : undefined;
+															// Format MCP title with argument preview (VS Code plugin parity)
+															const argsPreview = formatMcpArgsPreview(e.arguments);
+															const toolLabel = `${e.server}.${e.tool}(${argsPreview})`;
+															const hasContent = contentBlocks.length > 0;
+															const hasStructured = structuredContent !== null && structuredContent !== undefined;
+															const copyContent = [
+																hasContent ? mcpContentToText(contentBlocks) : '',
+																hasStructured ? stringifyJsonSafe(structuredContent) : '',
+																errorMessage ?? '',
+																progressMessage ?? '',
+															]
+																.filter(Boolean)
+																.join('\n\n');
+																return (
+																	<ActivityBlock
+																		key={e.id}
+																		titlePrefix="MCP:"
+																		titleContent={toolLabel}
+																		titleMono
+																		status={e.status !== 'completed' ? e.status : undefined}
+																		copyContent={copyContent || toolLabel}
+																		icon={<Wrench className="h-3.5 w-3.5" />}
+																		contentClassName="font-sans"
+																		collapsible
+																		collapsed={collapsed}
+																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
+																	>
+																		<div className="space-y-2">
+																			{progressMessage ? (
+																				<div className="text-[10px] text-text-muted">{progressMessage}</div>
+																			) : null}
+																			{hasContent ? renderMcpContentBlocks(contentBlocks) : null}
+																			{errorMessage ? (
+																				<div className="whitespace-pre-wrap text-[10px] text-status-error">{errorMessage}</div>
+																			) : null}
+																			{hasStructured ? (
+																				<pre className="whitespace-pre-wrap break-words rounded-md bg-white/5 px-2 py-1 text-[10px] text-text-muted">
+																					{stringifyJsonSafe(structuredContent)}
+																				</pre>
+																			) : null}
+																			{!progressMessage && !hasContent && !errorMessage && !hasStructured ? (
+																				<div className="text-[10px] text-text-muted">Tool returned no content</div>
+																			) : null}
+																		</div>
+																	</ActivityBlock>
+																);
+														}
 
 														if (e.kind === 'assistant' && e.role === 'reasoning') {
 															const collapsed = e.streaming
 																? false
 																: (collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails);
-															return (
-																<div key={e.id} className="min-w-0">
-																	<div
-																		className={[
-																			'am-row group flex min-w-0 items-center justify-between gap-2',
-																			'am-row-hover cursor-pointer',
-																		].join(' ')}
-																		role="button"
-																		tabIndex={0}
-																		onClick={() => toggleEntryCollapse(e.id)}
-																		onKeyDown={(ev) => {
-																			if (ev.key === 'Enter' || ev.key === ' ') {
-																				ev.preventDefault();
-																				toggleEntryCollapse(e.id);
-																			}
-																		}}
+
+															// Extract heading from markdown (VS Code plugin parity)
+															const { heading, body } = extractHeadingFromMarkdown(e.text);
+															const hasHeading = !!heading;
+															const titlePrefix = hasHeading ? '' : e.streaming ? 'Thinking' : 'Thought';
+															const titleContent = heading || '';
+															const displayBody = hasHeading ? body : e.text;
+
+																return (
+																	<ActivityBlock
+																		key={e.id}
+																		titlePrefix={titlePrefix}
+																		titleContent={titleContent}
+																		status={e.streaming ? 'Streaming…' : undefined}
+																		copyContent={e.text}
+																		icon={<Brain className="h-3.5 w-3.5" />}
+																		contentVariant="markdown"
+																		collapsible
+																		collapsed={collapsed}
+																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
 																	>
-																		<div className="min-w-0 flex-1 truncate text-[12px]">
-																			<span className="inline-flex min-w-0 items-center gap-2">
-																				<span className="shrink-0 text-text-menuDesc">
-																					<Brain className="h-3.5 w-3.5" />
-																				</span>
-																				<span className="am-row-title truncate">Thinking</span>
-																			</span>
-																			{e.streaming ? (
-																				<span className="ml-2 text-[10px] text-text-menuDesc">Streaming…</span>
-																			) : null}
-																		</div>
-																		<ChevronDown
-																			className={[
-																				'h-4 w-4 text-text-menuDesc transition-transform',
-																				!collapsed ? 'rotate-180' : '',
-																			].join(' ')}
+																		<ChatMarkdown
+																			text={displayBody}
+																			className="text-[11px] text-text-muted"
+																			dense
 																		/>
-																	</div>
-																		<Collapse open={!collapsed} innerClassName="pt-0.5 pl-2 pr-1 pb-1">
-																			<div className="am-scroll-fade max-h-[260px] overflow-auto rounded-md bg-token-codeBackground/8 px-2 py-1.5">
-																				<ChatMarkdown
-																					text={e.text}
-																					className="text-[11px] text-text-menuDesc"
-																					dense
-																				/>
-																			</div>
-																		</Collapse>
-																</div>
-															);
+																	</ActivityBlock>
+																);
 														}
 
 														if (e.kind === 'system') {
@@ -3300,8 +3974,9 @@ export function CodexChat() {
 															);
 														}
 
-													return null;
-												})}
+														return null;
+													});
+												})()}
 											</div>
 										</Collapse>
 									) : null}
@@ -3577,9 +4252,8 @@ export function CodexChat() {
 												{filteredPromptsForSlashMenu.length > 0 && (
 													<>
 														<div
-															className={`${MENU_STYLES.popoverTitle} ${
-																filteredSlashCommands.length > 0 ? 'mt-2 border-t border-border-menuDivider pt-2' : ''
-															}`}
+															className={`${MENU_STYLES.popoverTitle} ${filteredSlashCommands.length > 0 ? 'mt-2 border-t border-border-menuDivider pt-2' : ''
+																}`}
 														>
 															Prompts
 														</div>
@@ -3614,11 +4288,10 @@ export function CodexChat() {
 												{filteredSkillsForSlashMenu.length > 0 && (
 													<>
 														<div
-															className={`${MENU_STYLES.popoverTitle} ${
-																filteredSlashCommands.length > 0 || filteredPromptsForSlashMenu.length > 0
-																	? 'mt-2 border-t border-border-menuDivider pt-2'
-																	: ''
-															}`}
+															className={`${MENU_STYLES.popoverTitle} ${filteredSlashCommands.length > 0 || filteredPromptsForSlashMenu.length > 0
+																? 'mt-2 border-t border-border-menuDivider pt-2'
+																: ''
+																}`}
 														>
 															Skills
 														</div>
@@ -3818,9 +4491,8 @@ export function CodexChat() {
 									onClick={() => setAutoContextEnabled((v) => !v)}
 									title={
 										autoContext
-											? `cwd: ${autoContext.cwd}\nRecent: ${autoContext.recentFiles.length} files\nGit: ${
-													autoContext.gitStatus?.branch ?? 'N/A'
-											  }`
+											? `cwd: ${autoContext.cwd}\nRecent: ${autoContext.recentFiles.length} files\nGit: ${autoContext.gitStatus?.branch ?? 'N/A'
+											}`
 											: 'Auto context'
 									}
 								>
@@ -3900,8 +4572,8 @@ export function CodexChat() {
 										{approvalPolicy === 'never'
 											? 'Agent (full access)'
 											: approvalPolicy === 'untrusted'
-											? 'Agent'
-											: 'Custom'}
+												? 'Agent'
+												: 'Custom'}
 									</span>
 									<ChevronDown className="h-3 w-3" />
 								</button>
@@ -3921,9 +4593,8 @@ export function CodexChat() {
 											<Users className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 											<span>Agent</span>
 											<Check
-												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${
-													approvalPolicy === 'untrusted' ? '' : 'invisible'
-												}`}
+												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${approvalPolicy === 'untrusted' ? '' : 'invisible'
+													}`}
 											/>
 										</button>
 										<button
@@ -3938,9 +4609,8 @@ export function CodexChat() {
 											<Zap className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 											<span>Agent (full access)</span>
 											<Check
-												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${
-													approvalPolicy === 'never' ? '' : 'invisible'
-												}`}
+												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${approvalPolicy === 'never' ? '' : 'invisible'
+													}`}
 											/>
 										</button>
 										<button
@@ -3955,9 +4625,8 @@ export function CodexChat() {
 											<FileText className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 											<span>Custom (config.toml)</span>
 											<Check
-												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${
-													approvalPolicy === 'on-request' || approvalPolicy === 'on-failure' ? '' : 'invisible'
-												}`}
+												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${approvalPolicy === 'on-request' || approvalPolicy === 'on-failure' ? '' : 'invisible'
+													}`}
 											/>
 										</button>
 									</div>

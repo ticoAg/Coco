@@ -64,6 +64,13 @@
 为了避免“AI 过程性输出”在展开后占用过多高度，Working 区域条目采用 Codex 插件风格的紧凑行：
 
 - 默认仅显示 1 行摘要（`Ran ...` / `Edited ...` / `MCP ...` / `Thinking` / system notice）。
+- `commandExecution` 优先使用 `commandActions` 生成语义化摘要；当没有结构化信息时回退到命令字符串解析。
+- 连续的 `read` 类命令会合并为 Reading 组，摘要与文件 chip 顺序对齐插件行为。
+- MCP tool call 展开后展示 content/structuredContent/错误信息，标题含参数预览。
+- 历史会话恢复时补齐 `reasoning` items（从 rollout `response_item.type=reasoning` 提取 summary/content），确保标题可对齐插件的 reasoning heading。
+- `showReasoning` 默认开启（通过 settings key 升级让老用户也能看到 reasoning）。
+- Block 详情区默认与标题同亮度（`text-text-muted`），并对内容自动换行（`whitespace-pre-wrap` + `break-words`）。
+- Block 内文本支持 Markdown 渲染（Reasoning/MCP text 等），命令输出保留 ANSI 彩色显示。
 - 点击摘要行才展开详情区（命令输出 / diff / reasoning markdown 等）。
 - 样式类在 `apps/gui/src/index.css`：`.am-row` / `.am-row-hover` / `.am-row-title`，强调“轻 hover + 标题轻微提亮”，避免明显分割线与厚重卡片区域。
 - Working 列表采用极小间距（`space-y-0`），主要依赖 `.am-row` 自身 padding 提供“呼吸感”。
@@ -152,7 +159,7 @@
 ### 5.1 本期（CodexChat 收尾/优化）
 
 - [ ] WorkingHeader 显示更丰富摘要（例如：exec/read/mcp 数量分布、错误状态提示）
-- [ ] Reasoning 卡片标题增强：从 Markdown heading/strong 提取标题（参考插件 `useExtractHeading`）
+- [x] Reasoning 卡片标题增强：从 Markdown heading/strong 提取标题（参考插件 `useExtractHeading`）
 - [ ] 卡片动作区补齐（复制/展开/更多 actions），并统一 `group-hover` 显隐策略
 - [ ] 统一 `ActivityBlock` 的“摘要行/展开区”布局到更像 `TimelineItem` 的 offset 结构
 
