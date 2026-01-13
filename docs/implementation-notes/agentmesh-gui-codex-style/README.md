@@ -68,7 +68,7 @@
 - 连续的 `read` 类命令会合并为 Reading 组，摘要与文件 chip 顺序对齐插件行为。
 - MCP tool call 展开后展示 content/structuredContent/错误信息，标题含参数预览。
 - 命令输出区域仅显示输出内容（不重复显示命令行/`cwd`），并在历史恢复时兼容 `function_call_output.output` 为字符串或对象。
-- 历史会话恢复时补齐 `reasoning` items（从 rollout `response_item.type=reasoning` 提取 summary/content），确保标题可对齐插件的 reasoning heading。
+- 历史会话恢复会合并 rollout 的工具类活动（command/mcp/fileChange/webSearch），补齐 tool 输出字段；summary-only reasoning 会被保留，并按 rollout 事件顺序重排 items 以保持原始时间顺序。
 - `showReasoning` 默认开启（通过 settings key 升级让老用户也能看到 reasoning）。
 - Block 详情区默认与标题同亮度（`text-text-muted`），除命令输出外内容自动换行（`whitespace-pre-wrap` + `break-words`）。
 - Block 内文本支持 Markdown 渲染（Reasoning/MCP text 等），命令输出保留 ANSI 彩色显示。
@@ -76,6 +76,26 @@
 - 样式类在 `apps/gui/src/index.css`：`.am-row` / `.am-row-hover` / `.am-row-title`，强调“轻 hover + 标题轻微提亮”，避免明显分割线与厚重卡片区域。
 - Working 列表采用极小间距（`space-y-0`），主要依赖 `.am-row` 自身 padding 提供“呼吸感”。
 - **默认折叠策略（对齐 VSCode plugin）**：每次展开 `Finished working`（即非 `inProgress` 的 turn）时，内部所有可折叠 block 都强制回到折叠状态，避免长输出“炸屏”。实现见 `CodexChat.tsx` 的 `toggleTurnWorking`。
+
+#### 2.4.1 历史会话恢复：rollout 顺序对齐（保留 summary-only reasoning）
+
+问题背景：
+- rollout 的 `response_item.reasoning` 只有 summary（无 content），且通常缺少 id。
+- server 的 `reasoning` 有正文，但不会保留 summary-only 项。
+
+当前策略：
+- **顺序以 rollout 为主轴**：rollout 提供“事件顺序”，用于还原 tool/command 的真实时间线。
+- **summary-only reasoning 保留**：当 rollout 仅有 summary 时，额外插入一个带标题的 reasoning item；合并后仅对相邻 reasoning block 做去重（若一条内容完全包含另一条，则丢弃较短者）。
+- **工具类按 id 合并并补齐输出**：command/mcp/fileChange/webSearch 使用 `type+id` 合并，优先保留 server item，同时补齐 rollout 中缺失的输出字段。
+
+实现要点：
+- rollout 解析时，为 reasoning/agentMessage/userMessage 写入占位，并在 summary-only 情况下生成一个独立 reasoning item。
+- 合并时按 rollout 顺序推进：遇到占位就从 server 队列中取下一条同类型 item 插入；遇到有 id 的工具项则合并字段（补输出）。
+- 最后把 server 里未消费的 item 追加，避免丢失数据。
+
+相关实现位置：
+- `apps/gui/src-tauri/src/codex_rollout_restore.rs`：`parse_rollout_activity_by_turn` 与 `merge_turn_items`
+- `apps/gui/src-tauri/src/lib.rs`：`codex_thread_resume` 调用 merge
 
 ### 2.5 Diff 摘要 + 折叠内容（Block 形式）
 

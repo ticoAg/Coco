@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use log::warn;
@@ -72,6 +72,225 @@ fn extract_text_list(value: Option<&Value>) -> Vec<String> {
         Some(Value::Array(items)) => items.iter().filter_map(extract_text_value).collect(),
         Some(other) => extract_text_value(other).map(|v| vec![v]).unwrap_or_default(),
         None => Vec::new(),
+    }
+}
+
+const ROLLOUT_PLACEHOLDER_KEY: &str = "__rollout_placeholder";
+
+fn rollout_placeholder(kind: &str) -> Value {
+    serde_json::json!({ ROLLOUT_PLACEHOLDER_KEY: kind })
+}
+
+fn rollout_placeholder_kind(item: &Value) -> Option<&str> {
+    item.get(ROLLOUT_PLACEHOLDER_KEY).and_then(|v| v.as_str())
+}
+
+fn normalize_type_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+fn item_type_key(item: &Value) -> Option<String> {
+    item.get("type").and_then(|v| v.as_str()).map(normalize_type_key)
+}
+
+fn item_key(item: &Value) -> Option<String> {
+    let type_key = item_type_key(item)?;
+    let id = item.get("id").and_then(|v| v.as_str())?;
+    Some(format!("{type_key}:{id}"))
+}
+
+fn value_is_missing(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) => true,
+        Some(Value::String(text)) => text.is_empty(),
+        Some(Value::Array(items)) => items.is_empty(),
+        _ => false,
+    }
+}
+
+fn normalize_reasoning_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn extract_reasoning_text(item: &Value) -> Option<String> {
+    if item_type_key(item).as_deref() != Some("reasoning") {
+        return None;
+    }
+    let summary = extract_text_list(item.get("summary"));
+    let content = extract_text_list(item.get("content"));
+    if summary.is_empty() && content.is_empty() {
+        return None;
+    }
+    let combined = [summary, content].concat().join("\n");
+    Some(normalize_reasoning_text(&combined))
+}
+
+fn is_reasoning_item(item: &Value) -> bool {
+    item_type_key(item).as_deref() == Some("reasoning")
+}
+
+fn should_update_status(base_status: Option<&Value>, rollout_status: Option<&Value>) -> bool {
+    let Some(rollout_status) = rollout_status.and_then(|v| v.as_str()) else {
+        return false;
+    };
+    match base_status.and_then(|v| v.as_str()) {
+        None => true,
+        Some("inProgress") => true,
+        Some("completed") | Some("failed") | Some("declined") => false,
+        Some(_) => rollout_status != "inProgress",
+    }
+}
+
+fn merge_file_change_changes(base: &Value, rollout: &Value) -> Value {
+    let (Some(base_changes), Some(rollout_changes)) = (
+        base.as_array().cloned(),
+        rollout.as_array().cloned(),
+    ) else {
+        return base.clone();
+    };
+
+    if base_changes.is_empty() && !rollout_changes.is_empty() {
+        return Value::Array(rollout_changes);
+    }
+
+    let mut merged = base_changes;
+    for change in merged.iter_mut() {
+        let Some(path) = change.get("path").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let diff_missing = value_is_missing(change.get("diff"));
+        if !diff_missing {
+            continue;
+        }
+        if let Some(rollout_match) = rollout_changes.iter().find(|c| {
+            c.get("path").and_then(|v| v.as_str()) == Some(path)
+        }) {
+            if let Some(rollout_diff) = rollout_match.get("diff") {
+                if let Some(obj) = change.as_object_mut() {
+                    obj.insert("diff".to_string(), rollout_diff.clone());
+                }
+            }
+        }
+    }
+
+    Value::Array(merged)
+}
+
+fn merge_item_fields(base: &Value, rollout: &Value) -> Value {
+    let (Some(base_obj), Some(rollout_obj)) = (base.as_object(), rollout.as_object()) else {
+        return base.clone();
+    };
+    let mut merged = base_obj.clone();
+    let type_key = item_type_key(base)
+        .or_else(|| item_type_key(rollout))
+        .unwrap_or_default();
+
+    match type_key.as_str() {
+        "commandexecution" => {
+            if value_is_missing(base_obj.get("aggregatedOutput")) {
+                if let Some(output) = rollout_obj.get("aggregatedOutput") {
+                    merged.insert("aggregatedOutput".to_string(), output.clone());
+                }
+            }
+            if value_is_missing(base_obj.get("exitCode")) {
+                if let Some(exit_code) = rollout_obj.get("exitCode") {
+                    merged.insert("exitCode".to_string(), exit_code.clone());
+                }
+            }
+            if value_is_missing(base_obj.get("durationMs")) {
+                if let Some(duration) = rollout_obj.get("durationMs") {
+                    merged.insert("durationMs".to_string(), duration.clone());
+                }
+            }
+            if should_update_status(base_obj.get("status"), rollout_obj.get("status")) {
+                if let Some(status) = rollout_obj.get("status") {
+                    merged.insert("status".to_string(), status.clone());
+                }
+            }
+        }
+        "mcptoolcall" => {
+            if value_is_missing(base_obj.get("result")) {
+                if let Some(result) = rollout_obj.get("result") {
+                    merged.insert("result".to_string(), result.clone());
+                }
+            }
+            if value_is_missing(base_obj.get("error")) {
+                if let Some(error) = rollout_obj.get("error") {
+                    merged.insert("error".to_string(), error.clone());
+                }
+            }
+            if should_update_status(base_obj.get("status"), rollout_obj.get("status")) {
+                if let Some(status) = rollout_obj.get("status") {
+                    merged.insert("status".to_string(), status.clone());
+                }
+            }
+        }
+        "filechange" => {
+            if let Some(rollout_changes) = rollout_obj.get("changes") {
+                let merged_changes = merge_file_change_changes(
+                    base_obj.get("changes").unwrap_or(&Value::Null),
+                    rollout_changes,
+                );
+                if !value_is_missing(Some(&merged_changes)) {
+                    merged.insert("changes".to_string(), merged_changes);
+                }
+            }
+            if should_update_status(base_obj.get("status"), rollout_obj.get("status")) {
+                if let Some(status) = rollout_obj.get("status") {
+                    merged.insert("status".to_string(), status.clone());
+                }
+            }
+        }
+        _ => {}
+    }
+
+    Value::Object(merged)
+}
+
+fn dedupe_adjacent_reasoning(items: Vec<Value>) -> Vec<Value> {
+    const MIN_COMPARE_LEN: usize = 8;
+    let mut out: Vec<Value> = Vec::with_capacity(items.len());
+    for item in items {
+        if let Some(prev) = out.last() {
+            if is_reasoning_item(prev) && is_reasoning_item(&item) {
+                let prev_text = extract_reasoning_text(prev);
+                let curr_text = extract_reasoning_text(&item);
+                if let (Some(prev_text), Some(curr_text)) = (prev_text, curr_text) {
+                    let prev_len = prev_text.len();
+                    let curr_len = curr_text.len();
+                    if prev_len >= MIN_COMPARE_LEN
+                        && curr_len >= MIN_COMPARE_LEN
+                        && (prev_text.contains(&curr_text) || curr_text.contains(&prev_text))
+                    {
+                        if prev_len >= curr_len {
+                            continue;
+                        }
+                        out.pop();
+                    }
+                }
+            }
+        }
+        out.push(item);
+    }
+    out
+}
+
+fn push_from_queue(
+    queue: &mut VecDeque<usize>,
+    base_items: &[Value],
+    used: &mut [bool],
+    merged: &mut Vec<Value>,
+) {
+    while let Some(idx) = queue.pop_front() {
+        if idx < base_items.len() && !used[idx] {
+            merged.push(base_items[idx].clone());
+            used[idx] = true;
+            break;
+        }
     }
 }
 
@@ -290,24 +509,32 @@ async fn parse_rollout_activity_by_turn(
                 if summary.is_empty() && content.is_empty() {
                     continue;
                 }
-                let id = payload
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| {
-                        format!(
-                            "reasoning-{}-{}",
-                            turn_index,
-                            per_turn[turn_index].len() + 1
-                        )
+                if !summary.is_empty() && content.is_empty() {
+                    let id = format!(
+                        "rollout-reasoning-{}-{}",
+                        turn_index,
+                        per_turn[turn_index].len() + 1
+                    );
+                    let item = serde_json::json!({
+                        "type": "reasoning",
+                        "id": id,
+                        "summary": summary,
+                        "content": Vec::<String>::new(),
                     });
-                let item = serde_json::json!({
-                    "type": "reasoning",
-                    "id": id,
-                    "summary": summary,
-                    "content": content,
-                });
-                per_turn[turn_index].push(item);
+                    per_turn[turn_index].push(item);
+                }
+                per_turn[turn_index].push(rollout_placeholder("reasoning"));
+            }
+            "message" => {
+                let role = payload.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                let placeholder = match role {
+                    "assistant" => Some("agentMessage"),
+                    "user" => Some("userMessage"),
+                    _ => None,
+                };
+                if let Some(kind) = placeholder {
+                    per_turn[turn_index].push(rollout_placeholder(kind));
+                }
             }
             "function_call" => {
                 let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
@@ -585,21 +812,66 @@ async fn parse_rollout_activity_by_turn(
     Ok(per_turn)
 }
 
-fn inject_turn_items(target_items: &mut Vec<Value>, additional: Vec<Value>) {
-    for item in additional {
-        let item_type = item.get("type").and_then(|v| v.as_str());
-        let item_id = item.get("id").and_then(|v| v.as_str());
-        if item_type.is_none() || item_id.is_none() {
-            continue;
+fn merge_turn_items(target_items: &mut Vec<Value>, rollout_items: Vec<Value>) {
+    if rollout_items.is_empty() {
+        return;
+    }
+
+    let base_items = std::mem::take(target_items);
+    let mut key_to_index: HashMap<String, usize> = HashMap::new();
+    let mut reasoning_queue: VecDeque<usize> = VecDeque::new();
+    let mut agent_queue: VecDeque<usize> = VecDeque::new();
+    let mut user_queue: VecDeque<usize> = VecDeque::new();
+
+    for (idx, item) in base_items.iter().enumerate() {
+        if let Some(type_key) = item_type_key(item) {
+            match type_key.as_str() {
+                "reasoning" => reasoning_queue.push_back(idx),
+                "agentmessage" => agent_queue.push_back(idx),
+                "usermessage" => user_queue.push_back(idx),
+                _ => {}
+            }
         }
-        let exists = target_items.iter().any(|existing| {
-            existing.get("type").and_then(|v| v.as_str()) == item_type
-                && existing.get("id").and_then(|v| v.as_str()) == item_id
-        });
-        if !exists {
-            target_items.push(item);
+        if let Some(key) = item_key(item) {
+            key_to_index.entry(key).or_insert(idx);
         }
     }
+
+    let mut used = vec![false; base_items.len()];
+    let mut merged: Vec<Value> = Vec::with_capacity(base_items.len() + rollout_items.len());
+
+    for item in rollout_items {
+        if let Some(kind) = rollout_placeholder_kind(&item) {
+            match kind {
+                "reasoning" => push_from_queue(&mut reasoning_queue, &base_items, &mut used, &mut merged),
+                "agentMessage" => push_from_queue(&mut agent_queue, &base_items, &mut used, &mut merged),
+                "userMessage" => push_from_queue(&mut user_queue, &base_items, &mut used, &mut merged),
+                _ => {}
+            }
+            continue;
+        }
+
+        if let Some(key) = item_key(&item) {
+            if let Some(&idx) = key_to_index.get(&key) {
+                if !used[idx] {
+                    let merged_item = merge_item_fields(&base_items[idx], &item);
+                    merged.push(merged_item);
+                    used[idx] = true;
+                    continue;
+                }
+            }
+        }
+
+        merged.push(item);
+    }
+
+    for (idx, item) in base_items.into_iter().enumerate() {
+        if !used[idx] {
+            merged.push(item);
+        }
+    }
+
+    *target_items = dedupe_adjacent_reasoning(merged);
 }
 
 pub async fn augment_thread_resume_response(res: Value, thread_id: &str) -> Result<Value, String> {
@@ -668,7 +940,7 @@ pub async fn augment_thread_resume_response(res: Value, thread_id: &str) -> Resu
             continue;
         };
         let additional = activity_by_turn.get(idx).cloned().unwrap_or_default();
-        inject_turn_items(items, additional);
+        merge_turn_items(items, additional);
     }
 
     Ok(res)
