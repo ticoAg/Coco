@@ -28,7 +28,7 @@ Release workflow 会校验 tag 版本与以下文件一致（不一致会直接�
 本地可先跑一遍校验：
 
 ```bash
-node scripts/check-version.mjs --expected 0.1.0
+node scripts/check-version.mjs --expected 1.0.0
 ```
 
 ### 2) 提交并 push
@@ -78,4 +78,3 @@ npm run tauri:build -- --target universal-apple-darwin --bundles dmg --no-sign -
 产物目录通常在：
 
 `apps/gui/src-tauri/target/**/bundle/dmg/*.dmg`
-
