@@ -91,6 +91,27 @@ fn parse_exec_command_from_args(arguments: &str) -> (String, Option<String>) {
     (cmd, cwd)
 }
 
+fn extract_output_text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.to_string(),
+        Value::Object(map) => {
+            if let Some(text) = map.get("content").and_then(|v| v.as_str()) {
+                return text.to_string();
+            }
+            if let Some(text) = map.get("output").and_then(|v| v.as_str()) {
+                return text.to_string();
+            }
+            let stdout = map.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
+            let stderr = map.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
+            if !stdout.is_empty() || !stderr.is_empty() {
+                return [stdout, stderr].join("");
+            }
+            String::new()
+        }
+        _ => String::new(),
+    }
+}
+
 #[derive(Debug, Clone)]
 struct PatchFileSegment {
     path: String,
@@ -459,10 +480,8 @@ async fn parse_rollout_activity_by_turn(
                 }
                 let content = payload
                     .get("output")
-                    .and_then(|o| o.get("content"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                    .map(extract_output_text)
+                    .unwrap_or_default();
                 let success = payload
                     .get("output")
                     .and_then(|o| o.get("success"))

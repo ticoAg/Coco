@@ -67,16 +67,29 @@
 - `commandExecution` 优先使用 `commandActions` 生成语义化摘要；当没有结构化信息时回退到命令字符串解析。
 - 连续的 `read` 类命令会合并为 Reading 组，摘要与文件 chip 顺序对齐插件行为。
 - MCP tool call 展开后展示 content/structuredContent/错误信息，标题含参数预览。
+- 命令输出区域仅显示输出内容（不重复显示命令行/`cwd`），并在历史恢复时兼容 `function_call_output.output` 为字符串或对象。
 - 历史会话恢复时补齐 `reasoning` items（从 rollout `response_item.type=reasoning` 提取 summary/content），确保标题可对齐插件的 reasoning heading。
 - `showReasoning` 默认开启（通过 settings key 升级让老用户也能看到 reasoning）。
-- Block 详情区默认与标题同亮度（`text-text-muted`），并对内容自动换行（`whitespace-pre-wrap` + `break-words`）。
+- Block 详情区默认与标题同亮度（`text-text-muted`），除命令输出外内容自动换行（`whitespace-pre-wrap` + `break-words`）。
 - Block 内文本支持 Markdown 渲染（Reasoning/MCP text 等），命令输出保留 ANSI 彩色显示。
 - 点击摘要行才展开详情区（命令输出 / diff / reasoning markdown 等）。
 - 样式类在 `apps/gui/src/index.css`：`.am-row` / `.am-row-hover` / `.am-row-title`，强调“轻 hover + 标题轻微提亮”，避免明显分割线与厚重卡片区域。
 - Working 列表采用极小间距（`space-y-0`），主要依赖 `.am-row` 自身 padding 提供“呼吸感”。
 - **默认折叠策略（对齐 VSCode plugin）**：每次展开 `Finished working`（即非 `inProgress` 的 turn）时，内部所有可折叠 block 都强制回到折叠状态，避免长输出“炸屏”。实现见 `CodexChat.tsx` 的 `toggleTurnWorking`。
 
-### 2.5 AI 消息 block（assistant-message）数据来源对齐
+### 2.5 Diff 摘要 + 折叠内容（Block 形式）
+
+为对齐 VSCode Codex 插件的“摘要信息密度”，`fileChange` 采用摘要行 + 折叠内容的形式：
+
+- **摘要行**：展示 `Edited/Added/Deleted` + 文件路径（多文件时显示 `N files`），右侧显示 `+/-` 统计。
+- **展开内容**：点击标题展开后，按文件分组渲染 diff。
+- **渲染风格**：参考 `codex/codex-rs/tui2/src/diff_render.rs`，保留行号、红删绿增、`+/-` 统计。
+- **换行策略**：diff 行不自动换行，超长行通过横向滚动查看。
+- **统计逻辑**：优先从 unified diff 统计；若无 hunk 且 `kind` 为 add/delete，则把原始内容行视为新增/删除（兼容 v2 `FileChange` 的 `diff` 仅包含原文的情况）。
+
+落点：`apps/gui/src/components/CodexChat.tsx`（`buildFileChangeSummary` / `renderDiffLines` / fileChange 展开渲染）。
+
+### 2.6 AI 消息 block（assistant-message）数据来源对齐
 
 对齐来源：`docs/implementation-notes/codex-vscode-plugin/plugin-index.js` 中的 `mapStateToLocalConversationItems` 与 `splitItemsIntoRenderGroups`。
 

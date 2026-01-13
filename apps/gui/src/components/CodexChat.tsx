@@ -110,7 +110,7 @@ type ChatEntry =
 		kind: 'fileChange';
 		id: string;
 		status: string;
-		changes: Array<{ path: string; diff?: string }>;
+		changes: Array<{ path: string; diff?: string; kind?: unknown }>;
 		approval?: {
 			requestId: number;
 			decision?: 'accept' | 'decline';
@@ -595,6 +595,43 @@ type AnsiTextStyle = {
 	underline?: boolean;
 };
 
+type DiffLineKind = 'insert' | 'delete' | 'context' | 'ellipsis';
+
+type ParsedDiffLine = {
+	kind: DiffLineKind;
+	text: string;
+	lineNumber?: number;
+};
+
+type ParsedDiff = {
+	lines: ParsedDiffLine[];
+	added: number;
+	removed: number;
+	lineNumberWidth: number;
+};
+
+type ParsedFileChangeKind = {
+	type: 'add' | 'delete' | 'update';
+	movePath?: string;
+};
+
+type DiffReviewChange = {
+	path: string;
+	movePath?: string;
+	kind: ParsedFileChangeKind;
+	diff: string;
+	parsed: ParsedDiff;
+};
+
+type FileChangeSummary = {
+	id: string;
+	titlePrefix: string;
+	titleContent: string;
+	totalAdded: number;
+	totalRemoved: number;
+	changes: DiffReviewChange[];
+};
+
 function ansiColorClass(code: number): string | undefined {
 	// Basic 16-color-ish mapping (focus on common git colors: red/green/yellow).
 	switch (code) {
@@ -764,6 +801,236 @@ function renderAnsiText(text: string): React.ReactNode {
 	return parts.length === 1 ? parts[0] : parts;
 }
 
+function parseUnifiedDiff(diff: string): ParsedDiff {
+	const rawLines = diff.split(/\r?\n/);
+	let oldLine = 0;
+	let newLine = 0;
+	let sawHunk = false;
+	let added = 0;
+	let removed = 0;
+	let maxLineNumber = 0;
+	const lines: ParsedDiffLine[] = [];
+	let inHunk = false;
+
+	const pushLine = (kind: DiffLineKind, text: string, lineNumber?: number) => {
+		if (typeof lineNumber === 'number') {
+			maxLineNumber = Math.max(maxLineNumber, lineNumber);
+		}
+		lines.push({ kind, text, lineNumber });
+	};
+
+	for (const raw of rawLines) {
+		const line = raw.replace(/\r$/, '');
+		const hunkMatch = line.match(/^@@\s*-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s*@@/);
+		if (hunkMatch) {
+			if (sawHunk) {
+				pushLine('ellipsis', '⋮');
+			}
+			sawHunk = true;
+			inHunk = true;
+			oldLine = Number(hunkMatch[1]);
+			newLine = Number(hunkMatch[2]);
+			continue;
+		}
+
+		if (!inHunk) {
+			continue;
+		}
+
+		if (line.startsWith('+') && !line.startsWith('+++')) {
+			const text = line.slice(1);
+			pushLine('insert', text, newLine);
+			newLine += 1;
+			added += 1;
+			continue;
+		}
+		if (line.startsWith('-') && !line.startsWith('---')) {
+			const text = line.slice(1);
+			pushLine('delete', text, oldLine);
+			oldLine += 1;
+			removed += 1;
+			continue;
+		}
+		if (line.startsWith(' ')) {
+			const text = line.slice(1);
+			pushLine('context', text, newLine);
+			oldLine += 1;
+			newLine += 1;
+			continue;
+		}
+	}
+
+	if (!sawHunk) {
+		let fallbackLine = 1;
+		for (const raw of rawLines) {
+			const line = raw.replace(/\r$/, '');
+			if (line.startsWith('+') && !line.startsWith('+++')) {
+				pushLine('insert', line.slice(1), fallbackLine);
+				fallbackLine += 1;
+				added += 1;
+				continue;
+			}
+			if (line.startsWith('-') && !line.startsWith('---')) {
+				pushLine('delete', line.slice(1), fallbackLine);
+				fallbackLine += 1;
+				removed += 1;
+				continue;
+			}
+			if (line.startsWith(' ')) {
+				pushLine('context', line.slice(1), fallbackLine);
+				fallbackLine += 1;
+			}
+		}
+	}
+
+	return {
+		lines,
+		added,
+		removed,
+		lineNumberWidth: maxLineNumber.toString().length || 1,
+	};
+}
+
+function parseFileChangeKind(kind: unknown): ParsedFileChangeKind {
+	const fallback: ParsedFileChangeKind = { type: 'update' };
+	if (!kind) return fallback;
+	if (typeof kind === 'string') {
+		const lower = kind.toLowerCase();
+		if (lower === 'add' || lower === 'delete' || lower === 'update') {
+			return { type: lower as ParsedFileChangeKind['type'] };
+		}
+		return fallback;
+	}
+	if (!isRecord(kind)) return fallback;
+	const rawType = safeString((kind as { type?: unknown }).type).toLowerCase();
+	if (rawType !== 'add' && rawType !== 'delete' && rawType !== 'update') return fallback;
+	const movePath =
+		safeString((kind as { move_path?: unknown }).move_path) ||
+		safeString((kind as { movePath?: unknown }).movePath) ||
+		undefined;
+	if (rawType === 'update' && movePath) {
+		return { type: 'update', movePath };
+	}
+	return { type: rawType as ParsedFileChangeKind['type'] };
+}
+
+function parseDiffForChange(diff: string, kind: ParsedFileChangeKind): ParsedDiff {
+	const parsed = parseUnifiedDiff(diff);
+	if (parsed.lines.length > 0 || !diff) return parsed;
+	if (kind.type !== 'add' && kind.type !== 'delete') return parsed;
+
+	const rawLines = diff.split(/\r?\n/);
+	const trimmedLines =
+		rawLines.length > 0 && rawLines[rawLines.length - 1] === ''
+			? rawLines.slice(0, -1)
+			: rawLines;
+	const contentLines = trimmedLines.filter(
+		(line) =>
+			!(
+				line.startsWith('*** ') ||
+				line.startsWith('+++') ||
+				line.startsWith('---') ||
+				line.startsWith('Index: ')
+			)
+	);
+	let lineNumber = 1;
+	const lines: ParsedDiffLine[] = [];
+	for (const line of contentLines) {
+		lines.push({
+			kind: kind.type === 'add' ? 'insert' : 'delete',
+			text: line,
+			lineNumber,
+		});
+		lineNumber += 1;
+	}
+	const count = contentLines.length;
+	return {
+		lines,
+		added: kind.type === 'add' ? count : 0,
+		removed: kind.type === 'delete' ? count : 0,
+		lineNumberWidth: Math.max(1, count).toString().length,
+	};
+}
+
+function formatDiffPath(path: string, movePath?: string) {
+	if (movePath && movePath !== path) return `${path} → ${movePath}`;
+	return path;
+}
+
+function buildFileChangeSummary(entry: Extract<ChatEntry, { kind: 'fileChange' }>): FileChangeSummary {
+	const changes: DiffReviewChange[] = entry.changes.map((change) => {
+		const kind = parseFileChangeKind(change.kind);
+		const diff = change.diff ?? '';
+		const parsed = parseDiffForChange(diff, kind);
+		return {
+			path: change.path,
+			movePath: kind.movePath,
+			kind,
+			diff,
+			parsed,
+		};
+	});
+	const totalAdded = changes.reduce((sum, change) => sum + change.parsed.added, 0);
+	const totalRemoved = changes.reduce((sum, change) => sum + change.parsed.removed, 0);
+	const fileCount = changes.length;
+	const single = fileCount === 1;
+	const primaryKind = single ? changes[0]?.kind.type : 'update';
+	const titlePrefix =
+		primaryKind === 'add' ? 'Added' : primaryKind === 'delete' ? 'Deleted' : 'Edited';
+	const titleContent = single
+		? formatDiffPath(changes[0]?.path ?? 'file', changes[0]?.movePath)
+		: `${fileCount} ${fileCount === 1 ? 'file' : 'files'}`;
+	return {
+		id: entry.id,
+		titlePrefix,
+		titleContent,
+		totalAdded,
+		totalRemoved,
+		changes,
+	};
+}
+
+function DiffCountBadge({ added, removed }: { added: number; removed: number }) {
+	return (
+		<span className="inline-flex items-center gap-1 text-[10px] font-medium">
+			<span className="text-green-400">+{added}</span>
+			<span className="text-red-400">-{removed}</span>
+		</span>
+	);
+}
+
+function renderDiffLines(parsed: ParsedDiff): React.ReactNode {
+	if (!parsed.lines.length) return null;
+	const gutterWidth = Math.max(parsed.lineNumberWidth, 1);
+	return (
+		<div className="space-y-0.5">
+			{parsed.lines.map((line, idx) => {
+				if (line.kind === 'ellipsis') {
+					return (
+						<div key={`diff-ellipsis-${idx}`} className="text-[10px] text-text-muted/70">
+							⋮
+						</div>
+					);
+				}
+				const lineNo = line.lineNumber ?? 0;
+				const lineClass =
+					line.kind === 'insert' ? 'text-green-400' : line.kind === 'delete' ? 'text-red-400' : 'text-text-muted';
+				return (
+					<div
+						key={`diff-${idx}`}
+						className="grid font-mono text-[11px] leading-snug"
+						style={{ gridTemplateColumns: `${gutterWidth}ch 2ch 1fr` }}
+					>
+						<span className="text-text-muted/60">{String(lineNo).padStart(gutterWidth, ' ')}</span>
+						<span className={lineClass}>{line.kind === 'insert' ? '+' : line.kind === 'delete' ? '-' : ' '}</span>
+						<span className={`${lineClass} whitespace-pre`}>{line.text}</span>
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
 function normalizeMcpContentBlock(block: unknown): McpContentBlock | null {
 	if (!isRecord(block)) return null;
 	const type = safeString(block.type);
@@ -914,6 +1181,8 @@ interface ActivityBlockProps {
 	titleContent: string;
 	/** 标题是否使用等宽字体 */
 	titleMono?: boolean;
+	/** 标题右侧额外操作 */
+	summaryActions?: React.ReactNode;
 	/** 状态文本 */
 	status?: string;
 	/** 复制内容 */
@@ -947,6 +1216,7 @@ function ActivityBlock({
 	titlePrefix,
 	titleContent,
 	titleMono = false,
+	summaryActions,
 	status,
 	copyContent,
 	contentVariant = 'plain',
@@ -1011,14 +1281,15 @@ function ActivityBlock({
 							{titleContent}
 						</span>
 					</span>
-				</div>
-				<div className="flex shrink-0 items-center gap-1.5">
-					{showStatus ? <span className="text-[10px] text-text-menuDesc opacity-80">{status}</span> : null}
-					<button
-						type="button"
-						className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
-						title="Copy content"
-						onClick={(ev) => {
+			</div>
+			<div className="flex shrink-0 items-center gap-1.5">
+				{showStatus ? <span className="text-[10px] text-text-menuDesc opacity-80">{status}</span> : null}
+					{summaryActions ? <div className="flex items-center gap-2">{summaryActions}</div> : null}
+				<button
+					type="button"
+					className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
+					title="Copy content"
+					onClick={(ev) => {
 							ev.stopPropagation();
 							void navigator.clipboard.writeText(copyContent);
 						}}
@@ -1044,7 +1315,11 @@ function ActivityBlock({
 								className={[
 									'min-w-0 text-[11px] leading-relaxed !text-text-muted',
 									useMono ? 'font-mono' : 'font-sans',
-									effectiveVariant === 'markdown' ? 'whitespace-normal' : 'whitespace-pre-wrap break-words',
+									effectiveVariant === 'markdown'
+										? 'whitespace-normal'
+										: effectiveVariant === 'ansi'
+											? 'whitespace-pre'
+											: 'whitespace-pre-wrap break-words',
 									contentClassName ?? '',
 								].join(' ')}
 							>
@@ -1371,7 +1646,7 @@ function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
 				kind: 'fileChange',
 				id: it.id,
 				status: it.status,
-				changes: it.changes.map((c) => ({ path: c.path, diff: c.diff })),
+				changes: it.changes.map((c) => ({ path: c.path, diff: c.diff, kind: c.kind })),
 			};
 		}
 		case 'websearch': {
@@ -3753,13 +4028,7 @@ export function CodexChat() {
 
 														if (e.kind === 'command') {
 															const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-															const displayContent = [
-																`$ ${e.command}`,
-																e.cwd ? `cwd: ${e.cwd}` : '',
-																e.output ?? '',
-															]
-																.filter(Boolean)
-																.join('\n');
+																const displayContent = e.output ?? '';
 															// Smart command parsing for better titles
 															const parsed = resolveParsedCmd(e.command, e.commandActions);
 															const isFinished = e.status !== 'inProgress';
@@ -3780,30 +4049,41 @@ export function CodexChat() {
 																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
 																		approval={e.approval}
 																		onApprove={approve}
-																>
-																	{displayContent}
-																</ActivityBlock>
-															);
+																	>
+																		{displayContent}
+																	</ActivityBlock>
+																);
 														}
 
 														if (e.kind === 'fileChange') {
 															const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-															const fullContent = e.changes
-																.map((c) => `${c.path}\n${c.diff ?? ''}`)
+															const summary = buildFileChangeSummary(e);
+															const fullContent = summary.changes
+																.map((c) => `${formatDiffPath(c.path, c.movePath)}\n${c.diff}`)
 																.join('\n\n');
-
 															const isFinished = e.status === 'completed';
-															const titlePrefix = isFinished ? 'Edited' : 'Editing';
+															const titlePrefix = isFinished
+																? summary.titlePrefix
+																: summary.titlePrefix === 'Added'
+																	? 'Adding'
+																	: summary.titlePrefix === 'Deleted'
+																		? 'Deleting'
+																		: 'Editing';
 
 																return (
 																	<ActivityBlock
 																		key={e.id}
 																		titlePrefix={titlePrefix}
-																		titleContent={e.changes.map((c) => c.path).join(', ')}
+																		titleContent={summary.titleContent}
 																		status={e.status !== 'completed' ? e.status : undefined}
 																		copyContent={fullContent}
 																		icon={<FileText className="h-3.5 w-3.5" />}
 																		contentClassName="font-sans"
+																		summaryActions={
+																			<>
+																				<DiffCountBadge added={summary.totalAdded} removed={summary.totalRemoved} />
+																			</>
+																		}
 																		collapsible
 																		collapsed={collapsed}
 																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
@@ -3811,18 +4091,33 @@ export function CodexChat() {
 																		onApprove={approve}
 																	>
 																		<div className="space-y-4">
-																			{e.changes.map((change) => (
-																				<div key={change.path} className="space-y-1">
-																					<div className="text-[10px] font-medium text-text-muted">{change.path}</div>
-																					{change.diff ? (
-																						<div className="whitespace-pre-wrap break-words font-mono text-[11px] text-text-muted">
-																							{renderAnsiText(change.diff)}
+																			{summary.changes.map((change) => {
+																				const verb =
+																					change.kind.type === 'add'
+																						? 'Added'
+																						: change.kind.type === 'delete'
+																							? 'Deleted'
+																							: 'Edited';
+																				const label = formatDiffPath(change.path, change.movePath);
+																				return (
+																					<div key={`${change.path}-${change.kind.type}`} className="space-y-2">
+																						<div className="flex items-center justify-between gap-2">
+																							<div className="min-w-0 text-[11px] text-text-main">
+																								<span className="text-text-menuLabel">{verb}</span>
+																								<span className="ml-2 truncate">{label}</span>
+																							</div>
+																							<DiffCountBadge added={change.parsed.added} removed={change.parsed.removed} />
 																						</div>
-																					) : (
-																						<div className="text-[10px] italic text-text-muted">No changes yet</div>
-																					)}
-																				</div>
-																			))}
+																						{change.parsed.lines.length > 0 ? (
+																							<div className="rounded-md border border-white/5 bg-black/30 px-2 py-1">
+																								{renderDiffLines(change.parsed)}
+																							</div>
+																						) : (
+																							<div className="text-[10px] italic text-text-muted">No diff content</div>
+																						)}
+																					</div>
+																				);
+																			})}
 																		</div>
 																	</ActivityBlock>
 															);
@@ -3981,25 +4276,25 @@ export function CodexChat() {
 										</Collapse>
 									) : null}
 
-									<div className="space-y-2">
-										{turn.assistantMessageEntries.map((e) => (
-											<div
-												key={e.id}
-												className="px-1 py-1 text-text-muted"
-											>
-												{e.renderPlaceholderWhileStreaming && !e.completed ? (
-													<div className="text-[12px] text-text-menuDesc">Generating…</div>
-												) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
-													<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
-												) : (
-													<ChatMarkdown
-														text={e.text}
-														className="text-text-muted"
-														dense
-													/>
-												)}
-											</div>
-										))}
+										<div className="space-y-2">
+											{turn.assistantMessageEntries.map((e) => (
+												<div
+													key={e.id}
+													className="px-1 py-1 text-[12px] leading-[1.25] text-text-muted"
+												>
+													{e.renderPlaceholderWhileStreaming && !e.completed ? (
+														<div className="text-[12px] text-text-menuDesc">Generating…</div>
+													) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
+														<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
+													) : (
+														<ChatMarkdown
+															text={e.text}
+															className="text-text-muted !leading-[1.25]"
+															dense
+														/>
+													)}
+												</div>
+											))}
 									</div>
 								</div>
 							);
