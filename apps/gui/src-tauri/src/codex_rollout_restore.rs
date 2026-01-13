@@ -70,7 +70,9 @@ fn extract_text_value(value: &Value) -> Option<String> {
 fn extract_text_list(value: Option<&Value>) -> Vec<String> {
     match value {
         Some(Value::Array(items)) => items.iter().filter_map(extract_text_value).collect(),
-        Some(other) => extract_text_value(other).map(|v| vec![v]).unwrap_or_default(),
+        Some(other) => extract_text_value(other)
+            .map(|v| vec![v])
+            .unwrap_or_default(),
         None => Vec::new(),
     }
 }
@@ -94,7 +96,9 @@ fn normalize_type_key(value: &str) -> String {
 }
 
 fn item_type_key(item: &Value) -> Option<String> {
-    item.get("type").and_then(|v| v.as_str()).map(normalize_type_key)
+    item.get("type")
+        .and_then(|v| v.as_str())
+        .map(normalize_type_key)
 }
 
 fn item_key(item: &Value) -> Option<String> {
@@ -146,10 +150,9 @@ fn should_update_status(base_status: Option<&Value>, rollout_status: Option<&Val
 }
 
 fn merge_file_change_changes(base: &Value, rollout: &Value) -> Value {
-    let (Some(base_changes), Some(rollout_changes)) = (
-        base.as_array().cloned(),
-        rollout.as_array().cloned(),
-    ) else {
+    let (Some(base_changes), Some(rollout_changes)) =
+        (base.as_array().cloned(), rollout.as_array().cloned())
+    else {
         return base.clone();
     };
 
@@ -166,9 +169,10 @@ fn merge_file_change_changes(base: &Value, rollout: &Value) -> Value {
         if !diff_missing {
             continue;
         }
-        if let Some(rollout_match) = rollout_changes.iter().find(|c| {
-            c.get("path").and_then(|v| v.as_str()) == Some(path)
-        }) {
+        if let Some(rollout_match) = rollout_changes
+            .iter()
+            .find(|c| c.get("path").and_then(|v| v.as_str()) == Some(path))
+        {
             if let Some(rollout_diff) = rollout_match.get("diff") {
                 if let Some(obj) = change.as_object_mut() {
                     obj.insert("diff".to_string(), rollout_diff.clone());
@@ -843,9 +847,15 @@ fn merge_turn_items(target_items: &mut Vec<Value>, rollout_items: Vec<Value>) {
     for item in rollout_items {
         if let Some(kind) = rollout_placeholder_kind(&item) {
             match kind {
-                "reasoning" => push_from_queue(&mut reasoning_queue, &base_items, &mut used, &mut merged),
-                "agentMessage" => push_from_queue(&mut agent_queue, &base_items, &mut used, &mut merged),
-                "userMessage" => push_from_queue(&mut user_queue, &base_items, &mut used, &mut merged),
+                "reasoning" => {
+                    push_from_queue(&mut reasoning_queue, &base_items, &mut used, &mut merged)
+                }
+                "agentMessage" => {
+                    push_from_queue(&mut agent_queue, &base_items, &mut used, &mut merged)
+                }
+                "userMessage" => {
+                    push_from_queue(&mut user_queue, &base_items, &mut used, &mut merged)
+                }
                 _ => {}
             }
             continue;

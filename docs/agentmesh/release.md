@@ -14,6 +14,13 @@
 - GUI 前端：`npm ci && npm run build`
 - macOS：跑一次 `tauri build` 生成 `.app`（不签名），用于尽早发现打包链路问题
 
+## 本地预检（推荐）
+
+- 安装 pre-push hook：`scripts/hooks/install.sh`
+- 跳过 pre-push：`SKIP_RUST_PREFLIGHT=1 git push`
+- 手动预检：`scripts/release/preflight.sh`
+- 如需跳过：`SKIP_RUST_PREFLIGHT=1 scripts/release/preflight.sh`
+
 ## 发版流程（推荐）
 
 ### 1) 统一版本号
@@ -28,10 +35,18 @@ Release workflow 会校验 tag 版本与以下文件一致（不一致会直接�
 本地可先跑一遍校验：
 
 ```bash
-node scripts/check-version.mjs --expected 1.0.0
+node scripts/check-version.mjs --expected 1.0.2
 ```
 
-### 2) 提交并 push
+### 2) 生成 release 提案（推荐）
+
+```bash
+scripts/release/propose_release.sh
+```
+
+（可选）跳过本地预检：`SKIP_RUST_PREFLIGHT=1 scripts/release/propose_release.sh`
+
+### 3) 提交并 push
 
 ```bash
 git add -A
@@ -41,14 +56,14 @@ git push
 
 （可选）本地先跑 `just ci` 做完整检查。
 
-### 3) 打 tag 并推送
+### 4) 打 tag 并推送
 
 ```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-### 4) 等待 GitHub Actions 发布
+### 5) 等待 GitHub Actions 发布
 
 GitHub Actions 的 `Release (DMG)` workflow 会：
 

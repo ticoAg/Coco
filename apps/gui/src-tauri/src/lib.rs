@@ -863,7 +863,6 @@ async fn codex_thread_list(
         });
     }
 
-
     threads.sort_by(|a, b| match (a.updated_at_ms, b.updated_at_ms) {
         (Some(a_ts), Some(b_ts)) => b_ts.cmp(&a_ts),
         (Some(_), None) => std::cmp::Ordering::Less,
