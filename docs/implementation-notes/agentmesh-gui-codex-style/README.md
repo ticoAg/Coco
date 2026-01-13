@@ -73,9 +73,11 @@
 - Block 详情区默认与标题同亮度（`text-text-muted`），除命令输出外内容自动换行（`whitespace-pre-wrap` + `break-words`）。
 - Block 内文本支持 Markdown 渲染（Reasoning/MCP text 等），命令输出保留 ANSI 彩色显示。
 - 点击摘要行才展开详情区（命令输出 / diff / reasoning markdown 等）。
-- 样式类在 `apps/gui/src/index.css`：`.am-row` / `.am-row-hover` / `.am-row-title`，强调“轻 hover + 标题轻微提亮”，避免明显分割线与厚重卡片区域。
-- Working 列表采用极小间距（`space-y-0`），主要依赖 `.am-row` 自身 padding 提供“呼吸感”。
+- 可展开 block 使用轻卡片样式（`.am-block` / `.am-block-hover`），标题行 hover 时通过 React 状态切换边框（`.am-block-outline`）与提亮（`.am-row-title`），对齐 VSCode 插件折叠卡片的轻量质感。
+- 样式类在 `apps/gui/src/index.css`：`.am-row` / `.am-row-hover` / `.am-row-title` / `.am-block` / `.am-block-hover` / `.am-block-outline`。
+- Working 列表采用轻间距（`space-y-1`），避免相邻 block 边框黏连。
 - **默认折叠策略（对齐 VSCode plugin）**：每次展开 `Finished working`（即非 `inProgress` 的 turn）时，内部所有可折叠 block 都强制回到折叠状态，避免长输出“炸屏”。实现见 `CodexChat.tsx` 的 `toggleTurnWorking`。
+- Reasoning 若仅有标题行且无正文，不显示展开控件，仅保留标题行。
 
 #### 2.4.1 历史会话恢复：rollout 顺序对齐（保留 summary-only reasoning）
 

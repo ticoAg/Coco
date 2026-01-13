@@ -1212,12 +1212,12 @@ interface ActivityBlockProps {
 	icon?: React.ReactNode;
 }
 
-function ActivityBlock({
-	titlePrefix,
-	titleContent,
-	titleMono = false,
-	summaryActions,
-	status,
+	function ActivityBlock({
+		titlePrefix,
+		titleContent,
+		titleMono = false,
+		summaryActions,
+		status,
 	copyContent,
 	contentVariant = 'plain',
 	contentMono,
@@ -1226,13 +1226,14 @@ function ActivityBlock({
 	collapsed = true,
 	onToggleCollapse,
 	children,
-	approval,
-	onApprove,
-	icon,
-}: ActivityBlockProps) {
-	const isStringChild = typeof children === 'string';
-	const effectiveVariant: ActivityContentVariant = contentVariant;
-	const useMono = contentMono ?? effectiveVariant === 'ansi';
+		approval,
+		onApprove,
+		icon,
+	}: ActivityBlockProps) {
+		const [summaryHover, setSummaryHover] = useState(false);
+		const isStringChild = typeof children === 'string';
+		const effectiveVariant: ActivityContentVariant = contentVariant;
+		const useMono = contentMono ?? effectiveVariant === 'ansi';
 		const contentNode = (() => {
 			if (!isStringChild) return children;
 			if (effectiveVariant === 'markdown') {
@@ -1252,19 +1253,28 @@ function ActivityBlock({
 	const showStatus = status && status !== 'completed';
 	const open = !collapsible || !collapsed;
 
-	return (
-		<div className="min-w-0">
-			{/* Summary row (compact) */}
-			<div
-				className={[
-					'am-row group flex min-w-0 items-center justify-between gap-2',
-					collapsible && onToggleCollapse ? 'am-row-hover cursor-pointer' : '',
-				].join(' ')}
-				role={collapsible && onToggleCollapse ? 'button' : undefined}
-				tabIndex={collapsible && onToggleCollapse ? 0 : undefined}
-				onClick={() => {
-					if (collapsible && onToggleCollapse) onToggleCollapse();
-				}}
+			return (
+				<div
+					className={[
+						'min-w-0 am-block',
+						summaryHover ? 'am-block-outline am-block-hover' : '',
+					].join(' ')}
+				>
+				{/* Summary row (compact) */}
+				<div
+					className={[
+						'am-row group flex min-w-0 items-center justify-between gap-2',
+						collapsible && onToggleCollapse ? 'cursor-pointer' : '',
+					].join(' ')}
+					role={collapsible && onToggleCollapse ? 'button' : undefined}
+					tabIndex={collapsible && onToggleCollapse ? 0 : undefined}
+					onMouseEnter={() => setSummaryHover(true)}
+					onMouseLeave={() => setSummaryHover(false)}
+					onFocus={() => setSummaryHover(true)}
+					onBlur={() => setSummaryHover(false)}
+					onClick={() => {
+						if (collapsible && onToggleCollapse) onToggleCollapse();
+					}}
 				onKeyDown={(e) => {
 					if (!collapsible || !onToggleCollapse) return;
 					if (e.key === 'Enter' || e.key === ' ') {
@@ -1309,8 +1319,8 @@ function ActivityBlock({
 
 			{/* Details (only when expanded) */}
 				{children ? (
-					<Collapse open={open} innerClassName="pt-0.5 pl-2 pr-1 pb-1">
-						<div className="am-scroll-fade max-h-[320px] overflow-auto rounded-md bg-token-codeBackground/30 border border-white/5 px-3 py-2">
+					<Collapse open={open} innerClassName="pt-0">
+						<div className="am-scroll-fade max-h-[320px] overflow-auto border-t border-white/5 bg-token-codeBackground/20 px-3 py-2">
 							<div
 								className={[
 									'min-w-0 text-[11px] leading-relaxed !text-text-muted',
@@ -3874,11 +3884,11 @@ export function CodexChat() {
 											className="inline-flex items-center gap-2 rounded-full border border-border-menuDivider bg-bg-panel/20 px-3 py-1 text-left text-[12px] text-text-muted transition-colors hover:bg-bg-panelHover/30 hover:text-text-main"
 											onClick={() => toggleTurnWorking(turn.id)}
 										>
-											<div className="flex items-center gap-2 text-[11px] text-text-muted">
-												<span className="truncate font-medium">
-													{turn.status === 'inProgress' ? 'Exploring…' : 'Explored'}
-													{turn.id === PENDING_TURN_ID ? ' (pending)' : ''}
-												</span>
+												<div className="flex items-center gap-2 text-[11px] text-text-muted">
+													<span className="truncate font-medium">
+														{turnStatusLabel(turn.status)}
+														{turn.id === PENDING_TURN_ID ? ' (pending)' : ''}
+													</span>
 												<span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-text-menuDesc">
 													{turn.workingEntries.length}
 												</span>
@@ -3893,8 +3903,8 @@ export function CodexChat() {
 									) : null}
 
 									{hasWorking ? (
-										<Collapse open={workingOpen} innerClassName="pt-0.5">
-											<div className="space-y-0">
+											<Collapse open={workingOpen} innerClassName="pt-0.5">
+												<div className="space-y-1">
 												{(() => {
 													// Group sequential "read" commands into a single "Reading" block
 													const grouped: (ChatEntry | { kind: 'readingGroup'; id: string; entries: Extract<ChatEntry, { kind: 'command' }>[] })[] = [];
@@ -4196,39 +4206,43 @@ export function CodexChat() {
 																);
 														}
 
-														if (e.kind === 'assistant' && e.role === 'reasoning') {
-															const collapsed = e.streaming
-																? false
-																: (collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails);
+															if (e.kind === 'assistant' && e.role === 'reasoning') {
+																const collapsed = e.streaming
+																	? false
+																	: (collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails);
 
-															// Extract heading from markdown (VS Code plugin parity)
-															const { heading, body } = extractHeadingFromMarkdown(e.text);
-															const hasHeading = !!heading;
-															const titlePrefix = hasHeading ? '' : e.streaming ? 'Thinking' : 'Thought';
-															const titleContent = heading || '';
-															const displayBody = hasHeading ? body : e.text;
+																// Extract heading from markdown (VS Code plugin parity)
+																const { heading, body } = extractHeadingFromMarkdown(e.text);
+																const hasHeading = !!heading;
+																const titlePrefix = hasHeading ? '' : e.streaming ? 'Thinking' : 'Thought';
+																const titleContent = heading || '';
+																const displayBody = hasHeading ? body : e.text;
+																const trimmedBody = displayBody.trim();
+																const hasBody = trimmedBody.length > 0;
 
-																return (
-																	<ActivityBlock
-																		key={e.id}
-																		titlePrefix={titlePrefix}
-																		titleContent={titleContent}
-																		status={e.streaming ? 'Streaming…' : undefined}
-																		copyContent={e.text}
-																		icon={<Brain className="h-3.5 w-3.5" />}
-																		contentVariant="markdown"
-																		collapsible
-																		collapsed={collapsed}
-																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
-																	>
-																		<ChatMarkdown
-																			text={displayBody}
-																			className="text-[11px] text-text-muted"
-																			dense
-																		/>
-																	</ActivityBlock>
-																);
-														}
+																	return (
+																		<ActivityBlock
+																			key={e.id}
+																			titlePrefix={titlePrefix}
+																			titleContent={titleContent}
+																			status={e.streaming ? 'Streaming…' : undefined}
+																			copyContent={e.text}
+																			icon={<Brain className="h-3.5 w-3.5" />}
+																			contentVariant="markdown"
+																			collapsible={hasBody}
+																			collapsed={hasBody ? collapsed : true}
+																			onToggleCollapse={hasBody ? () => toggleEntryCollapse(e.id) : undefined}
+																		>
+																			{hasBody ? (
+																				<ChatMarkdown
+																					text={displayBody}
+																					className="text-[11px] text-text-muted"
+																					dense
+																				/>
+																			) : null}
+																		</ActivityBlock>
+																	);
+															}
 
 														if (e.kind === 'system') {
 															const tone = e.tone ?? 'info';
