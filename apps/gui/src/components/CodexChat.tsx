@@ -91,6 +91,8 @@ type ChatEntry =
 		completed?: boolean;
 		renderPlaceholderWhileStreaming?: boolean;
 		structuredOutput?: ReturnType<typeof parseCodeReviewStructuredOutputFromMessage> | null;
+		reasoningSummary?: string[];
+		reasoningContent?: string[];
 	}
 	| {
 		kind: 'command';
@@ -1600,6 +1602,263 @@ function collectReadingGroupIds(entries: ChatEntry[]): string[] {
 	return ids;
 }
 
+type ReadingGroup = {
+	kind: 'readingGroup';
+	id: string;
+	entries: Extract<ChatEntry, { kind: 'command' }>[];
+};
+
+type WorkingItem = ChatEntry | ReadingGroup;
+
+type SegmentedWorkingItem =
+	| {
+			kind: 'exploration';
+			id: string;
+			status: 'exploring' | 'explored';
+			items: WorkingItem[];
+			uniqueFileCount: number;
+	  }
+	| {
+			kind: 'item';
+			item: WorkingItem;
+	  };
+
+function isReadingGroup(item: WorkingItem | undefined): item is ReadingGroup {
+	return !!item && 'kind' in item && item.kind === 'readingGroup';
+}
+
+function isReasoningEntry(item: WorkingItem): item is Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }> {
+	return !isReadingGroup(item) && item.kind === 'assistant' && item.role === 'reasoning';
+}
+
+function coerceReasoningParts(value: unknown): string[] {
+	if (Array.isArray(value)) {
+		return value.map((part) => (typeof part === 'string' ? part : String(part)));
+	}
+	if (typeof value === 'string') {
+		return value.trim() ? [value] : [];
+	}
+	return [];
+}
+
+function normalizeReasoningParts(value: unknown): string[] {
+	return coerceReasoningParts(value).filter((part) => part.trim() !== '');
+}
+
+function buildReasoningText(summary: string[], content: string[]): string {
+	return [...summary, ...content].filter(Boolean).join('\n');
+}
+
+function buildReasoningSegmentId(baseId: string, index: number): string {
+	return `${baseId}-summary-${index}`;
+}
+
+function buildReasoningContentId(baseId: string): string {
+	return `${baseId}-content`;
+}
+
+function buildReasoningSegments(entry: Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>): ChatEntry[] {
+	const summaryParts = normalizeReasoningParts(entry.reasoningSummary);
+	const contentParts = normalizeReasoningParts(entry.reasoningContent);
+	const contentText = contentParts.filter(Boolean).join('\n');
+	const segments: ChatEntry[] = [];
+
+	if (summaryParts.length > 0) {
+		summaryParts.forEach((summary, idx) => {
+			const isLast = idx === summaryParts.length - 1;
+			const text = isLast && contentText ? `${summary}\n\n${contentText}` : summary;
+			segments.push({
+				...entry,
+				id: buildReasoningSegmentId(entry.id, idx),
+				text,
+			});
+		});
+	} else {
+		const fallback = contentText || entry.text;
+		if (fallback.trim()) {
+			segments.push({
+				...entry,
+				id: buildReasoningContentId(entry.id),
+				text: fallback,
+			});
+		}
+	}
+
+	const isStreaming = !!entry.streaming && !entry.completed;
+	return segments.map((segment, idx) => {
+		const isLast = idx === segments.length - 1;
+		const streaming = isStreaming && isLast;
+		return {
+			...segment,
+			streaming,
+			completed: streaming ? false : true,
+		};
+	});
+}
+
+function expandReasoningEntries(entries: ChatEntry[]): ChatEntry[] {
+	const expanded: ChatEntry[] = [];
+	for (const entry of entries) {
+		if (entry.kind === 'assistant' && entry.role === 'reasoning') {
+			expanded.push(...buildReasoningSegments(entry));
+			continue;
+		}
+		expanded.push(entry);
+	}
+	return expanded;
+}
+
+function collectReasoningSegmentIds(entries: ChatEntry[]): string[] {
+	const ids: string[] = [];
+	for (const entry of entries) {
+		if (entry.kind === 'assistant' && entry.role === 'reasoning') {
+			for (const segment of buildReasoningSegments(entry)) {
+				ids.push(segment.id);
+			}
+		}
+	}
+	return ids;
+}
+
+function mergeReadingEntries(entries: ChatEntry[]): WorkingItem[] {
+	const grouped: WorkingItem[] = [];
+	for (const entry of entries) {
+		if (entry.kind === 'command') {
+			const parsed = resolveParsedCmd(entry.command, entry.commandActions);
+			if (parsed.type === 'read' && !entry.approval) {
+				const last = grouped[grouped.length - 1];
+				if (isReadingGroup(last)) {
+					last.entries.push(entry);
+					continue;
+				}
+				grouped.push({ kind: 'readingGroup', id: `read-group-${entry.id}`, entries: [entry] });
+				continue;
+			}
+		}
+		grouped.push(entry);
+	}
+	return grouped;
+}
+
+function isExplorationStarter(item: WorkingItem): boolean {
+	if (isReadingGroup(item)) return true;
+	if (item.kind === 'command') {
+		const parsed = resolveParsedCmd(item.command, item.commandActions);
+		return parsed.type === 'read' || parsed.type === 'search' || parsed.type === 'list_files';
+	}
+	return false;
+}
+
+function isExplorationContinuation(item: WorkingItem): boolean {
+	return isExplorationStarter(item) || isReasoningEntry(item);
+}
+
+function getUniqueReadingCount(items: WorkingItem[]): number {
+	const names = new Set<string>();
+	for (const item of items) {
+		if (isReadingGroup(item)) {
+			for (const entry of item.entries) {
+				const parsed = resolveParsedCmd(entry.command, entry.commandActions);
+				if (parsed.type === 'read' && parsed.name) names.add(parsed.name);
+			}
+			continue;
+		}
+		if (item.kind === 'command') {
+			const parsed = resolveParsedCmd(item.command, item.commandActions);
+			if (parsed.type === 'read' && parsed.name) names.add(parsed.name);
+		}
+	}
+	return names.size;
+}
+
+function segmentExplorationItems(items: WorkingItem[], isTurnInProgress: boolean): SegmentedWorkingItem[] {
+	const out: SegmentedWorkingItem[] = [];
+	let current: WorkingItem[] | null = null;
+	let pendingReading: WorkingItem | null = null;
+
+	const flush = (status: 'exploring' | 'explored') => {
+		if (current && current.length > 0) {
+			const firstItem = current[0];
+			const firstId = isReadingGroup(firstItem)
+				? firstItem.id
+				: `${(firstItem as ChatEntry).id}-explore`;
+			out.push({
+				kind: 'exploration',
+				id: `explore-${firstId}`,
+				status,
+				items: current,
+				uniqueFileCount: getUniqueReadingCount(current),
+			});
+		}
+		current = null;
+	};
+
+	for (const item of items) {
+		const buffered: WorkingItem[] = [];
+		if (pendingReading) {
+			buffered.push(pendingReading);
+			pendingReading = null;
+		}
+
+		if (current) {
+			if (isExplorationContinuation(item)) {
+				current.push(item);
+				continue;
+			}
+			if (isReadingGroup(item)) {
+				pendingReading = item;
+				flush('explored');
+				continue;
+			}
+			flush('explored');
+		}
+
+		if (isExplorationStarter(item)) {
+			current = [item];
+			continue;
+		}
+		if (isReadingGroup(item)) {
+			pendingReading = item;
+			continue;
+		}
+
+		buffered.forEach((bufferedItem) => out.push({ kind: 'item', item: bufferedItem }));
+		out.push({ kind: 'item', item });
+	}
+
+	if (current) {
+		flush(isTurnInProgress ? 'exploring' : 'explored');
+	}
+	if (pendingReading) {
+		out.push({ kind: 'item', item: pendingReading });
+	}
+	return out;
+}
+
+function countWorkingItems(items: SegmentedWorkingItem[]): number {
+	return items.reduce((acc, item) => {
+		if (item.kind === 'exploration') return acc + item.items.length;
+		return acc + 1;
+	}, 0);
+}
+
+function countRenderedWorkingItems(items: SegmentedWorkingItem[]): number {
+	return items.reduce((acc, item) => {
+		if (item.kind === 'exploration') return acc + 1 + item.items.length;
+		return acc + 1;
+	}, 0);
+}
+
+function formatExplorationHeader(
+	status: 'exploring' | 'explored',
+	uniqueFileCount: number
+): { prefix: string; content: string } {
+	const prefix = status === 'exploring' ? 'Exploring' : 'Explored';
+	if (!uniqueFileCount || uniqueFileCount <= 0) return { prefix, content: '' };
+	const unit = uniqueFileCount === 1 ? 'file' : 'files';
+	return { prefix, content: `${uniqueFileCount} ${unit}` };
+}
+
 function isCodexTextInput(value: CodexUserInput): value is Extract<CodexUserInput, { type: 'text' }> {
 	return value.type === 'text' && typeof (value as { text?: unknown }).text === 'string';
 }
@@ -1645,11 +1904,15 @@ function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
 		}
 		case 'reasoning': {
 			const it = item as Extract<CodexThreadItem, { type: 'reasoning' }>;
+			const summary = coerceReasoningParts(it.summary);
+			const content = coerceReasoningParts(it.content);
 			return {
 				kind: 'assistant',
 				id: it.id,
 				role: 'reasoning',
-				text: [...(it.summary ?? []), ...(it.content ?? [])].filter(Boolean).join('\n'),
+				text: buildReasoningText(summary, content),
+				reasoningSummary: summary,
+				reasoningContent: content,
 			};
 		}
 		case 'commandexecution': {
@@ -1716,9 +1979,24 @@ function mergeEntry(entries: ChatEntry[], next: ChatEntry): ChatEntry[] {
 	if (next.kind === 'assistant') {
 		const prev = copy[idx] as Extract<ChatEntry, { kind: 'assistant' }>;
 		const incoming = next as Extract<ChatEntry, { kind: 'assistant' }>;
+		const reasoningSummary =
+			incoming.role === 'reasoning'
+				? incoming.reasoningSummary ?? prev.reasoningSummary
+				: prev.reasoningSummary;
+		const reasoningContent =
+			incoming.role === 'reasoning'
+				? incoming.reasoningContent ?? prev.reasoningContent
+				: prev.reasoningContent;
+		const nextText =
+			incoming.role === 'reasoning'
+				? buildReasoningText(reasoningSummary ?? [], reasoningContent ?? [])
+				: incoming.text ?? prev.text;
 		copy[idx] = {
 			...prev,
 			...incoming,
+			text: nextText,
+			reasoningSummary,
+			reasoningContent,
 			structuredOutput:
 				incoming.structuredOutput !== undefined ? incoming.structuredOutput : prev.structuredOutput,
 		} as ChatEntry;
@@ -1759,6 +2037,95 @@ function appendDelta(entries: ChatEntry[], id: string, role: 'message' | 'reason
 		renderPlaceholderWhileStreaming: renderPlaceholder,
 		structuredOutput: null,
 	};
+	return copy;
+}
+
+function ensureReasoningIndex(parts: string[], index: number): string[] {
+	if (!Number.isFinite(index) || index < 0) return parts;
+	const next = parts.slice();
+	while (next.length <= index) next.push('');
+	return next;
+}
+
+function applyReasoningDelta(
+	entries: ChatEntry[],
+	id: string,
+	delta: string,
+	index: number,
+	target: 'summary' | 'content'
+): ChatEntry[] {
+	if (!Number.isFinite(index) || index < 0) return entries;
+	const idx = entries.findIndex((e) => e.kind === 'assistant' && e.id === id && e.role === 'reasoning');
+	const base =
+		idx === -1
+			? ({
+					kind: 'assistant',
+					id,
+					role: 'reasoning',
+					text: '',
+					reasoningSummary: [],
+					reasoningContent: [],
+					streaming: true,
+					completed: false,
+			  } as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>)
+			: (entries[idx] as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>);
+
+	const summary = ensureReasoningIndex(coerceReasoningParts(base.reasoningSummary), target === 'summary' ? index : -1);
+	const content = ensureReasoningIndex(coerceReasoningParts(base.reasoningContent), target === 'content' ? index : -1);
+
+	if (target === 'summary') summary[index] = `${summary[index] ?? ''}${delta}`;
+	if (target === 'content') content[index] = `${content[index] ?? ''}${delta}`;
+
+	const nextEntry: Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }> = {
+		...base,
+		reasoningSummary: summary,
+		reasoningContent: content,
+		text: buildReasoningText(summary, content),
+		streaming: true,
+		completed: false,
+	};
+
+	if (idx === -1) return [...entries, nextEntry];
+	const copy = [...entries];
+	copy[idx] = { ...copy[idx], ...nextEntry } as ChatEntry;
+	return copy;
+}
+
+function applyReasoningPartAdded(
+	entries: ChatEntry[],
+	id: string,
+	index: number,
+	target: 'summary' | 'content'
+): ChatEntry[] {
+	if (!Number.isFinite(index) || index < 0) return entries;
+	const idx = entries.findIndex((e) => e.kind === 'assistant' && e.id === id && e.role === 'reasoning');
+	const base =
+		idx === -1
+			? ({
+					kind: 'assistant',
+					id,
+					role: 'reasoning',
+					text: '',
+					reasoningSummary: [],
+					reasoningContent: [],
+			  } as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>)
+			: (entries[idx] as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>);
+
+	const summary = coerceReasoningParts(base.reasoningSummary);
+	const content = coerceReasoningParts(base.reasoningContent);
+	const nextSummary = target === 'summary' ? ensureReasoningIndex(summary, index) : summary;
+	const nextContent = target === 'content' ? ensureReasoningIndex(content, index) : content;
+
+	const nextEntry: Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }> = {
+		...base,
+		reasoningSummary: nextSummary,
+		reasoningContent: nextContent,
+		text: buildReasoningText(nextSummary, nextContent),
+	};
+
+	if (idx === -1) return [...entries, nextEntry];
+	const copy = [...entries];
+	copy[idx] = { ...copy[idx], ...nextEntry } as ChatEntry;
 	return copy;
 }
 
@@ -2664,21 +3031,48 @@ export function CodexChat() {
 		const nextOpen = !currentOpen;
 		const nextCollapsedExplicit = !nextOpen;
 
-		if (turn && turn.status !== 'inProgress' && nextOpen) {
-			// 每次展开 "Finished working" 时，内部所有可折叠 block 强制折叠。
-			// 这样 AI 过程性输出再多，也不会默认铺开占高度。
-			setCollapsedByEntryId((prev) => {
-				const next = { ...prev };
-				for (const entry of turn.entries) {
-					if (isActivityEntry(entry)) next[entry.id] = true;
-					if (entry.kind === 'assistant' && entry.role === 'reasoning') next[entry.id] = true;
-				}
-				for (const groupId of collectReadingGroupIds(turn.entries)) {
-					next[groupId] = true;
-				}
-				return next;
-			});
-		}
+	if (turn && turn.status !== 'inProgress' && nextOpen) {
+		const visible = settings.showReasoning
+			? turn.entries
+			: turn.entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning');
+		const assistantMessages = visible.filter(
+			(e): e is Extract<ChatEntry, { kind: 'assistant'; role: 'message' }> =>
+				e.kind === 'assistant' && e.role === 'message'
+		);
+		const lastAssistantMessageId =
+			assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1]?.id : null;
+		const workingEntries = visible.filter((e) => {
+			if (isActivityEntry(e)) return true;
+			if (e.kind === 'system') return true;
+			if (e.kind === 'assistant' && e.role === 'reasoning') return true;
+			if (e.kind === 'assistant' && e.role === 'message') return e.id !== lastAssistantMessageId;
+			return false;
+		});
+		const explorationGroupIds = segmentExplorationItems(
+			mergeReadingEntries(expandReasoningEntries(workingEntries)),
+			false
+		).flatMap((item) => (item.kind === 'exploration' ? [item.id] : []));
+
+		// 每次展开 "Finished working" 时，内部所有可折叠 block 强制折叠。
+		// 这样 AI 过程性输出再多，也不会默认铺开占高度。
+		setCollapsedByEntryId((prev) => {
+			const next = { ...prev };
+			for (const entry of turn.entries) {
+				if (isActivityEntry(entry)) next[entry.id] = true;
+				if (entry.kind === 'assistant' && entry.role === 'reasoning') next[entry.id] = true;
+			}
+			for (const groupId of collectReadingGroupIds(turn.entries)) {
+				next[groupId] = true;
+			}
+			for (const segmentId of collectReasoningSegmentIds(turn.entries)) {
+				next[segmentId] = true;
+			}
+			for (const explorationId of explorationGroupIds) {
+				next[explorationId] = true;
+			}
+			return next;
+		});
+	}
 
 		if (import.meta.env.DEV && turn && nextOpen) {
 			const counts = countEntryKinds(turn.entries);
@@ -2690,7 +3084,7 @@ export function CodexChat() {
 		}
 
 		setCollapsedWorkingByTurnId((prev) => ({ ...prev, [turnId]: nextCollapsedExplicit }));
-	}, [collapsedWorkingByTurnId, turnsById]);
+	}, [collapsedWorkingByTurnId, settings.showReasoning, turnsById]);
 
 	// Context management callbacks
 	const addRelatedRepoDir = useCallback(async () => {
@@ -3335,6 +3729,14 @@ export function CodexChat() {
 							structuredOutput: completed ? parseCodeReviewStructuredOutputFromMessage(entry.text) : null,
 						};
 					}
+					if (entry.kind === 'assistant' && entry.role === 'reasoning') {
+						const completed = method === 'item/completed';
+						entry = {
+							...entry,
+							streaming: !completed,
+							completed,
+						};
+					}
 					const explicitTurnId = safeString(params?.turnId ?? params?.turn_id ?? params?.turn?.id);
 					const turnId = explicitTurnId || activeTurnId || PENDING_TURN_ID;
 
@@ -3386,9 +3788,10 @@ export function CodexChat() {
 					return;
 				}
 
-				if (method === 'item/reasoning/textDelta' || method === 'item/reasoning/summaryTextDelta') {
+				if (method === 'item/reasoning/summaryTextDelta') {
 					const itemId = safeString(params?.itemId);
 					const delta = safeString(params?.delta);
+					const index = Number(params?.summaryIndex ?? params?.summary_index ?? params?.index);
 					if (!itemId || !delta) return;
 					const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID;
 					setTurnsById((prev) => {
@@ -3398,7 +3801,65 @@ export function CodexChat() {
 							...prev,
 							[turnId]: {
 								...existing,
-								entries: appendDelta(existing.entries, itemId, 'reasoning', delta),
+								entries: applyReasoningDelta(existing.entries, itemId, delta, index, 'summary'),
+							},
+						};
+					});
+					return;
+				}
+
+				if (method === 'item/reasoning/summaryPartAdded') {
+					const itemId = safeString(params?.itemId);
+					const index = Number(params?.summaryIndex ?? params?.summary_index ?? params?.index);
+					if (!itemId) return;
+					const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID;
+					setTurnsById((prev) => {
+						const existing = prev[turnId];
+						if (!existing) return prev;
+						return {
+							...prev,
+							[turnId]: {
+								...existing,
+								entries: applyReasoningPartAdded(existing.entries, itemId, index, 'summary'),
+							},
+						};
+					});
+					return;
+				}
+
+				if (method === 'item/reasoning/textDelta') {
+					const itemId = safeString(params?.itemId);
+					const delta = safeString(params?.delta);
+					const index = Number(params?.contentIndex ?? params?.content_index ?? params?.index);
+					if (!itemId || !delta) return;
+					const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID;
+					setTurnsById((prev) => {
+						const existing = prev[turnId];
+						if (!existing) return prev;
+						return {
+							...prev,
+							[turnId]: {
+								...existing,
+								entries: applyReasoningDelta(existing.entries, itemId, delta, index, 'content'),
+							},
+						};
+					});
+					return;
+				}
+
+				if (method === 'item/reasoning/contentPartAdded') {
+					const itemId = safeString(params?.itemId);
+					const index = Number(params?.contentIndex ?? params?.content_index ?? params?.index);
+					if (!itemId) return;
+					const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID;
+					setTurnsById((prev) => {
+						const existing = prev[turnId];
+						if (!existing) return prev;
+						return {
+							...prev,
+							[turnId]: {
+								...existing,
+								entries: applyReasoningPartAdded(existing.entries, itemId, index, 'content'),
 							},
 						};
 					});
@@ -3567,13 +4028,20 @@ export function CodexChat() {
 				if (e.kind === 'assistant' && e.role === 'message') return e.id !== lastAssistantMessageId;
 				return false;
 			});
+			const expandedWorkingEntries = expandReasoningEntries(workingEntries);
+			const mergedWorkingItems = mergeReadingEntries(expandedWorkingEntries);
+			const workingItems = segmentExplorationItems(mergedWorkingItems, turn.status === 'inProgress');
+			const workingItemCount = countWorkingItems(workingItems);
+			const workingRenderCount = countRenderedWorkingItems(workingItems);
 
 			return {
 				id: turn.id,
 				status: turn.status,
 				userEntries,
 				assistantMessageEntries,
-				workingEntries,
+				workingItems,
+				workingItemCount,
+				workingRenderCount,
 			};
 		});
 	}, [settings.showReasoning, turnBlocks]);
@@ -3582,8 +4050,8 @@ export function CodexChat() {
 		return renderTurns.reduce((acc, t) => {
 			const collapsedExplicit = collapsedWorkingByTurnId[t.id];
 			const workingOpen = collapsedExplicit === undefined ? t.status === 'inProgress' : !collapsedExplicit;
-			const workingHeaderCount = t.workingEntries.length > 0 ? 1 : 0;
-			const visibleWorkingCount = workingOpen ? t.workingEntries.length : 0;
+			const workingHeaderCount = t.workingItemCount > 0 ? 1 : 0;
+			const visibleWorkingCount = workingOpen ? t.workingRenderCount : 0;
 			return acc + t.userEntries.length + workingHeaderCount + visibleWorkingCount + t.assistantMessageEntries.length;
 		}, 0);
 	}, [collapsedWorkingByTurnId, renderTurns]);
@@ -3600,6 +4068,361 @@ export function CodexChat() {
 
 	const sidebarIconButtonPx = Math.round(SIDEBAR_ICON_BUTTON_PX);
 	const sidebarIconSizePx = Math.max(10, Math.round(sidebarIconButtonPx * 0.62));
+
+	const renderWorkingItem = (item: WorkingItem): JSX.Element | null => {
+		if (isReadingGroup(item)) {
+			const isFinished = item.entries.every((entry) => entry.status !== 'inProgress');
+			const collapsed = collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails;
+			const parsedEntries = item.entries.map((entry) => ({
+				entry,
+				parsed: resolveParsedCmd(entry.command, entry.commandActions),
+			}));
+			const uniqueByName: typeof parsedEntries = [];
+			const seen = new Set<string>();
+			for (let i = parsedEntries.length - 1; i >= 0; i -= 1) {
+				const name = parsedEntries[i]?.parsed.name;
+				if (!name) continue;
+				if (seen.has(name)) continue;
+				seen.add(name);
+				uniqueByName.push(parsedEntries[i]);
+			}
+			uniqueByName.reverse();
+
+			const lastUnique = uniqueByName[uniqueByName.length - 1];
+			const lastName = lastUnique?.parsed.name || 'file';
+			const count = Math.max(0, uniqueByName.length - 1);
+
+			const prefix = isFinished ? 'Read' : 'Reading';
+			const title =
+				uniqueByName.length === 0
+					? 'files'
+					: uniqueByName.length === 1
+						? lastName
+						: `${lastName} +${count}`;
+
+			const copyContent = item.entries
+				.map((entry) => [`$ ${entry.command}`, entry.output ?? ''].filter(Boolean).join('\n'))
+				.join('\n\n');
+
+			const uniqueForChips: typeof parsedEntries = [];
+			const seenChipNames = new Set<string>();
+			for (const entry of parsedEntries) {
+				const name = entry.parsed.name;
+				if (!name) continue;
+				if (seenChipNames.has(name)) continue;
+				seenChipNames.add(name);
+				uniqueForChips.push(entry);
+			}
+
+			return (
+				<ActivityBlock
+					key={item.id}
+					titlePrefix={prefix}
+					titleContent={title}
+					status={!isFinished ? 'in progress' : undefined}
+					copyContent={copyContent.replace(/\x1b\[[0-9;]*m/g, '')}
+					icon={<BookOpen className="h-3.5 w-3.5" />}
+					contentClassName="font-sans"
+					collapsible
+					collapsed={collapsed}
+					onToggleCollapse={() => toggleEntryCollapse(item.id)}
+				>
+					<div className="flex flex-wrap gap-1.5 py-1">
+						{uniqueForChips.map((entry) => (
+							<div
+								key={entry.entry.id}
+								className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-text-muted"
+							>
+								<FileText className="h-3 w-3 opacity-60" />
+								<span>{entry.parsed.name || 'file'}</span>
+							</div>
+						))}
+					</div>
+					{parsedEntries.some(({ entry }) => entry.output) ? (
+						<div className="mt-2 space-y-2 border-t border-white/5 pt-2">
+							{parsedEntries
+								.filter(({ entry }) => entry.output)
+								.map(({ entry, parsed }) => (
+									<div key={entry.id} className="space-y-1">
+										<div className="text-[9px] font-medium text-text-muted">{parsed.name || 'file'}</div>
+										<div className="whitespace-pre-wrap break-words font-mono text-[10px] text-text-muted">
+											{renderAnsiText(entry.output!)}
+										</div>
+									</div>
+								))}
+						</div>
+					) : null}
+				</ActivityBlock>
+			);
+		}
+
+		const e = item as ChatEntry;
+		if (e.kind === 'assistant' && e.role === 'message') {
+			const showPlaceholder = !!e.renderPlaceholderWhileStreaming && !e.completed;
+			const structured = e.structuredOutput && e.structuredOutput.type === 'code-review' ? e.structuredOutput : null;
+			return (
+				<div key={e.id} className="px-2 py-1">
+					{showPlaceholder ? (
+						<div className="text-[11px] text-text-menuDesc">Generating…</div>
+					) : structured ? (
+						<CodeReviewAssistantMessage
+							output={structured}
+							completed={!!e.completed}
+						/>
+					) : (
+						<ChatMarkdown
+							text={e.text}
+							className="text-[11px] text-text-menuDesc"
+							dense
+						/>
+					)}
+				</div>
+			);
+		}
+
+		if (e.kind === 'command') {
+			const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+			const displayContent = e.output ?? '';
+			const parsed = resolveParsedCmd(e.command, e.commandActions);
+			const isFinished = e.status !== 'inProgress';
+			const summary = getCmdSummary(parsed, isFinished);
+			const useMono =
+				parsed.type === 'unknown' || parsed.type === 'format' || parsed.type === 'test' || parsed.type === 'lint';
+			return (
+				<ActivityBlock
+					key={e.id}
+					titlePrefix={summary.prefix}
+					titleContent={summary.content}
+					titleMono={useMono}
+					status={e.status !== 'completed' ? e.status : undefined}
+					copyContent={displayContent.replace(/\x1b\[[0-9;]*m/g, '')}
+					icon={<Terminal className="h-3.5 w-3.5" />}
+					contentVariant="ansi"
+					collapsible
+					collapsed={collapsed}
+					onToggleCollapse={() => toggleEntryCollapse(e.id)}
+					approval={e.approval}
+					onApprove={approve}
+				>
+					{displayContent}
+				</ActivityBlock>
+			);
+		}
+
+		if (e.kind === 'fileChange') {
+			const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+			const summary = buildFileChangeSummary(e);
+			const fullContent = summary.changes
+				.map((c) => `${formatDiffPath(c.path, c.movePath)}\n${c.diff}`)
+				.join('\n\n');
+			const isFinished = e.status === 'completed';
+			const titlePrefix = isFinished
+				? summary.titlePrefix
+				: summary.titlePrefix === 'Added'
+					? 'Adding'
+					: summary.titlePrefix === 'Deleted'
+						? 'Deleting'
+						: 'Editing';
+
+			return (
+				<ActivityBlock
+					key={e.id}
+					titlePrefix={titlePrefix}
+					titleContent={summary.titleContent}
+					status={e.status !== 'completed' ? e.status : undefined}
+					copyContent={fullContent}
+					icon={<FileText className="h-3.5 w-3.5" />}
+					contentClassName="font-sans"
+					summaryActions={
+						<>
+							<DiffCountBadge added={summary.totalAdded} removed={summary.totalRemoved} />
+						</>
+					}
+					collapsible
+					collapsed={collapsed}
+					onToggleCollapse={() => toggleEntryCollapse(e.id)}
+					approval={e.approval}
+					onApprove={approve}
+				>
+					<div className="space-y-4">
+						{summary.changes.map((change) => {
+							const verb =
+								change.kind.type === 'add'
+									? 'Added'
+									: change.kind.type === 'delete'
+										? 'Deleted'
+										: 'Edited';
+							const label = formatDiffPath(change.path, change.movePath);
+							return (
+								<div key={`${change.path}-${change.kind.type}`} className="space-y-2">
+									<div className="flex items-center justify-between gap-2">
+										<div className="min-w-0 text-[11px] text-text-main">
+											<span className="text-text-menuLabel">{verb}</span>
+											<span className="ml-2 truncate">{label}</span>
+										</div>
+										<DiffCountBadge added={change.parsed.added} removed={change.parsed.removed} />
+									</div>
+									{change.parsed.lines.length > 0 ? (
+										<div className="rounded-md border border-white/5 bg-black/30 px-2 py-1">
+											{renderDiffLines(change.parsed)}
+										</div>
+									) : (
+										<div className="text-[10px] italic text-text-muted">No diff content</div>
+									)}
+								</div>
+							);
+						})}
+					</div>
+				</ActivityBlock>
+			);
+		}
+
+		if (e.kind === 'webSearch') {
+			const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+			return (
+				<ActivityBlock
+					key={e.id}
+					titlePrefix="Web search"
+					titleContent={e.query}
+					copyContent={e.query}
+					icon={<Search className="h-3.5 w-3.5" />}
+					contentVariant="plain"
+					collapsible
+					collapsed={collapsed}
+					onToggleCollapse={() => toggleEntryCollapse(e.id)}
+				>
+					{e.query}
+				</ActivityBlock>
+			);
+		}
+
+		if (e.kind === 'mcp') {
+			const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+			const contentBlocks = Array.isArray(e.result?.content) ? e.result?.content ?? [] : [];
+			const structuredContent = e.result?.structuredContent ?? null;
+			const errorMessage = e.error?.message;
+			const progressMessage = !e.result && !e.error ? e.message : undefined;
+			const argsPreview = formatMcpArgsPreview(e.arguments);
+			const toolLabel = `${e.server}.${e.tool}(${argsPreview})`;
+			const hasContent = contentBlocks.length > 0;
+			const hasStructured = structuredContent !== null && structuredContent !== undefined;
+			const copyContent = [
+				hasContent ? mcpContentToText(contentBlocks) : '',
+				hasStructured ? stringifyJsonSafe(structuredContent) : '',
+				errorMessage ?? '',
+				progressMessage ?? '',
+			]
+				.filter(Boolean)
+				.join('\n\n');
+			return (
+				<ActivityBlock
+					key={e.id}
+					titlePrefix="MCP:"
+					titleContent={toolLabel}
+					titleMono
+					status={e.status !== 'completed' ? e.status : undefined}
+					copyContent={copyContent || toolLabel}
+					icon={<Wrench className="h-3.5 w-3.5" />}
+					contentClassName="font-sans"
+					collapsible
+					collapsed={collapsed}
+					onToggleCollapse={() => toggleEntryCollapse(e.id)}
+				>
+					<div className="space-y-2">
+						{progressMessage ? <div className="text-[10px] text-text-muted">{progressMessage}</div> : null}
+						{hasContent ? renderMcpContentBlocks(contentBlocks) : null}
+						{errorMessage ? (
+							<div className="whitespace-pre-wrap text-[10px] text-status-error">{errorMessage}</div>
+						) : null}
+						{hasStructured ? (
+							<pre className="whitespace-pre-wrap break-words rounded-md bg-white/5 px-2 py-1 text-[10px] text-text-muted">
+								{stringifyJsonSafe(structuredContent)}
+							</pre>
+						) : null}
+						{!progressMessage && !hasContent && !errorMessage && !hasStructured ? (
+							<div className="text-[10px] text-text-muted">Tool returned no content</div>
+						) : null}
+					</div>
+				</ActivityBlock>
+			);
+		}
+
+		if (e.kind === 'assistant' && e.role === 'reasoning') {
+			const collapsed = e.streaming ? false : (collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails);
+
+			const { heading, body } = extractHeadingFromMarkdown(e.text);
+			const hasHeading = !!heading;
+			const titlePrefix = hasHeading ? '' : e.streaming ? 'Thinking' : 'Thought';
+			const titleContent = heading || '';
+			const displayBody = hasHeading ? body : e.text;
+			const trimmedBody = displayBody.trim();
+			const hasBody = trimmedBody.length > 0;
+
+			return (
+				<ActivityBlock
+					key={e.id}
+					titlePrefix={titlePrefix}
+					titleContent={titleContent}
+					status={e.streaming ? 'Streaming…' : undefined}
+					copyContent={e.text}
+					icon={<Brain className="h-3.5 w-3.5" />}
+					contentVariant="markdown"
+					collapsible={hasBody}
+					collapsed={hasBody ? collapsed : true}
+					onToggleCollapse={hasBody ? () => toggleEntryCollapse(e.id) : undefined}
+				>
+					{hasBody ? (
+						<ChatMarkdown
+							text={displayBody}
+							className="text-[11px] text-text-muted"
+							dense
+						/>
+					) : null}
+				</ActivityBlock>
+			);
+		}
+
+		if (e.kind === 'system') {
+			const tone = e.tone ?? 'info';
+			const isError = tone === 'error';
+			const hasDetails = !!e.additionalDetails;
+			if (isError && hasDetails) {
+				const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+				const summary = e.willRetry ? 'Error (retrying)' : 'Error';
+				const content = `${e.text}\n\n${e.additionalDetails ?? ''}`.trim();
+				return (
+					<ActivityBlock
+						key={e.id}
+						titlePrefix={summary}
+						titleContent={e.text}
+						copyContent={content}
+						collapsible
+						collapsed={collapsed}
+						onToggleCollapse={() => toggleEntryCollapse(e.id)}
+					>
+						{content}
+					</ActivityBlock>
+				);
+			}
+			const color =
+				tone === 'error'
+					? 'bg-status-error/10 text-status-error'
+					: tone === 'warning'
+						? 'bg-status-warning/10 text-status-warning'
+						: 'bg-bg-panel/10 text-text-muted';
+
+			return (
+				<div
+					key={e.id}
+					className={`am-row am-row-hover text-xs ${color}`}
+				>
+					<div className="whitespace-pre-wrap break-words">{e.text}</div>
+				</div>
+			);
+		}
+
+		return null;
+	};
 
 	return (
 		<div className="flex h-full min-w-0 flex-col overflow-x-hidden">
@@ -3918,7 +4741,7 @@ export function CodexChat() {
 						{renderTurns.map((turn) => {
 							const collapsedExplicit = collapsedWorkingByTurnId[turn.id];
 							const workingOpen = collapsedExplicit === undefined ? turn.status === 'inProgress' : !collapsedExplicit;
-							const hasWorking = turn.workingEntries.length > 0;
+							const hasWorking = turn.workingItemCount > 0;
 
 							return (
 								<div
@@ -3977,13 +4800,13 @@ export function CodexChat() {
 											className="inline-flex items-center gap-2 rounded-full border border-border-menuDivider bg-bg-panel/20 px-3 py-1 text-left text-[12px] text-text-muted transition-colors hover:bg-bg-panelHover/30 hover:text-text-main"
 											onClick={() => toggleTurnWorking(turn.id)}
 										>
-												<div className="flex items-center gap-2 text-[11px] text-text-muted">
-													<span className="truncate font-medium">
-														{turnStatusLabel(turn.status)}
-														{turn.id === PENDING_TURN_ID ? ' (pending)' : ''}
-													</span>
+											<div className="flex items-center gap-2 text-[11px] text-text-muted">
+												<span className="truncate font-medium">
+													{turnStatusLabel(turn.status)}
+													{turn.id === PENDING_TURN_ID ? ' (pending)' : ''}
+												</span>
 												<span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-text-menuDesc">
-													{turn.workingEntries.length}
+													{turn.workingItemCount}
 												</span>
 											</div>
 											<ChevronRight
@@ -3996,412 +4819,58 @@ export function CodexChat() {
 									) : null}
 
 									{hasWorking ? (
-											<Collapse open={workingOpen} innerClassName="pt-0.5">
-												<div className="space-y-1">
-												{(() => {
-													// Group sequential "read" commands into a single "Reading" block
-													const grouped: (ChatEntry | { kind: 'readingGroup'; id: string; entries: Extract<ChatEntry, { kind: 'command' }>[] })[] = [];
-													for (const e of turn.workingEntries) {
-														if (e.kind === 'command') {
-															const parsed = resolveParsedCmd(e.command, e.commandActions);
-															if (parsed.type === 'read' && !e.approval) {
-																const last = grouped[grouped.length - 1];
-																if (last && 'kind' in last && last.kind === 'readingGroup') {
-																	last.entries.push(e);
-																	continue;
-																}
-																grouped.push({ kind: 'readingGroup', id: `read-group-${e.id}`, entries: [e] });
-																continue;
-															}
-														}
-														grouped.push(e);
+										<Collapse open={workingOpen} innerClassName="pt-0.5">
+											<div className="space-y-1">
+												{turn.workingItems.map((item) => {
+													if (item.kind === 'exploration') {
+														const { prefix, content } = formatExplorationHeader(item.status, item.uniqueFileCount);
+														const collapsed =
+															item.status === 'exploring'
+																? false
+																: (collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails);
+														const hasItems = item.items.length > 0;
+														const copyContent = content ? `${prefix} ${content}` : prefix;
+														return (
+															<ActivityBlock
+																key={item.id}
+																titlePrefix={prefix}
+																titleContent={content}
+																copyContent={copyContent}
+																icon={<BookOpen className="h-3.5 w-3.5" />}
+																contentClassName="space-y-1"
+																collapsible={hasItems}
+																collapsed={hasItems ? collapsed : true}
+																onToggleCollapse={hasItems ? () => toggleEntryCollapse(item.id) : undefined}
+															>
+																{item.items.map((child) => renderWorkingItem(child))}
+															</ActivityBlock>
+														);
 													}
-
-													return grouped.map((item) => {
-														if ('kind' in item && item.kind === 'readingGroup') {
-															const isFinished = item.entries.every(e => e.status !== 'inProgress');
-															const collapsed = collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails;
-															const parsedEntries = item.entries.map((entry) => ({
-																entry,
-																parsed: resolveParsedCmd(entry.command, entry.commandActions),
-															}));
-															const uniqueByName: typeof parsedEntries = [];
-															const seen = new Set<string>();
-															for (let i = parsedEntries.length - 1; i >= 0; i -= 1) {
-																const name = parsedEntries[i]?.parsed.name;
-																if (!name) continue;
-																if (seen.has(name)) continue;
-																seen.add(name);
-																uniqueByName.push(parsedEntries[i]);
-															}
-															uniqueByName.reverse();
-
-															const lastUnique = uniqueByName[uniqueByName.length - 1];
-															const lastName = lastUnique?.parsed.name || 'file';
-															const count = Math.max(0, uniqueByName.length - 1);
-
-															const prefix = isFinished ? 'Read' : 'Reading';
-															const title = uniqueByName.length === 0
-																? 'files'
-																: uniqueByName.length === 1
-																	? lastName
-																	: `${lastName} +${count}`;
-
-															const copyContent = item.entries
-																.map(e => [`$ ${e.command}`, e.output ?? ''].filter(Boolean).join('\n'))
-																.join('\n\n');
-
-															const uniqueForChips: typeof parsedEntries = [];
-															const seenChipNames = new Set<string>();
-															for (const entry of parsedEntries) {
-																const name = entry.parsed.name;
-																if (!name) continue;
-																if (seenChipNames.has(name)) continue;
-																seenChipNames.add(name);
-																uniqueForChips.push(entry);
-															}
-
-																return (
-																	<ActivityBlock
-																		key={item.id}
-																		titlePrefix={prefix}
-																		titleContent={title}
-																		status={!isFinished ? 'in progress' : undefined}
-																		copyContent={copyContent.replace(/\x1b\[[0-9;]*m/g, '')}
-																		icon={<BookOpen className="h-3.5 w-3.5" />}
-																		contentClassName="font-sans"
-																		collapsible
-																		collapsed={collapsed}
-																		onToggleCollapse={() => toggleEntryCollapse(item.id)}
-																	>
-																		<div className="flex flex-wrap gap-1.5 py-1">
-																			{uniqueForChips.map((e) => (
-																				<div
-																					key={e.entry.id}
-																					className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-text-muted"
-																				>
-																					<FileText className="h-3 w-3 opacity-60" />
-																					<span>{e.parsed.name || 'file'}</span>
-																				</div>
-																			))}
-																		</div>
-																		{parsedEntries.some(({ entry }) => entry.output) ? (
-																			<div className="mt-2 space-y-2 border-t border-white/5 pt-2">
-																				{parsedEntries
-																					.filter(({ entry }) => entry.output)
-																					.map(({ entry, parsed }) => (
-																						<div key={entry.id} className="space-y-1">
-																							<div className="text-[9px] font-medium text-text-muted">
-																								{parsed.name || 'file'}
-																							</div>
-																							<div className="whitespace-pre-wrap break-words font-mono text-[10px] text-text-muted">
-																								{renderAnsiText(entry.output!)}
-																							</div>
-																						</div>
-																					))}
-																			</div>
-																		) : null}
-																	</ActivityBlock>
-															);
-														}
-
-														const e = item as ChatEntry;
-														if (e.kind === 'assistant' && e.role === 'message') {
-															const showPlaceholder = !!e.renderPlaceholderWhileStreaming && !e.completed;
-															const structured = e.structuredOutput && e.structuredOutput.type === 'code-review' ? e.structuredOutput : null;
-															return (
-																<div key={e.id} className="px-2 py-1">
-																	{showPlaceholder ? (
-																		<div className="text-[11px] text-text-menuDesc">Generating…</div>
-																	) : structured ? (
-																		<CodeReviewAssistantMessage
-																			output={structured}
-																			completed={!!e.completed}
-																		/>
-																	) : (
-																		<ChatMarkdown
-																			text={e.text}
-																			className="text-[11px] text-text-menuDesc"
-																			dense
-																		/>
-																	)}
-																</div>
-															);
-														}
-
-														if (e.kind === 'command') {
-															const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-																const displayContent = e.output ?? '';
-															// Smart command parsing for better titles
-															const parsed = resolveParsedCmd(e.command, e.commandActions);
-															const isFinished = e.status !== 'inProgress';
-															const summary = getCmdSummary(parsed, isFinished);
-															const useMono = parsed.type === 'unknown' || parsed.type === 'format' || parsed.type === 'test' || parsed.type === 'lint';
-																return (
-																	<ActivityBlock
-																		key={e.id}
-																		titlePrefix={summary.prefix}
-																		titleContent={summary.content}
-																		titleMono={useMono}
-																		status={e.status !== 'completed' ? e.status : undefined}
-																		copyContent={displayContent.replace(/\x1b\[[0-9;]*m/g, '')}
-																		icon={<Terminal className="h-3.5 w-3.5" />}
-																		contentVariant="ansi"
-																		collapsible
-																		collapsed={collapsed}
-																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
-																		approval={e.approval}
-																		onApprove={approve}
-																	>
-																		{displayContent}
-																	</ActivityBlock>
-																);
-														}
-
-														if (e.kind === 'fileChange') {
-															const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-															const summary = buildFileChangeSummary(e);
-															const fullContent = summary.changes
-																.map((c) => `${formatDiffPath(c.path, c.movePath)}\n${c.diff}`)
-																.join('\n\n');
-															const isFinished = e.status === 'completed';
-															const titlePrefix = isFinished
-																? summary.titlePrefix
-																: summary.titlePrefix === 'Added'
-																	? 'Adding'
-																	: summary.titlePrefix === 'Deleted'
-																		? 'Deleting'
-																		: 'Editing';
-
-																return (
-																	<ActivityBlock
-																		key={e.id}
-																		titlePrefix={titlePrefix}
-																		titleContent={summary.titleContent}
-																		status={e.status !== 'completed' ? e.status : undefined}
-																		copyContent={fullContent}
-																		icon={<FileText className="h-3.5 w-3.5" />}
-																		contentClassName="font-sans"
-																		summaryActions={
-																			<>
-																				<DiffCountBadge added={summary.totalAdded} removed={summary.totalRemoved} />
-																			</>
-																		}
-																		collapsible
-																		collapsed={collapsed}
-																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
-																		approval={e.approval}
-																		onApprove={approve}
-																	>
-																		<div className="space-y-4">
-																			{summary.changes.map((change) => {
-																				const verb =
-																					change.kind.type === 'add'
-																						? 'Added'
-																						: change.kind.type === 'delete'
-																							? 'Deleted'
-																							: 'Edited';
-																				const label = formatDiffPath(change.path, change.movePath);
-																				return (
-																					<div key={`${change.path}-${change.kind.type}`} className="space-y-2">
-																						<div className="flex items-center justify-between gap-2">
-																							<div className="min-w-0 text-[11px] text-text-main">
-																								<span className="text-text-menuLabel">{verb}</span>
-																								<span className="ml-2 truncate">{label}</span>
-																							</div>
-																							<DiffCountBadge added={change.parsed.added} removed={change.parsed.removed} />
-																						</div>
-																						{change.parsed.lines.length > 0 ? (
-																							<div className="rounded-md border border-white/5 bg-black/30 px-2 py-1">
-																								{renderDiffLines(change.parsed)}
-																							</div>
-																						) : (
-																							<div className="text-[10px] italic text-text-muted">No diff content</div>
-																						)}
-																					</div>
-																				);
-																			})}
-																		</div>
-																	</ActivityBlock>
-															);
-														}
-
-														if (e.kind === 'webSearch') {
-															const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-																return (
-																	<ActivityBlock
-																		key={e.id}
-																		titlePrefix="Web search"
-																		titleContent={e.query}
-																		copyContent={e.query}
-																		icon={<Search className="h-3.5 w-3.5" />}
-																		contentVariant="plain"
-																		collapsible
-																		collapsed={collapsed}
-																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
-																	>
-																		{e.query}
-																</ActivityBlock>
-															);
-														}
-
-														if (e.kind === 'mcp') {
-															const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-															const contentBlocks = Array.isArray(e.result?.content) ? e.result?.content ?? [] : [];
-															const structuredContent = e.result?.structuredContent ?? null;
-															const errorMessage = e.error?.message;
-															const progressMessage = !e.result && !e.error ? e.message : undefined;
-															// Format MCP title with argument preview (VS Code plugin parity)
-															const argsPreview = formatMcpArgsPreview(e.arguments);
-															const toolLabel = `${e.server}.${e.tool}(${argsPreview})`;
-															const hasContent = contentBlocks.length > 0;
-															const hasStructured = structuredContent !== null && structuredContent !== undefined;
-															const copyContent = [
-																hasContent ? mcpContentToText(contentBlocks) : '',
-																hasStructured ? stringifyJsonSafe(structuredContent) : '',
-																errorMessage ?? '',
-																progressMessage ?? '',
-															]
-																.filter(Boolean)
-																.join('\n\n');
-																return (
-																	<ActivityBlock
-																		key={e.id}
-																		titlePrefix="MCP:"
-																		titleContent={toolLabel}
-																		titleMono
-																		status={e.status !== 'completed' ? e.status : undefined}
-																		copyContent={copyContent || toolLabel}
-																		icon={<Wrench className="h-3.5 w-3.5" />}
-																		contentClassName="font-sans"
-																		collapsible
-																		collapsed={collapsed}
-																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
-																	>
-																		<div className="space-y-2">
-																			{progressMessage ? (
-																				<div className="text-[10px] text-text-muted">{progressMessage}</div>
-																			) : null}
-																			{hasContent ? renderMcpContentBlocks(contentBlocks) : null}
-																			{errorMessage ? (
-																				<div className="whitespace-pre-wrap text-[10px] text-status-error">{errorMessage}</div>
-																			) : null}
-																			{hasStructured ? (
-																				<pre className="whitespace-pre-wrap break-words rounded-md bg-white/5 px-2 py-1 text-[10px] text-text-muted">
-																					{stringifyJsonSafe(structuredContent)}
-																				</pre>
-																			) : null}
-																			{!progressMessage && !hasContent && !errorMessage && !hasStructured ? (
-																				<div className="text-[10px] text-text-muted">Tool returned no content</div>
-																			) : null}
-																		</div>
-																	</ActivityBlock>
-																);
-														}
-
-															if (e.kind === 'assistant' && e.role === 'reasoning') {
-																const collapsed = e.streaming
-																	? false
-																	: (collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails);
-
-																// Extract heading from markdown (VS Code plugin parity)
-																const { heading, body } = extractHeadingFromMarkdown(e.text);
-																const hasHeading = !!heading;
-																const titlePrefix = hasHeading ? '' : e.streaming ? 'Thinking' : 'Thought';
-																const titleContent = heading || '';
-																const displayBody = hasHeading ? body : e.text;
-																const trimmedBody = displayBody.trim();
-																const hasBody = trimmedBody.length > 0;
-
-																	return (
-																		<ActivityBlock
-																			key={e.id}
-																			titlePrefix={titlePrefix}
-																			titleContent={titleContent}
-																			status={e.streaming ? 'Streaming…' : undefined}
-																			copyContent={e.text}
-																			icon={<Brain className="h-3.5 w-3.5" />}
-																			contentVariant="markdown"
-																			collapsible={hasBody}
-																			collapsed={hasBody ? collapsed : true}
-																			onToggleCollapse={hasBody ? () => toggleEntryCollapse(e.id) : undefined}
-																		>
-																			{hasBody ? (
-																				<ChatMarkdown
-																					text={displayBody}
-																					className="text-[11px] text-text-muted"
-																					dense
-																				/>
-																			) : null}
-																		</ActivityBlock>
-																	);
-															}
-
-														if (e.kind === 'system') {
-															const tone = e.tone ?? 'info';
-															const isError = tone === 'error';
-															const hasDetails = !!e.additionalDetails;
-															if (isError && hasDetails) {
-																const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-																const summary = e.willRetry ? 'Error (retrying)' : 'Error';
-																const content = `${e.text}\n\n${e.additionalDetails ?? ''}`.trim();
-																return (
-																	<ActivityBlock
-																		key={e.id}
-																		titlePrefix={summary}
-																		titleContent={e.text}
-																		copyContent={content}
-																		collapsible
-																		collapsed={collapsed}
-																		onToggleCollapse={() => toggleEntryCollapse(e.id)}
-																	>
-																		{content}
-																	</ActivityBlock>
-																);
-															}
-															const color =
-																tone === 'error'
-																	? 'bg-status-error/10 text-status-error'
-																	: tone === 'warning'
-																		? 'bg-status-warning/10 text-status-warning'
-																		: 'bg-bg-panel/10 text-text-muted';
-
-															return (
-																<div
-																	key={e.id}
-																	className={`am-row am-row-hover text-xs ${color}`}
-																>
-																	<div className="whitespace-pre-wrap break-words">{e.text}</div>
-																</div>
-															);
-														}
-
-														return null;
-													});
-												})()}
+													return renderWorkingItem(item.item);
+												})}
 											</div>
 										</Collapse>
 									) : null}
 
-										<div className="space-y-2">
-											{turn.assistantMessageEntries.map((e) => (
-												<div
-													key={e.id}
-													className="px-1 py-1 text-[12px] leading-[1.25] text-text-muted"
-												>
-													{e.renderPlaceholderWhileStreaming && !e.completed ? (
-														<div className="text-[12px] text-text-menuDesc">Generating…</div>
-													) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
-														<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
-													) : (
-														<ChatMarkdown
-															text={e.text}
-															className="text-text-muted !leading-[1.25]"
-															dense
-														/>
-													)}
-												</div>
-											))}
+									<div className="space-y-2">
+										{turn.assistantMessageEntries.map((e) => (
+											<div
+												key={e.id}
+												className="px-1 py-1 text-[12px] leading-[1.25] text-text-muted"
+											>
+												{e.renderPlaceholderWhileStreaming && !e.completed ? (
+													<div className="text-[12px] text-text-menuDesc">Generating…</div>
+												) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
+													<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
+												) : (
+													<ChatMarkdown
+														text={e.text}
+														className="text-text-muted !leading-[1.25]"
+														dense
+													/>
+												)}
+											</div>
+										))}
 									</div>
 								</div>
 							);
