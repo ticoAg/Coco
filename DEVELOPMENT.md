@@ -16,6 +16,7 @@ The previous Python implementation is archived under `legacy/python/`.
 - Rust toolchain (stable)
 - Node.js + npm
 - macOS build tools (Xcode Command Line Tools)
+- Ubuntu (optional): Tauri system deps (installed by `just deps`, requires `sudo apt-get update/install`)
 - `codex` installed and available on `PATH` (required for Codex Chat and when running workers)
   - macOS: if launching the `.app` from Finder, you may need to set `AGENTMESH_CODEX_BIN=/opt/homebrew/bin/codex` because GUI apps don't always inherit your shell `PATH`.
 
@@ -24,6 +25,8 @@ The previous Python implementation is archived under `legacy/python/`.
 ```bash
 # Install GUI deps (optional; `just dev` will auto-install when needed)
 just deps
+
+# Ubuntu only: `just deps` will also install system deps via apt-get (sudo required)
 
 # Run the app in dev mode (Vite + Tauri)
 just dev

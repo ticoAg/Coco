@@ -10,6 +10,28 @@ default:
 
 # 安装 GUI 依赖
 deps:
+    if [ "$(uname -s)" = "Linux" ] && [ -f /etc/os-release ]; then \
+        . /etc/os-release; \
+        if [ "$ID" = "ubuntu" ]; then \
+            echo "[just] Ubuntu detected, installing system deps for Tauri..."; \
+            sudo apt-get update; \
+            WEBKIT_PKG=libwebkit2gtk-4.1-dev; \
+            if ! apt-cache show "$WEBKIT_PKG" >/dev/null 2>&1; then \
+                WEBKIT_PKG=libwebkit2gtk-4.0-dev; \
+            fi; \
+            sudo apt-get install -y \
+                "$WEBKIT_PKG" \
+                build-essential \
+                curl \
+                wget \
+                file \
+                libxdo-dev \
+                libssl-dev \
+                libayatana-appindicator3-dev \
+                librsvg2-dev \
+                libgtk-3-dev; \
+        fi; \
+    fi
     cd apps/gui && npm install
 
 # 检查 GUI 依赖（缺失/过期时自动安装）
