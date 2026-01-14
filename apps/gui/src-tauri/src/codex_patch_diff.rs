@@ -89,12 +89,12 @@ fn parse_apply_patch_hunks(diff: &str) -> Vec<PatchHunk> {
             continue;
         }
 
-        let (kind, text) = if line.starts_with('+') {
-            (PatchLineKind::Add, &line[1..])
-        } else if line.starts_with('-') {
-            (PatchLineKind::Delete, &line[1..])
-        } else if line.starts_with(' ') {
-            (PatchLineKind::Context, &line[1..])
+        let (kind, text) = if let Some(stripped) = line.strip_prefix('+') {
+            (PatchLineKind::Add, stripped)
+        } else if let Some(stripped) = line.strip_prefix('-') {
+            (PatchLineKind::Delete, stripped)
+        } else if let Some(stripped) = line.strip_prefix(' ') {
+            (PatchLineKind::Context, stripped)
         } else if in_hunk || !current.is_empty() {
             (PatchLineKind::Context, line)
         } else {
@@ -125,11 +125,7 @@ fn collect_lines_by_kind(hunks: &[PatchHunk], kind: PatchLineKind) -> Vec<String
     out
 }
 
-fn match_hunk_start(
-    file_lines: &[String],
-    hunk: &PatchHunk,
-    search_start: usize,
-) -> Option<usize> {
+fn match_hunk_start(file_lines: &[String], hunk: &PatchHunk, search_start: usize) -> Option<usize> {
     let pattern: Vec<&str> = hunk
         .lines
         .iter()
@@ -167,9 +163,7 @@ fn build_unified_diff_from_hunks(hunks: &[PatchHunk], file_lines: &[String]) -> 
     let mut search_start = 0usize;
 
     for hunk in hunks {
-        let Some(start_idx) = match_hunk_start(file_lines, hunk, search_start) else {
-            return None;
-        };
+        let start_idx = match_hunk_start(file_lines, hunk, search_start)?;
         let new_start = start_idx as isize + 1;
         let old_start = new_start + offset;
         if old_start < 1 {

@@ -29,16 +29,12 @@ function MarkdownBody({ text }: { text: string }) {
 					ol: ({ children }) => <ol className="my-0.5 list-decimal pl-5">{children}</ol>,
 					li: ({ children }) => <li className="my-0.5">{children}</li>,
 					pre: ({ children }) => (
-						<pre className="my-1.5 overflow-x-auto rounded-md bg-black/25 px-2 py-1.5 font-mono text-[10px] leading-snug text-text-menuDesc">
-							{children}
-						</pre>
+						<pre className="my-1.5 overflow-x-auto rounded-md bg-black/25 px-2 py-1.5 font-mono text-[10px] leading-snug text-text-menuDesc">{children}</pre>
 					),
 					code: ({ className, children }) => {
 						const isBlock = typeof className === 'string' && className.includes('language-');
 						return !isBlock ? (
-							<code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[11px] text-text-menuDesc">
-								{children}
-							</code>
+							<code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[11px] text-text-menuDesc">{children}</code>
 						) : (
 							<code className="font-mono text-[10px] text-text-menuDesc">{children}</code>
 						);
@@ -58,9 +54,7 @@ function PriorityTitle({ title }: { title: string }) {
 	}
 	return (
 		<div className="flex min-w-0 items-center gap-2">
-			<span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-text-muted">
-				{parsed.tag}
-			</span>
+			<span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-text-muted">{parsed.tag}</span>
 			<div className="min-w-0 break-words text-[12px] font-semibold text-text-muted">{parsed.rest}</div>
 		</div>
 	);
@@ -81,10 +75,7 @@ function FindingCard({ finding }: { finding: CodeReviewFinding }) {
 	);
 }
 
-export function CodeReviewAssistantMessage(props: {
-	output: CodeReviewStructuredOutput;
-	completed: boolean;
-}): JSX.Element {
+export function CodeReviewAssistantMessage(props: { output: CodeReviewStructuredOutput; completed: boolean }): JSX.Element {
 	const findings = props.output.findings ?? [];
 	const split = useMemo(() => {
 		const primary: CodeReviewFinding[] = [];
@@ -139,4 +130,3 @@ export function CodeReviewAssistantMessage(props: {
 		</div>
 	);
 }
-

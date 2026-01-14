@@ -33,6 +33,25 @@ just build
 
 # Rust checks
 just check
+
+# Full-stack quality checks (frontend + backend)
+just fmt
+just fmt-check
+just lint
+just test
+
+# Frontend-only / Backend-only
+just fe-check
+just fe-fmt
+just fe-fmt-check
+just fe-lint
+just fe-build
+just be-check
+just be-fmt
+just be-fmt-check
+just be-lint
+just be-test
+just be-build
 ```
 
 ## Release (macOS DMG)

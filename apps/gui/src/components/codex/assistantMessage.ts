@@ -164,4 +164,3 @@ export function isHighPriorityFinding(finding: CodeReviewFinding): boolean {
 	const tag = parsePriorityTagFromTitle(finding.title)?.tag ?? '';
 	return tag === 'P0' || tag === 'P1';
 }
-

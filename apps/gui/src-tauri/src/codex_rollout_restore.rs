@@ -184,7 +184,10 @@ fn merge_file_change_changes(base: &Value, rollout: &Value) -> Value {
                 }
                 if line_numbers_missing {
                     if let Some(rollout_line_numbers) = rollout_match.get("lineNumbersAvailable") {
-                        obj.insert("lineNumbersAvailable".to_string(), rollout_line_numbers.clone());
+                        obj.insert(
+                            "lineNumbersAvailable".to_string(),
+                            rollout_line_numbers.clone(),
+                        );
                     }
                 }
             }
@@ -660,13 +663,11 @@ async fn parse_rollout_activity_by_turn(
                     let segments = parse_apply_patch_segments(input);
                     let mut changes: Vec<Value> = Vec::with_capacity(segments.len());
                     for seg in segments {
-                        let (diff, line_numbers_available) = codex_patch_diff::enrich_file_change_diff(
-                            &seg.path,
-                            &seg.kind,
-                            &seg.diff,
-                            cwd,
-                        )
-                        .await;
+                        let (diff, line_numbers_available) =
+                            codex_patch_diff::enrich_file_change_diff(
+                                &seg.path, &seg.kind, &seg.diff, cwd,
+                            )
+                            .await;
                         changes.push(serde_json::json!({
                             "path": seg.path,
                             "kind": seg.kind,
@@ -957,17 +958,17 @@ pub async fn augment_thread_resume_response(res: Value, thread_id: &str) -> Resu
     let cwd = extract_cwd_from_resume_response(&res);
     let activity_by_turn =
         match parse_rollout_activity_by_turn(&rollout_path, turn_count, cwd.as_deref()).await {
-        Ok(v) => v,
-        Err(err) => {
-            warn!(
-                "Failed to parse Codex rollout for activity restore (thread_id={} path={}): {}",
-                thread_id,
-                rollout_path.display(),
-                err
-            );
-            return Ok(res);
-        }
-    };
+            Ok(v) => v,
+            Err(err) => {
+                warn!(
+                    "Failed to parse Codex rollout for activity restore (thread_id={} path={}): {}",
+                    thread_id,
+                    rollout_path.display(),
+                    err
+                );
+                return Ok(res);
+            }
+        };
 
     let Some(thread) = res.get_mut("thread") else {
         return Ok(res);

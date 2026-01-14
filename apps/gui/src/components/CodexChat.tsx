@@ -46,10 +46,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { apiClient } from '../api/client';
 import { CodeReviewAssistantMessage } from './codex/CodeReviewAssistantMessage';
 import { Collapse } from './ui/Collapse';
-import {
-	parseCodeReviewStructuredOutputFromMessage,
-	shouldHideAssistantMessageContent,
-} from './codex/assistantMessage';
+import { parseCodeReviewStructuredOutputFromMessage, shouldHideAssistantMessageContent } from './codex/assistantMessage';
 import type {
 	AutoContextInfo,
 	CommandAction,
@@ -70,80 +67,87 @@ import type {
 } from '../types/codex';
 
 // 附加内容类型
-type AttachmentItem =
-	| { type: 'file'; path: string; name: string }
-	| { type: 'skill'; name: string }
-	| { type: 'prompt'; name: string };
+type AttachmentItem = { type: 'file'; path: string; name: string } | { type: 'skill'; name: string } | { type: 'prompt'; name: string };
+
+type AssistantBaseEntry = {
+	kind: 'assistant';
+	id: string;
+	text: string;
+	streaming?: boolean;
+	completed?: boolean;
+	renderPlaceholderWhileStreaming?: boolean;
+	structuredOutput?: ReturnType<typeof parseCodeReviewStructuredOutputFromMessage> | null;
+	reasoningSummary?: string[];
+	reasoningContent?: string[];
+};
+
+type AssistantMessageEntry = AssistantBaseEntry & {
+	role: 'message';
+};
+
+type AssistantReasoningEntry = AssistantBaseEntry & {
+	role: 'reasoning';
+};
 
 type ChatEntry =
 	| {
-		kind: 'user';
-		id: string;
-		text: string;
-		attachments?: AttachmentItem[];
-	}
+			kind: 'user';
+			id: string;
+			text: string;
+			attachments?: AttachmentItem[];
+	  }
+	| AssistantMessageEntry
+	| AssistantReasoningEntry
 	| {
-		kind: 'assistant';
-		id: string;
-		text: string;
-		role: 'message' | 'reasoning';
-		streaming?: boolean;
-		completed?: boolean;
-		renderPlaceholderWhileStreaming?: boolean;
-		structuredOutput?: ReturnType<typeof parseCodeReviewStructuredOutputFromMessage> | null;
-		reasoningSummary?: string[];
-		reasoningContent?: string[];
-	}
+			kind: 'command';
+			id: string;
+			command: string;
+			status: string;
+			cwd?: string;
+			output?: string | null;
+			commandActions?: CommandAction[];
+			approval?: {
+				requestId: number;
+				decision?: 'accept' | 'decline';
+				reason?: string | null;
+			};
+	  }
 	| {
-		kind: 'command';
-		id: string;
-		command: string;
-		status: string;
-		cwd?: string;
-		output?: string | null;
-		commandActions?: CommandAction[];
-		approval?: {
-			requestId: number;
-			decision?: 'accept' | 'decline';
-			reason?: string | null;
-		};
-	}
+			kind: 'fileChange';
+			id: string;
+			status: string;
+			changes: Array<{ path: string; diff?: string; kind?: unknown; lineNumbersAvailable?: boolean }>;
+			approval?: {
+				requestId: number;
+				decision?: 'accept' | 'decline';
+				reason?: string | null;
+			};
+	  }
 	| {
-		kind: 'fileChange';
-		id: string;
-		status: string;
-		changes: Array<{ path: string; diff?: string; kind?: unknown; lineNumbersAvailable?: boolean }>;
-		approval?: {
-			requestId: number;
-			decision?: 'accept' | 'decline';
-			reason?: string | null;
-		};
-	}
+			kind: 'webSearch';
+			id: string;
+			query: string;
+	  }
 	| {
-		kind: 'webSearch';
-		id: string;
-		query: string;
-	}
+			kind: 'mcp';
+			id: string;
+			server: string;
+			tool: string;
+			arguments?: unknown;
+			result?: McpToolCallResult | null;
+			error?: McpToolCallError | null;
+			durationMs?: number | null;
+			status: string;
+			message?: string;
+	  }
 	| {
-		kind: 'mcp';
-		id: string;
-		server: string;
-		tool: string;
-		arguments?: unknown;
-		result?: McpToolCallResult | null;
-		error?: McpToolCallError | null;
-		durationMs?: number | null;
-		status: string;
-		message?: string;
-	}
-	| {
-		kind: 'system';
-		id: string;
-		text: string;
-		tone?: 'info' | 'warning' | 'error';
-		willRetry?: boolean | null;
-		additionalDetails?: string | null;
-	};
+			kind: 'system';
+			id: string;
+			text: string;
+			tone?: 'info' | 'warning' | 'error';
+			willRetry?: boolean | null;
+			additionalDetails?: string | null;
+	  };
 
 type CodexChatSettings = {
 	showReasoning: boolean;
@@ -167,10 +171,7 @@ function loadCodexChatSettings(): CodexChatSettings {
 		const parsed = JSON.parse(raw) as Partial<CodexChatSettings>;
 		return {
 			showReasoning: typeof parsed.showReasoning === 'boolean' ? parsed.showReasoning : defaults.showReasoning,
-			defaultCollapseDetails:
-				typeof parsed.defaultCollapseDetails === 'boolean'
-					? parsed.defaultCollapseDetails
-					: defaults.defaultCollapseDetails,
+			defaultCollapseDetails: typeof parsed.defaultCollapseDetails === 'boolean' ? parsed.defaultCollapseDetails : defaults.defaultCollapseDetails,
 		};
 	} catch {
 		return defaults;
@@ -216,10 +217,7 @@ function stripOuterQuotes(value: string): string {
 function unwrapShellCommand(command: string): string {
 	const trimmed = command.trim();
 	if (!trimmed) return trimmed;
-	const patterns = [
-		/^(?:\/bin\/)?(?:bash|zsh|sh)\s+-lc\s+([\s\S]+)$/i,
-		/^(?:\/bin\/)?(?:bash|zsh|sh)\s+(?:-l\s+)?-c\s+([\s\S]+)$/i,
-	];
+	const patterns = [/^(?:\/bin\/)?(?:bash|zsh|sh)\s+-lc\s+([\s\S]+)$/i, /^(?:\/bin\/)?(?:bash|zsh|sh)\s+(?:-l\s+)?-c\s+([\s\S]+)$/i];
 	for (const pattern of patterns) {
 		const match = trimmed.match(pattern);
 		if (match && match[1]) {
@@ -455,11 +453,7 @@ function normalizeMcpError(value: unknown): McpToolCallError | null {
  * Generate a smart summary for a parsed command.
  * Matches VS Code Codex plugin's CmdSummaryText behavior.
  */
-function getCmdSummary(
-	parsed: ParsedCmd,
-	isFinished: boolean,
-	rawCommand?: string
-): { prefix: string; content: string } {
+function getCmdSummary(parsed: ParsedCmd, isFinished: boolean, rawCommand?: string): { prefix: string; content: string } {
 	switch (parsed.type) {
 		case 'search':
 			if (parsed.query && parsed.path) {
@@ -560,7 +554,10 @@ function extractHeadingFromMarkdown(text: string): { heading: string | null; bod
 	// Check for markdown heading: # Heading
 	if (firstLine.startsWith('#')) {
 		const heading = firstLine.replace(/^#+\s*/, '').trim();
-		const body = lines.slice(firstIdx + 1).join('\n').trim();
+		const body = lines
+			.slice(firstIdx + 1)
+			.join('\n')
+			.trim();
 		return { heading: heading || null, body };
 	}
 
@@ -568,14 +565,20 @@ function extractHeadingFromMarkdown(text: string): { heading: string | null; bod
 	const boldMatch = firstLine.match(/^\*\*(.+)\*\*$/);
 	if (boldMatch) {
 		const heading = boldMatch[1].trim();
-		const body = lines.slice(firstIdx + 1).join('\n').trim();
+		const body = lines
+			.slice(firstIdx + 1)
+			.join('\n')
+			.trim();
 		return { heading: heading || null, body };
 	}
 
 	// Check for setext-style heading
 	if (firstLine && (secondLine.match(/^=+$/) || secondLine.match(/^-+$/))) {
 		const heading = firstLine.trim();
-		const body = lines.slice(firstIdx + 2).join('\n').trim();
+		const body = lines
+			.slice(firstIdx + 2)
+			.join('\n')
+			.trim();
 		return { heading: heading || null, body };
 	}
 
@@ -602,9 +605,7 @@ function formatPrimitive(value: unknown): string {
 
 function stringifyJsonSafe(value: unknown, indent = 2): string {
 	try {
-		return (
-			JSON.stringify(value, (_key, val) => (typeof val === 'bigint' ? val.toString() : val), indent) ?? 'null'
-		);
+		return JSON.stringify(value, (_key, val) => (typeof val === 'bigint' ? val.toString() : val), indent) ?? 'null';
 	} catch {
 		try {
 			return String(value);
@@ -651,22 +652,10 @@ function markdownWithHardBreaks(text: string): string {
 	return out.join('\n');
 }
 
-function ChatMarkdown({
-	text,
-	className,
-	textClassName,
-	dense = false,
-}: {
-	text: string;
-	className?: string;
-	textClassName?: string;
-	dense?: boolean;
-}) {
+function ChatMarkdown({ text, className, textClassName, dense = false }: { text: string; className?: string; textClassName?: string; dense?: boolean }) {
 	const normalized = useMemo(() => markdownWithHardBreaks(text), [text]);
 	const leadingClass = dense ? 'leading-[1.35]' : 'leading-relaxed';
-	const paragraphClass = dense
-		? 'my-0.5 whitespace-pre-wrap break-words'
-		: 'my-1 whitespace-pre-wrap break-words';
+	const paragraphClass = dense ? 'my-0.5 whitespace-pre-wrap break-words' : 'my-1 whitespace-pre-wrap break-words';
 	const listClass = dense ? 'my-0.5' : 'my-1';
 	const preClass = dense ? 'my-1.5' : 'my-2';
 	const textClass = textClassName ?? 'text-text-muted';
@@ -688,29 +677,20 @@ function ChatMarkdown({
 					ol: ({ children }) => <ol className={`${listClass} list-decimal pl-5 ${textClass}`}>{children}</ol>,
 					li: ({ children }) => <li className={`my-0.5 ${textClass}`}>{children}</li>,
 					pre: ({ children }) => (
-						<pre
-							className={`${preClass} whitespace-pre-wrap break-words rounded-lg bg-black/30 px-3 py-2 text-[11px] leading-snug ${textClass}`}
-						>
+						<pre className={`${preClass} whitespace-pre-wrap break-words rounded-lg bg-black/30 px-3 py-2 text-[11px] leading-snug ${textClass}`}>
 							{children}
 						</pre>
 					),
 					code: ({ className, children }) => {
 						const isBlock = typeof className === 'string' && className.includes('language-');
 						return !isBlock ? (
-							<code className={`rounded bg-white/10 px-1 py-0 font-mono text-[11px] leading-[1.25] ${textClass}`}>
-								{children}
-							</code>
+							<code className={`rounded bg-white/10 px-1 py-0 font-mono text-[11px] leading-[1.25] ${textClass}`}>{children}</code>
 						) : (
 							<code className={`font-mono text-[11px] ${textClass}`}>{children}</code>
 						);
 					},
 					a: ({ href, children }) => (
-						<a
-							href={href}
-							className="text-blue-400 underline underline-offset-2 hover:text-blue-300"
-							target="_blank"
-							rel="noreferrer"
-						>
+						<a href={href} className="text-blue-400 underline underline-offset-2 hover:text-blue-300" target="_blank" rel="noreferrer">
 							{children}
 						</a>
 					),
@@ -722,15 +702,8 @@ function ChatMarkdown({
 	);
 }
 
-function isCollapsibleEntry(
-	entry: ChatEntry
-): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'webSearch' | 'mcp' }> {
-	return (
-		entry.kind === 'command' ||
-		entry.kind === 'fileChange' ||
-		entry.kind === 'webSearch' ||
-		entry.kind === 'mcp'
-	);
+function isCollapsibleEntry(entry: ChatEntry): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'webSearch' | 'mcp' }> {
+	return entry.kind === 'command' || entry.kind === 'fileChange' || entry.kind === 'webSearch' || entry.kind === 'mcp';
 }
 
 type AnsiTextStyle = {
@@ -1098,21 +1071,14 @@ function parseFileChangeKind(kind: unknown): ParsedFileChangeKind {
 	if (!isRecord(kind)) return fallback;
 	const rawType = safeString((kind as { type?: unknown }).type).toLowerCase();
 	if (rawType !== 'add' && rawType !== 'delete' && rawType !== 'update') return fallback;
-	const movePath =
-		safeString((kind as { move_path?: unknown }).move_path) ||
-		safeString((kind as { movePath?: unknown }).movePath) ||
-		undefined;
+	const movePath = safeString((kind as { move_path?: unknown }).move_path) || safeString((kind as { movePath?: unknown }).movePath) || undefined;
 	if (rawType === 'update' && movePath) {
 		return { type: 'update', movePath };
 	}
 	return { type: rawType as ParsedFileChangeKind['type'] };
 }
 
-function parseDiffForChange(
-	diff: string,
-	kind: ParsedFileChangeKind,
-	lineNumbersAvailable?: boolean
-): ParsedDiff {
+function parseDiffForChange(diff: string, kind: ParsedFileChangeKind, lineNumbersAvailable?: boolean): ParsedDiff {
 	const shouldUseNumbers = lineNumbersAvailable ?? diffHasLineNumbers(diff);
 	const parsed = parseUnifiedDiff(diff);
 	const normalized = shouldUseNumbers ? parsed : stripDiffLineNumbers(parsed);
@@ -1120,18 +1086,9 @@ function parseDiffForChange(
 	if (kind.type !== 'add' && kind.type !== 'delete') return normalized;
 
 	const rawLines = diff.split(/\r?\n/);
-	const trimmedLines =
-		rawLines.length > 0 && rawLines[rawLines.length - 1] === ''
-			? rawLines.slice(0, -1)
-			: rawLines;
+	const trimmedLines = rawLines.length > 0 && rawLines[rawLines.length - 1] === '' ? rawLines.slice(0, -1) : rawLines;
 	const contentLines = trimmedLines.filter(
-		(line) =>
-			!(
-				line.startsWith('*** ') ||
-				line.startsWith('+++') ||
-				line.startsWith('---') ||
-				line.startsWith('Index: ')
-			)
+		(line) => !(line.startsWith('*** ') || line.startsWith('+++') || line.startsWith('---') || line.startsWith('Index: '))
 	);
 	let lineNumber = 1;
 	const lines: ParsedDiffLine[] = [];
@@ -1178,11 +1135,8 @@ function buildFileChangeSummary(entry: Extract<ChatEntry, { kind: 'fileChange' }
 	const fileCount = changes.length;
 	const single = fileCount === 1;
 	const primaryKind = single ? changes[0]?.kind.type : 'update';
-	const titlePrefix =
-		primaryKind === 'add' ? 'Added' : primaryKind === 'delete' ? 'Deleted' : 'Edited';
-	const titleContent = single
-		? formatDiffPath(changes[0]?.path ?? 'file', changes[0]?.movePath)
-		: `${fileCount} ${fileCount === 1 ? 'file' : 'files'}`;
+	const titlePrefix = primaryKind === 'add' ? 'Added' : primaryKind === 'delete' ? 'Deleted' : 'Edited';
+	const titleContent = single ? formatDiffPath(changes[0]?.path ?? 'file', changes[0]?.movePath) : `${fileCount} ${fileCount === 1 ? 'file' : 'files'}`;
 	return {
 		id: entry.id,
 		titlePrefix,
@@ -1209,15 +1163,7 @@ function fileChangeVerb(kind: ParsedFileChangeKind, isPending: boolean): string 
 	return kind.type === 'add' ? 'Added' : kind.type === 'delete' ? 'Deleted' : 'Edited';
 }
 
-function FileChangeEntryCard({
-	change,
-	isPending,
-	defaultCollapsed,
-}: {
-	change: DiffReviewChange;
-	isPending: boolean;
-	defaultCollapsed: boolean;
-}) {
+function FileChangeEntryCard({ change, isPending, defaultCollapsed }: { change: DiffReviewChange; isPending: boolean; defaultCollapsed: boolean }) {
 	const initialOpen = isPending ? true : !defaultCollapsed;
 	const [open, setOpen] = useState(initialOpen);
 	const verb = fileChangeVerb(change.kind, isPending);
@@ -1226,7 +1172,7 @@ function FileChangeEntryCard({
 	const hasDiff = change.parsed.lines.length > 0;
 
 	return (
-			<div className={['am-block', open ? 'am-block-open' : ''].join(' ')}>
+		<div className={['am-block', open ? 'am-block-open' : ''].join(' ')}>
 			<div
 				className="am-shell-header group"
 				onClick={() => setOpen((prev) => !prev)}
@@ -1267,12 +1213,7 @@ function FileChangeEntryCard({
 							setOpen((prev) => !prev);
 						}}
 					>
-						<ChevronRight
-							className={[
-								'h-3 w-3 transition-transform duration-200',
-								open ? 'rotate-90' : '',
-							].join(' ')}
-						/>
+						<ChevronRight className={['h-3 w-3 transition-transform duration-200', open ? 'rotate-90' : ''].join(' ')} />
 					</button>
 				</div>
 			</div>
@@ -1312,10 +1253,8 @@ function renderDiffLines(parsed: ParsedDiff): React.ReactNode {
 					);
 				}
 				const lineNo = line.newLine ?? line.oldLine;
-				const lineClass =
-					line.kind === 'insert' ? 'text-green-400' : line.kind === 'delete' ? 'text-red-400' : 'text-text-muted';
-				const rowClass =
-					line.kind === 'insert' ? 'bg-green-500/5' : line.kind === 'delete' ? 'bg-red-500/5' : '';
+				const lineClass = line.kind === 'insert' ? 'text-green-400' : line.kind === 'delete' ? 'text-red-400' : 'text-text-muted';
+				const rowClass = line.kind === 'insert' ? 'bg-green-500/5' : line.kind === 'delete' ? 'bg-red-500/5' : '';
 				return (
 					<div
 						key={`diff-${idx}`}
@@ -1395,43 +1334,25 @@ function renderMcpContentBlocks(blocks: unknown[]): React.ReactNode {
 					);
 				}
 				if (block.type === 'text') {
-					return (
-						<ChatMarkdown key={`mcp-text-${idx}`} text={block.text} className="text-[11px] text-text-muted" dense />
-					);
+					return <ChatMarkdown key={`mcp-text-${idx}`} text={block.text} className="text-[11px] text-text-muted" dense />;
 				}
 				if (block.type === 'image') {
 					const mime = block.mimeType || 'image/png';
 					const src = `data:${mime};base64,${block.data ?? ''}`;
-					return (
-						<img
-							key={`mcp-image-${idx}`}
-							className="max-h-48 w-max max-w-full rounded-md object-contain"
-							src={src}
-							alt=""
-						/>
-					);
+					return <img key={`mcp-image-${idx}`} className="max-h-48 w-max max-w-full rounded-md object-contain" src={src} alt="" />;
 				}
 				if (block.type === 'audio') {
 					const mime = block.mimeType || 'audio/mpeg';
 					const src = `data:${mime};base64,${block.data ?? ''}`;
-					return (
-						<audio key={`mcp-audio-${idx}`} className="w-full" controls src={src} preload="metadata" />
-					);
+					return <audio key={`mcp-audio-${idx}`} className="w-full" controls src={src} preload="metadata" />;
 				}
 				if (block.type === 'resource_link') {
 					const title = block.title || block.name;
 					return (
 						<div key={`mcp-link-${idx}`} className="space-y-1 rounded-md bg-white/5 px-2 py-1">
 							<div className="text-[10px] font-medium text-text-muted">{title}</div>
-							{block.description ? (
-								<div className="text-[10px] leading-relaxed text-text-muted">{block.description}</div>
-							) : null}
-							<a
-								className="block break-all text-[10px] text-blue-400 underline"
-								href={block.uri}
-								target="_blank"
-								rel="noreferrer"
-							>
+							{block.description ? <div className="text-[10px] leading-relaxed text-text-muted">{block.description}</div> : null}
+							<a className="block break-all text-[10px] text-blue-400 underline" href={block.uri} target="_blank" rel="noreferrer">
 								{block.uri}
 							</a>
 							{block.mimeType ? <div className="text-[9px] text-text-muted">{block.mimeType}</div> : null}
@@ -1447,15 +1368,12 @@ function renderMcpContentBlocks(blocks: unknown[]): React.ReactNode {
 						<div key={`mcp-resource-${idx}`} className="space-y-1 rounded-md bg-white/5 px-2 py-1">
 							{resource.uri ? (
 								<div className="text-[10px] text-text-muted">
-									<span className="font-medium">URI:</span>{' '}
-									<span className="break-all text-text-muted">{resource.uri}</span>
+									<span className="font-medium">URI:</span> <span className="break-all text-text-muted">{resource.uri}</span>
 								</div>
 							) : null}
 							{mimeType ? <div className="text-[9px] text-text-muted">MIME: {mimeType}</div> : null}
 							{text ? (
-								<pre className="whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 text-[10px] text-text-muted">
-									{text}
-								</pre>
+								<pre className="whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 text-[10px] text-text-muted">{text}</pre>
 							) : blob ? (
 								<div className="text-[10px] text-text-muted">Embedded binary ({blob.length} bytes)</div>
 							) : null}
@@ -1515,79 +1433,64 @@ interface ActivityBlockProps {
 	icon?: React.ReactNode;
 }
 
-	function ActivityBlock({
-		titlePrefix,
-		titleContent,
-		titleMono = false,
-		summaryActions,
-		status,
-		copyContent,
+function ActivityBlock({
+	titlePrefix,
+	titleContent,
+	titleMono = false,
+	summaryActions,
+	status,
+	copyContent,
 	contentVariant = 'plain',
 	contentMono,
 	contentClassName,
-		collapsible = false,
-		collapsed = true,
-		onToggleCollapse,
-		children,
-		detailHeader,
-		approval,
-		onApprove,
-		icon,
-	}: ActivityBlockProps) {
-		const [summaryHover, setSummaryHover] = useState(false);
-		const [didCopy, setDidCopy] = useState(false);
-		const isStringChild = typeof children === 'string';
-		const effectiveVariant: ActivityContentVariant = contentVariant;
-		const useMono = contentMono ?? effectiveVariant === 'ansi';
-		const contentNode = (() => {
-			if (!isStringChild) return children;
-			if (effectiveVariant === 'markdown') {
-				return (
-					<ChatMarkdown
-						text={children}
-						className="text-[11px] text-text-muted"
-						dense
-					/>
-				);
-			}
+	collapsible = false,
+	collapsed = true,
+	onToggleCollapse,
+	children,
+	detailHeader,
+	approval,
+	onApprove,
+	icon,
+}: ActivityBlockProps) {
+	const [summaryHover, setSummaryHover] = useState(false);
+	const [didCopy, setDidCopy] = useState(false);
+	const isStringChild = typeof children === 'string';
+	const effectiveVariant: ActivityContentVariant = contentVariant;
+	const useMono = contentMono ?? effectiveVariant === 'ansi';
+	const contentNode = (() => {
+		if (!isStringChild) return children;
+		if (effectiveVariant === 'markdown') {
+			return <ChatMarkdown text={children} className="text-[11px] text-text-muted" dense />;
+		}
 		if (effectiveVariant === 'ansi') {
 			return renderAnsiText(children);
 		}
 		return children;
 	})();
-		const showStatus = status && status !== 'completed';
-		const open = !collapsible || !collapsed;
-		const showOpenBorder = collapsible && open;
+	const showStatus = status && status !== 'completed';
+	const open = !collapsible || !collapsed;
+	const showOpenBorder = collapsible && open;
 
-				return (
-					<div
-						className={[
-							'min-w-0 am-block',
-							showOpenBorder ? 'am-block-open' : '',
-							summaryHover ? 'am-block-hover' : '',
-						].join(' ')}
-					>
-				{/* Summary row (compact) */}
-				<div
-					className={[
-						'am-row group flex min-w-0 items-center justify-between gap-2',
-						collapsible && onToggleCollapse ? 'cursor-pointer' : '',
-					].join(' ')}
-					role={collapsible && onToggleCollapse ? 'button' : undefined}
-					tabIndex={collapsible && onToggleCollapse ? 0 : undefined}
-					onMouseEnter={() => setSummaryHover(true)}
-					onMouseLeave={() => {
-						setSummaryHover(false);
-						setDidCopy(false);
-					}}
-					onFocus={() => setSummaryHover(true)}
-					onBlur={() => {
-						setSummaryHover(false);
-						setDidCopy(false);
-					}}
-					onClick={() => {
-						if (collapsible && onToggleCollapse) onToggleCollapse();
-					}}
+	return (
+		<div className={['min-w-0 am-block', showOpenBorder ? 'am-block-open' : '', summaryHover ? 'am-block-hover' : ''].join(' ')}>
+			{/* Summary row (compact) */}
+			<div
+				className={['am-row group flex min-w-0 items-center justify-between gap-2', collapsible && onToggleCollapse ? 'cursor-pointer' : ''].join(' ')}
+				role={collapsible && onToggleCollapse ? 'button' : undefined}
+				tabIndex={collapsible && onToggleCollapse ? 0 : undefined}
+				onMouseEnter={() => setSummaryHover(true)}
+				onMouseLeave={() => {
+					setSummaryHover(false);
+					setDidCopy(false);
+				}}
+				onFocus={() => setSummaryHover(true)}
+				onBlur={() => {
+					setSummaryHover(false);
+					setDidCopy(false);
+				}}
+				onClick={() => {
+					if (collapsible && onToggleCollapse) onToggleCollapse();
+				}}
 				onKeyDown={(e) => {
 					if (!collapsible || !onToggleCollapse) return;
 					if (e.key === 'Enter' || e.key === ' ') {
@@ -1596,48 +1499,41 @@ interface ActivityBlockProps {
 					}
 				}}
 			>
-					<div className="min-w-0 flex-1 truncate text-[13px]">
-						<span className="inline-flex min-w-0 items-center gap-2">
-							{icon ? <span className="shrink-0 text-text-menuDesc">{icon}</span> : null}
-							<span className="shrink-0 font-medium text-text-menuLabel">{titlePrefix}</span>
-							<span className={['am-row-title truncate text-text-main/90', titleMono ? 'font-mono text-[12px]' : ''].join(' ')}>
-								{titleContent}
-							</span>
-						</span>
+				<div className="min-w-0 flex-1 truncate text-[13px]">
+					<span className="inline-flex min-w-0 items-center gap-2">
+						{icon ? <span className="shrink-0 text-text-menuDesc">{icon}</span> : null}
+						<span className="shrink-0 font-medium text-text-menuLabel">{titlePrefix}</span>
+						<span className={['am-row-title truncate text-text-main/90', titleMono ? 'font-mono text-[12px]' : ''].join(' ')}>{titleContent}</span>
+					</span>
 				</div>
-			<div className="flex shrink-0 items-center gap-1.5">
-				{showStatus ? <span className="text-[10px] text-text-menuDesc opacity-80">{status}</span> : null}
+				<div className="flex shrink-0 items-center gap-1.5">
+					{showStatus ? <span className="text-[10px] text-text-menuDesc opacity-80">{status}</span> : null}
 					{summaryActions ? <div className="flex items-center gap-2">{summaryActions}</div> : null}
 					<button
 						type="button"
 						className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
 						title="Copy content"
 						onClick={(ev) => {
+							ev.stopPropagation();
+							void navigator.clipboard.writeText(copyContent);
+							setDidCopy(true);
+						}}
+					>
+						{didCopy ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+					</button>
+					{collapsible && onToggleCollapse ? (
+						<button
+							type="button"
+							className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
+							title={open ? 'Collapse' : 'Expand'}
+							onClick={(ev) => {
 								ev.stopPropagation();
-								void navigator.clipboard.writeText(copyContent);
-								setDidCopy(true);
+								onToggleCollapse();
 							}}
 						>
-							{didCopy ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+							<ChevronRight className={['h-3 w-3 transition-transform duration-200', open ? 'rotate-90' : ''].join(' ')} />
 						</button>
-						{collapsible && onToggleCollapse ? (
-							<button
-								type="button"
-								className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
-								title={open ? 'Collapse' : 'Expand'}
-								onClick={(ev) => {
-									ev.stopPropagation();
-									onToggleCollapse();
-								}}
-							>
-								<ChevronRight
-									className={[
-										'h-3 w-3 transition-transform duration-200',
-										open ? 'rotate-90' : '',
-									].join(' ')}
-								/>
-							</button>
-						) : null}
+					) : null}
 				</div>
 			</div>
 
@@ -1651,11 +1547,7 @@ interface ActivityBlockProps {
 								className={[
 									'min-w-0 text-[12px] leading-[1.5] text-text-muted',
 									useMono ? 'font-mono font-medium' : 'font-sans',
-									effectiveVariant === 'markdown'
-										? 'whitespace-normal'
-										: effectiveVariant === 'ansi'
-											? 'whitespace-pre'
-											: 'whitespace-pre-wrap break-words',
+									effectiveVariant === 'markdown' ? 'whitespace-normal' : effectiveVariant === 'ansi' ? 'whitespace-pre' : 'whitespace-pre-wrap break-words',
 									contentClassName ?? '',
 								].join(' ')}
 							>
@@ -1703,11 +1595,7 @@ function repoNameFromPath(path: string): string {
 	return parts.length > 0 ? parts[parts.length - 1] : path;
 }
 
-function wrapUserInputWithRepoContext(options: {
-	userInput: string;
-	currentRepoPath: string | null;
-	relatedRepoPaths: string[];
-}): string {
+function wrapUserInputWithRepoContext(options: { userInput: string; currentRepoPath: string | null; relatedRepoPaths: string[] }): string {
 	const lines: string[] = ['# Context from my IDE setup:', ''];
 	if (options.currentRepoPath) {
 		lines.push(`## Current repo: ${options.currentRepoPath}`);
@@ -1744,13 +1632,11 @@ function translateReasoningDesc(desc: string): string {
 		// Low
 		'Fast responses with lighter reasoning': '快速响应，轻量推理',
 		'Fastest responses with limited reasoning': '最快响应，有限推理',
-		'Balances speed with some reasoning; useful for straightforward queries and short explanations':
-			'平衡速度与推理；适合简单查询和简短解释',
+		'Balances speed with some reasoning; useful for straightforward queries and short explanations': '平衡速度与推理；适合简单查询和简短解释',
 		// Medium
 		'Balances speed and reasoning depth for everyday tasks': '平衡速度与推理深度，适合日常任务',
 		'Dynamically adjusts reasoning based on the task': '根据任务动态调整推理深度',
-		'Provides a solid balance of reasoning depth and latency for general-purpose tasks':
-			'为通用任务提供推理深度与延迟的良好平衡',
+		'Provides a solid balance of reasoning depth and latency for general-purpose tasks': '为通用任务提供推理深度与延迟的良好平衡',
 		// High
 		'Greater reasoning depth for complex problems': '更深的推理深度，适合复杂问题',
 		'Maximizes reasoning depth for complex or ambiguous problems': '最大化推理深度，适合复杂或模糊问题',
@@ -1788,14 +1674,7 @@ function parseApprovalPolicyValue(value: unknown): ApprovalPolicy | null {
 }
 
 function parseReasoningEffortValue(value: unknown): ReasoningEffort | null {
-	if (
-		value === 'none' ||
-		value === 'minimal' ||
-		value === 'low' ||
-		value === 'medium' ||
-		value === 'high' ||
-		value === 'xhigh'
-	) {
+	if (value === 'none' || value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh') {
 		return value;
 	}
 	return null;
@@ -1823,11 +1702,9 @@ const MENU_STYLES = {
 	// 弹出菜单标题
 	popoverTitle: 'px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-text-menuLabel',
 	// 弹出菜单选项
-	popoverItem:
-		'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] text-text-main transition-colors hover:bg-bg-menuItemHover group',
+	popoverItem: 'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] text-text-main transition-colors hover:bg-bg-menuItemHover group',
 	// 弹出菜单选项（高亮/聚焦）- 与 hover 样式一致
-	popoverItemActive:
-		'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] bg-bg-menuItemHover text-text-main transition-colors group',
+	popoverItemActive: 'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] bg-bg-menuItemHover text-text-main transition-colors group',
 	// 弹出菜单选项描述 - 单行截断，名称后空两格
 	popoverItemDesc: 'ml-2.5 shrink-0 max-w-[220px] truncate text-[10px] text-text-menuDesc',
 	// 图标尺寸
@@ -2106,9 +1983,7 @@ function segmentExplorationItems(items: WorkingItem[], isTurnInProgress: boolean
 	const flush = (status: 'exploring' | 'explored') => {
 		if (current && current.length > 0) {
 			const firstItem = current[0];
-			const firstId = isReadingGroup(firstItem)
-				? firstItem.id
-				: `${(firstItem as ChatEntry).id}-explore`;
+			const firstId = isReadingGroup(firstItem) ? firstItem.id : `${(firstItem as ChatEntry).id}-explore`;
 			out.push({
 				kind: 'exploration',
 				id: `explore-${firstId}`,
@@ -2176,10 +2051,7 @@ function countRenderedWorkingItems(items: SegmentedWorkingItem[]): number {
 	}, 0);
 }
 
-function formatExplorationHeader(
-	status: 'exploring' | 'explored',
-	uniqueFileCount: number
-): { prefix: string; content: string } {
+function formatExplorationHeader(status: 'exploring' | 'explored', uniqueFileCount: number): { prefix: string; content: string } {
 	const prefix = status === 'exploring' ? 'Exploring' : 'Explored';
 	if (!uniqueFileCount || uniqueFileCount <= 0) return { prefix, content: '' };
 	const unit = uniqueFileCount === 1 ? 'file' : 'files';
@@ -2313,26 +2185,16 @@ function mergeEntry(entries: ChatEntry[], next: ChatEntry): ChatEntry[] {
 	if (next.kind === 'assistant') {
 		const prev = copy[idx] as Extract<ChatEntry, { kind: 'assistant' }>;
 		const incoming = next as Extract<ChatEntry, { kind: 'assistant' }>;
-		const reasoningSummary =
-			incoming.role === 'reasoning'
-				? incoming.reasoningSummary ?? prev.reasoningSummary
-				: prev.reasoningSummary;
-		const reasoningContent =
-			incoming.role === 'reasoning'
-				? incoming.reasoningContent ?? prev.reasoningContent
-				: prev.reasoningContent;
-		const nextText =
-			incoming.role === 'reasoning'
-				? buildReasoningText(reasoningSummary ?? [], reasoningContent ?? [])
-				: incoming.text ?? prev.text;
+		const reasoningSummary = incoming.role === 'reasoning' ? (incoming.reasoningSummary ?? prev.reasoningSummary) : prev.reasoningSummary;
+		const reasoningContent = incoming.role === 'reasoning' ? (incoming.reasoningContent ?? prev.reasoningContent) : prev.reasoningContent;
+		const nextText = incoming.role === 'reasoning' ? buildReasoningText(reasoningSummary ?? [], reasoningContent ?? []) : (incoming.text ?? prev.text);
 		copy[idx] = {
 			...prev,
 			...incoming,
 			text: nextText,
 			reasoningSummary,
 			reasoningContent,
-			structuredOutput:
-				incoming.structuredOutput !== undefined ? incoming.structuredOutput : prev.structuredOutput,
+			structuredOutput: incoming.structuredOutput !== undefined ? incoming.structuredOutput : prev.structuredOutput,
 		} as ChatEntry;
 	} else {
 		copy[idx] = { ...copy[idx], ...next } as ChatEntry;
@@ -2361,8 +2223,7 @@ function appendDelta(entries: ChatEntry[], id: string, role: 'message' | 'reason
 	const copy = [...entries];
 	const existing = copy[idx] as Extract<ChatEntry, { kind: 'assistant' }>;
 	const nextText = `${existing.text}${delta}`;
-	const renderPlaceholder =
-		role === 'message' ? shouldHideAssistantMessageContent(nextText) : existing.renderPlaceholderWhileStreaming;
+	const renderPlaceholder = role === 'message' ? shouldHideAssistantMessageContent(nextText) : existing.renderPlaceholderWhileStreaming;
 	copy[idx] = {
 		...existing,
 		text: nextText,
@@ -2381,13 +2242,7 @@ function ensureReasoningIndex(parts: string[], index: number): string[] {
 	return next;
 }
 
-function applyReasoningDelta(
-	entries: ChatEntry[],
-	id: string,
-	delta: string,
-	index: number,
-	target: 'summary' | 'content'
-): ChatEntry[] {
+function applyReasoningDelta(entries: ChatEntry[], id: string, delta: string, index: number, target: 'summary' | 'content'): ChatEntry[] {
 	if (!Number.isFinite(index) || index < 0) return entries;
 	const idx = entries.findIndex((e) => e.kind === 'assistant' && e.id === id && e.role === 'reasoning');
 	const base =
@@ -2401,7 +2256,7 @@ function applyReasoningDelta(
 					reasoningContent: [],
 					streaming: true,
 					completed: false,
-			  } as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>)
+				} as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>)
 			: (entries[idx] as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>);
 
 	const summary = ensureReasoningIndex(coerceReasoningParts(base.reasoningSummary), target === 'summary' ? index : -1);
@@ -2425,12 +2280,7 @@ function applyReasoningDelta(
 	return copy;
 }
 
-function applyReasoningPartAdded(
-	entries: ChatEntry[],
-	id: string,
-	index: number,
-	target: 'summary' | 'content'
-): ChatEntry[] {
+function applyReasoningPartAdded(entries: ChatEntry[], id: string, index: number, target: 'summary' | 'content'): ChatEntry[] {
 	if (!Number.isFinite(index) || index < 0) return entries;
 	const idx = entries.findIndex((e) => e.kind === 'assistant' && e.id === id && e.role === 'reasoning');
 	const base =
@@ -2442,7 +2292,7 @@ function applyReasoningPartAdded(
 					text: '',
 					reasoningSummary: [],
 					reasoningContent: [],
-			  } as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>)
+				} as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>)
 			: (entries[idx] as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>);
 
 	const summary = coerceReasoningParts(base.reasoningSummary);
@@ -2486,9 +2336,7 @@ type TurnBlock = {
 
 const PENDING_TURN_ID = '__pending__';
 
-function isActivityEntry(
-	entry: ChatEntry
-): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'mcp' | 'webSearch' }> {
+function isActivityEntry(entry: ChatEntry): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'mcp' | 'webSearch' }> {
 	return entry.kind === 'command' || entry.kind === 'fileChange' || entry.kind === 'mcp' || entry.kind === 'webSearch';
 }
 
@@ -2641,20 +2489,8 @@ function highlightMatches(text: string, indices: number[]): React.ReactNode {
 
 function SessionRunningIndicator({ className }: { className?: string }) {
 	return (
-		<svg
-			className={['h-3 w-3 animate-spin', className].filter(Boolean).join(' ')}
-			viewBox="0 0 32 32"
-			aria-label="Running"
-		>
-			<circle
-				cx="16"
-				cy="16"
-				r="14"
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="2"
-				className="text-white/20"
-			/>
+		<svg className={['h-3 w-3 animate-spin', className].filter(Boolean).join(' ')} viewBox="0 0 32 32" aria-label="Running">
+			<circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20" />
 			<circle
 				cx="16"
 				cy="16"
@@ -2700,9 +2536,7 @@ export function CodexChat() {
 	const [selectedModel, setSelectedModel] = useState<string | null>(null);
 	const [selectedEffort, setSelectedEffort] = useState<ReasoningEffort | null>(null);
 	const [approvalPolicy, setApprovalPolicy] = useState<ApprovalPolicy>('untrusted');
-	const [openStatusPopover, setOpenStatusPopover] = useState<
-		'profile' | 'approval_policy' | 'model' | 'model_reasoning_effort' | null
-	>(null);
+	const [openStatusPopover, setOpenStatusPopover] = useState<'profile' | 'approval_policy' | 'model' | 'model_reasoning_effort' | null>(null);
 	const [statusPopoverError, setStatusPopoverError] = useState<string | null>(null);
 
 	const [isConfigOpen, setIsConfigOpen] = useState(false);
@@ -2860,10 +2694,7 @@ export function CodexChat() {
 		setStatusPopoverError(null);
 
 		try {
-			const [modelsRes, configRes] = await Promise.all([
-				apiClient.codexModelList(null, 200),
-				apiClient.codexConfigReadEffective(false),
-			]);
+			const [modelsRes, configRes] = await Promise.all([apiClient.codexModelList(null, 200), apiClient.codexConfigReadEffective(false)]);
 
 			const nextModels = (modelsRes as { data: CodexModelInfo[] }).data ?? [];
 			setModels(nextModels);
@@ -2876,18 +2707,12 @@ export function CodexChat() {
 			if (configuredApproval) setApprovalPolicy(configuredApproval);
 
 			const fallbackModel = nextModels.find((m) => m.isDefault) ?? nextModels[0] ?? null;
-			const modelToUse =
-				configuredModel && nextModels.some((m) => m.model === configuredModel)
-					? configuredModel
-					: fallbackModel?.model ?? null;
+			const modelToUse = configuredModel && nextModels.some((m) => m.model === configuredModel) ? configuredModel : (fallbackModel?.model ?? null);
 			setSelectedModel(modelToUse);
 
-			const modelInfo = modelToUse ? nextModels.find((m) => m.model === modelToUse) ?? null : null;
+			const modelInfo = modelToUse ? (nextModels.find((m) => m.model === modelToUse) ?? null) : null;
 			const supportedEfforts = modelInfo?.supportedReasoningEfforts?.map((o) => o.reasoningEffort) ?? [];
-			const effortToUse =
-				configuredEffort && supportedEfforts.includes(configuredEffort)
-					? configuredEffort
-					: modelInfo?.defaultReasoningEffort ?? null;
+			const effortToUse = configuredEffort && supportedEfforts.includes(configuredEffort) ? configuredEffort : (modelInfo?.defaultReasoningEffort ?? null);
 			setSelectedEffort(effortToUse);
 		} catch (err) {
 			setModelsError(errorMessage(err, 'Failed to load models'));
@@ -2944,10 +2769,7 @@ export function CodexChat() {
 
 			const modelInfo = models.find((m) => m.model === nextModel) ?? null;
 			const supportedEfforts = modelInfo?.supportedReasoningEfforts?.map((o) => o.reasoningEffort) ?? [];
-			const nextEffort =
-				selectedEffort && supportedEfforts.includes(selectedEffort)
-					? selectedEffort
-					: modelInfo?.defaultReasoningEffort ?? null;
+			const nextEffort = selectedEffort && supportedEfforts.includes(selectedEffort) ? selectedEffort : (modelInfo?.defaultReasoningEffort ?? null);
 
 			setSelectedModel(nextModel);
 			setSelectedEffort(nextEffort);
@@ -3059,7 +2881,7 @@ export function CodexChat() {
 								streaming,
 								completed,
 								renderPlaceholderWhileStreaming: renderPlaceholder,
-								structuredOutput: completed ? baseEntry.structuredOutput ?? null : null,
+								structuredOutput: completed ? (baseEntry.structuredOutput ?? null) : null,
 							};
 						}
 						if (!entry) continue;
@@ -3257,10 +3079,10 @@ export function CodexChat() {
 
 			const outgoingText = autoContextEnabled
 				? wrapUserInputWithRepoContext({
-					userInput,
-					currentRepoPath,
-					relatedRepoPaths,
-				})
+						userInput,
+						currentRepoPath,
+						relatedRepoPaths,
+					})
 				: userInput;
 
 			// Build CodexUserInput array for API
@@ -3357,68 +3179,66 @@ export function CodexChat() {
 		[settings.defaultCollapseDetails]
 	);
 
-	const toggleTurnWorking = useCallback((turnId: string) => {
-		skipAutoScrollRef.current = true;
-		const turn = turnsById[turnId];
-		const collapsedExplicit = collapsedWorkingByTurnId[turnId];
-		const currentOpen = collapsedExplicit === undefined ? turn?.status === 'inProgress' : !collapsedExplicit;
-		const nextOpen = !currentOpen;
-		const nextCollapsedExplicit = !nextOpen;
+	const toggleTurnWorking = useCallback(
+		(turnId: string) => {
+			skipAutoScrollRef.current = true;
+			const turn = turnsById[turnId];
+			const collapsedExplicit = collapsedWorkingByTurnId[turnId];
+			const currentOpen = collapsedExplicit === undefined ? turn?.status === 'inProgress' : !collapsedExplicit;
+			const nextOpen = !currentOpen;
+			const nextCollapsedExplicit = !nextOpen;
 
-	if (turn && turn.status !== 'inProgress' && nextOpen) {
-		const visible = settings.showReasoning
-			? turn.entries
-			: turn.entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning');
-		const assistantMessages = visible.filter(
-			(e): e is Extract<ChatEntry, { kind: 'assistant'; role: 'message' }> =>
-				e.kind === 'assistant' && e.role === 'message'
-		);
-		const lastAssistantMessageId =
-			assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1]?.id : null;
-		const workingEntries = visible.filter((e) => {
-			if (isActivityEntry(e)) return true;
-			if (e.kind === 'system') return true;
-			if (e.kind === 'assistant' && e.role === 'reasoning') return true;
-			if (e.kind === 'assistant' && e.role === 'message') return e.id !== lastAssistantMessageId;
-			return false;
-		});
-		const explorationGroupIds = segmentExplorationItems(
-			mergeReadingEntries(expandReasoningEntries(workingEntries)),
-			false
-		).flatMap((item) => (item.kind === 'exploration' ? [item.id] : []));
+			if (turn && turn.status !== 'inProgress' && nextOpen) {
+				const visible = settings.showReasoning ? turn.entries : turn.entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning');
+				const assistantMessages = visible.filter(
+					(e): e is Extract<ChatEntry, { kind: 'assistant'; role: 'message' }> => e.kind === 'assistant' && e.role === 'message'
+				);
+				const lastAssistantMessageId = assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1]?.id : null;
+				const workingEntries = visible.filter((e) => {
+					if (isActivityEntry(e)) return true;
+					if (e.kind === 'system') return true;
+					if (e.kind === 'assistant' && e.role === 'reasoning') return true;
+					if (e.kind === 'assistant' && e.role === 'message') return e.id !== lastAssistantMessageId;
+					return false;
+				});
+				const explorationGroupIds = segmentExplorationItems(mergeReadingEntries(expandReasoningEntries(workingEntries)), false).flatMap((item) =>
+					item.kind === 'exploration' ? [item.id] : []
+				);
 
-		// 每次展开 "Finished working" 时，内部所有可折叠 block 强制折叠。
-		// 这样 AI 过程性输出再多，也不会默认铺开占高度。
-		setCollapsedByEntryId((prev) => {
-			const next = { ...prev };
-			for (const entry of turn.entries) {
-				if (isActivityEntry(entry)) next[entry.id] = true;
-				if (entry.kind === 'assistant' && entry.role === 'reasoning') next[entry.id] = true;
+				// 每次展开 "Finished working" 时，内部所有可折叠 block 强制折叠。
+				// 这样 AI 过程性输出再多，也不会默认铺开占高度。
+				setCollapsedByEntryId((prev) => {
+					const next = { ...prev };
+					for (const entry of turn.entries) {
+						if (isActivityEntry(entry)) next[entry.id] = true;
+						if (entry.kind === 'assistant' && entry.role === 'reasoning') next[entry.id] = true;
+					}
+					for (const groupId of collectReadingGroupIds(turn.entries)) {
+						next[groupId] = true;
+					}
+					for (const segmentId of collectReasoningSegmentIds(turn.entries)) {
+						next[segmentId] = true;
+					}
+					for (const explorationId of explorationGroupIds) {
+						next[explorationId] = true;
+					}
+					return next;
+				});
 			}
-			for (const groupId of collectReadingGroupIds(turn.entries)) {
-				next[groupId] = true;
-			}
-			for (const segmentId of collectReasoningSegmentIds(turn.entries)) {
-				next[segmentId] = true;
-			}
-			for (const explorationId of explorationGroupIds) {
-				next[explorationId] = true;
-			}
-			return next;
-		});
-	}
 
-		if (import.meta.env.DEV && turn && nextOpen) {
-			const counts = countEntryKinds(turn.entries);
-			// eslint-disable-next-line no-console
-			console.info('[CodexChat] Expand turn:', {
-				turnId,
-				entryKinds: counts,
-			});
-		}
+			if (import.meta.env.DEV && turn && nextOpen) {
+				const counts = countEntryKinds(turn.entries);
+				// eslint-disable-next-line no-console
+				console.info('[CodexChat] Expand turn:', {
+					turnId,
+					entryKinds: counts,
+				});
+			}
 
-		setCollapsedWorkingByTurnId((prev) => ({ ...prev, [turnId]: nextCollapsedExplicit }));
-	}, [collapsedWorkingByTurnId, settings.showReasoning, turnsById]);
+			setCollapsedWorkingByTurnId((prev) => ({ ...prev, [turnId]: nextCollapsedExplicit }));
+		},
+		[collapsedWorkingByTurnId, settings.showReasoning, turnsById]
+	);
 
 	// Context management callbacks
 	const addRelatedRepoDir = useCallback(async () => {
@@ -3639,38 +3459,32 @@ export function CodexChat() {
 	}, [skillSearchQuery, skills]);
 
 	// Execute skill selection - display as tag in input area (no text insertion)
-	const executeSkillSelection = useCallback(
-		(skill: SkillMetadata) => {
-			setIsSkillMenuOpen(false);
-			setIsSlashMenuOpen(false);
-			setSkillSearchQuery('');
-			setSlashSearchQuery('');
-			setSkillHighlightIndex(0);
-			setSlashHighlightIndex(0);
-			setSelectedSkill(skill);
+	const executeSkillSelection = useCallback((skill: SkillMetadata) => {
+		setIsSkillMenuOpen(false);
+		setIsSlashMenuOpen(false);
+		setSkillSearchQuery('');
+		setSlashSearchQuery('');
+		setSkillHighlightIndex(0);
+		setSlashHighlightIndex(0);
+		setSelectedSkill(skill);
 
-			// Focus back to textarea
-			setTimeout(() => textareaRef.current?.focus(), 0);
-		},
-		[]
-	);
+		// Focus back to textarea
+		setTimeout(() => textareaRef.current?.focus(), 0);
+	}, []);
 
 	// Execute prompt selection - display as tag in input area (no text insertion)
-	const executePromptSelection = useCallback(
-		(prompt: CustomPrompt) => {
-			setIsSlashMenuOpen(false);
-			setIsSkillMenuOpen(false);
-			setSlashSearchQuery('');
-			setSkillSearchQuery('');
-			setSlashHighlightIndex(0);
-			setSkillHighlightIndex(0);
-			setSelectedPrompt(prompt);
+	const executePromptSelection = useCallback((prompt: CustomPrompt) => {
+		setIsSlashMenuOpen(false);
+		setIsSkillMenuOpen(false);
+		setSlashSearchQuery('');
+		setSkillSearchQuery('');
+		setSlashHighlightIndex(0);
+		setSkillHighlightIndex(0);
+		setSelectedPrompt(prompt);
 
-			// Focus back to textarea
-			setTimeout(() => textareaRef.current?.focus(), 0);
-		},
-		[]
-	);
+		// Focus back to textarea
+		setTimeout(() => textareaRef.current?.focus(), 0);
+	}, []);
 
 	const executeSlashCommand = useCallback(
 		(cmdId: string) => {
@@ -3782,15 +3596,7 @@ export function CodexChat() {
 					break;
 			}
 		},
-		[
-			approvalPolicy,
-			autoContextEnabled,
-			createNewSession,
-			selectedEffort,
-			selectedModel,
-			selectedThreadId,
-			threadTokenUsage,
-		]
+		[approvalPolicy, autoContextEnabled, createNewSession, selectedEffort, selectedModel, selectedThreadId, threadTokenUsage]
 	);
 
 	const handleTextareaKeyDown = useCallback(
@@ -3928,7 +3734,22 @@ export function CodexChat() {
 				void sendMessage();
 			}
 		},
-		[executeSlashCommand, executeSkillSelection, executePromptSelection, filteredSlashCommands, filteredSkills, filteredPromptsForSlashMenu, filteredSkillsForSlashMenu, input, isSlashMenuOpen, isSkillMenuOpen, sendMessage, slashHighlightIndex, skillHighlightIndex, slashMenuTotalItems]
+		[
+			executeSlashCommand,
+			executeSkillSelection,
+			executePromptSelection,
+			filteredSlashCommands,
+			filteredSkills,
+			filteredPromptsForSlashMenu,
+			filteredSkillsForSlashMenu,
+			input,
+			isSlashMenuOpen,
+			isSkillMenuOpen,
+			sendMessage,
+			slashHighlightIndex,
+			skillHighlightIndex,
+			slashMenuTotalItems,
+		]
 	);
 
 	// Auto-scroll menu list to keep highlighted item visible
@@ -3954,15 +3775,7 @@ export function CodexChat() {
 		void loadRecentWorkspaces();
 		void loadSkills();
 		void loadPrompts();
-	}, [
-		listSessions,
-		seedRunningThreads,
-		loadModelsAndChatDefaults,
-		loadWorkspaceRoot,
-		loadRecentWorkspaces,
-		loadSkills,
-		loadPrompts,
-	]);
+	}, [listSessions, seedRunningThreads, loadModelsAndChatDefaults, loadWorkspaceRoot, loadRecentWorkspaces, loadSkills, loadPrompts]);
 
 	useEffect(() => {
 		let mounted = true;
@@ -4342,18 +4155,12 @@ export function CodexChat() {
 
 	const renderTurns = useMemo(() => {
 		return turnBlocks.map((turn) => {
-			const visible = settings.showReasoning
-				? turn.entries
-				: turn.entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning');
+			const visible = settings.showReasoning ? turn.entries : turn.entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning');
 
 			const userEntries = visible.filter((e) => e.kind === 'user') as Extract<ChatEntry, { kind: 'user' }>[];
-			const assistantMessages = visible.filter(
-				(e): e is Extract<ChatEntry, { kind: 'assistant' }> => e.kind === 'assistant' && e.role === 'message'
-			);
+			const assistantMessages = visible.filter((e): e is Extract<ChatEntry, { kind: 'assistant' }> => e.kind === 'assistant' && e.role === 'message');
 			const lastAssistantMessageId = assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1]?.id : null;
-			const assistantMessageEntries = lastAssistantMessageId
-				? assistantMessages.filter((e) => e.id === lastAssistantMessageId)
-				: [];
+			const assistantMessageEntries = lastAssistantMessageId ? assistantMessages.filter((e) => e.id === lastAssistantMessageId) : [];
 			const workingEntries = visible.filter((e) => {
 				if (isActivityEntry(e)) return true;
 				if (e.kind === 'system') return true;
@@ -4403,16 +4210,16 @@ export function CodexChat() {
 	const sidebarIconButtonPx = Math.round(SIDEBAR_ICON_BUTTON_PX);
 	const sidebarIconSizePx = Math.max(10, Math.round(sidebarIconButtonPx * 0.62));
 
-		const renderWorkingItem = (item: WorkingItem): JSX.Element | null => {
-			if (isReadingGroup(item)) {
-				const isFinished = item.entries.every((entry) => entry.status !== 'inProgress');
-				const collapsed = collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails;
-				const parsedEntries = item.entries.map((entry) => ({
-					entry,
-					parsed: resolveParsedCmd(entry.command, entry.commandActions),
-					output: normalizeCommandOutput(entry.output ?? null),
-					displayOutput: prefixCommandLine(entry.command, entry.output ?? null),
-				}));
+	const renderWorkingItem = (item: WorkingItem): JSX.Element | null => {
+		if (isReadingGroup(item)) {
+			const isFinished = item.entries.every((entry) => entry.status !== 'inProgress');
+			const collapsed = collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails;
+			const parsedEntries = item.entries.map((entry) => ({
+				entry,
+				parsed: resolveParsedCmd(entry.command, entry.commandActions),
+				output: normalizeCommandOutput(entry.output ?? null),
+				displayOutput: prefixCommandLine(entry.command, entry.output ?? null),
+			}));
 			const uniqueByName: typeof parsedEntries = [];
 			const seen = new Set<string>();
 			for (let i = parsedEntries.length - 1; i >= 0; i -= 1) {
@@ -4429,21 +4236,16 @@ export function CodexChat() {
 			const count = Math.max(0, uniqueByName.length - 1);
 
 			const prefix = isFinished ? 'Read' : 'Reading';
-			const title =
-				uniqueByName.length === 0
-					? 'files'
-					: uniqueByName.length === 1
-						? lastName
-						: `${lastName} +${count}`;
+			const title = uniqueByName.length === 0 ? 'files' : uniqueByName.length === 1 ? lastName : `${lastName} +${count}`;
 
-				const copyContent = parsedEntries
-					.map(({ output, displayOutput }) => (output ? displayOutput : ''))
-					.filter(Boolean)
-					.join('\n\n');
+			const copyContent = parsedEntries
+				.map(({ output, displayOutput }) => (output ? displayOutput : ''))
+				.filter(Boolean)
+				.join('\n\n');
 
-				return (
-					<ActivityBlock
-						key={item.id}
+			return (
+				<ActivityBlock
+					key={item.id}
 					titlePrefix={prefix}
 					titleContent={title}
 					status={!isFinished ? 'in progress' : undefined}
@@ -4453,19 +4255,17 @@ export function CodexChat() {
 					collapsible
 					collapsed={collapsed}
 					onToggleCollapse={() => toggleEntryCollapse(item.id)}
-					>
-						{parsedEntries.some(({ output }) => output) ? (
-							<div className="space-y-2">
-								{parsedEntries
-									.filter(({ output }) => output)
-									.map(({ entry, parsed, displayOutput }) => (
-										<div key={entry.id} className="space-y-1">
-											<div className="text-[9px] font-medium text-text-muted">{parsed.name || 'file'}</div>
-											<div className="whitespace-pre-wrap break-words font-mono text-[10px] text-text-muted">
-												{renderAnsiText(displayOutput)}
-											</div>
-										</div>
-									))}
+				>
+					{parsedEntries.some(({ output }) => output) ? (
+						<div className="space-y-2">
+							{parsedEntries
+								.filter(({ output }) => output)
+								.map(({ entry, parsed, displayOutput }) => (
+									<div key={entry.id} className="space-y-1">
+										<div className="text-[9px] font-medium text-text-muted">{parsed.name || 'file'}</div>
+										<div className="whitespace-pre-wrap break-words font-mono text-[10px] text-text-muted">{renderAnsiText(displayOutput)}</div>
+									</div>
+								))}
 						</div>
 					) : null}
 				</ActivityBlock>
@@ -4481,140 +4281,120 @@ export function CodexChat() {
 					{showPlaceholder ? (
 						<div className="text-[11px] text-text-menuDesc">Generating…</div>
 					) : structured ? (
-						<CodeReviewAssistantMessage
-							output={structured}
-							completed={!!e.completed}
-						/>
+						<CodeReviewAssistantMessage output={structured} completed={!!e.completed} />
 					) : (
-						<ChatMarkdown
-							text={e.text}
-							className="text-[11px] text-text-menuDesc"
-							dense
-						/>
+						<ChatMarkdown text={e.text} className="text-[11px] text-text-menuDesc" dense />
 					)}
 				</div>
 			);
 		}
 
-			if (e.kind === 'command') {
-				const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-				const displayContent = prefixCommandLine(e.command, e.output ?? null);
-				const copyText = displayContent.replace(/\x1b\[[0-9;]*m/g, '');
-				const parsed = resolveParsedCmd(e.command, e.commandActions);
-				const isFinished = e.status !== 'inProgress';
-				const summary = getCmdSummary(parsed, isFinished, e.command);
-				const useMono =
-					parsed.type === 'unknown' || parsed.type === 'format' || parsed.type === 'test' || parsed.type === 'lint';
-				const open = !collapsed;
-				const shellHeader = (
-					<div className="group flex min-w-0 items-center justify-between gap-2">
-						<div className="flex min-w-0 items-center gap-2">
-							<span className="text-text-menuLabel">Shell</span>
-							{e.cwd ? (
-								<span className="truncate font-mono text-[10px] text-text-menuDesc">{e.cwd}</span>
-							) : null}
-						</div>
-						<div className="flex items-center gap-1">
-							{copyText ? (
-								<button
-									type="button"
-									className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
-									title="Copy shell"
-									onClick={(ev) => {
-										ev.stopPropagation();
-										void navigator.clipboard.writeText(copyText);
-									}}
-								>
-									<Copy className="h-3 w-3" />
-								</button>
-							) : null}
+		if (e.kind === 'command') {
+			const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+			const displayContent = prefixCommandLine(e.command, e.output ?? null);
+			const copyText = displayContent.replace(/\x1b\[[0-9;]*m/g, '');
+			const parsed = resolveParsedCmd(e.command, e.commandActions);
+			const isFinished = e.status !== 'inProgress';
+			const summary = getCmdSummary(parsed, isFinished, e.command);
+			const useMono = parsed.type === 'unknown' || parsed.type === 'format' || parsed.type === 'test' || parsed.type === 'lint';
+			const open = !collapsed;
+			const shellHeader = (
+				<div className="group flex min-w-0 items-center justify-between gap-2">
+					<div className="flex min-w-0 items-center gap-2">
+						<span className="text-text-menuLabel">Shell</span>
+						{e.cwd ? <span className="truncate font-mono text-[10px] text-text-menuDesc">{e.cwd}</span> : null}
+					</div>
+					<div className="flex items-center gap-1">
+						{copyText ? (
 							<button
 								type="button"
 								className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
-								title={open ? 'Collapse' : 'Expand'}
+								title="Copy shell"
 								onClick={(ev) => {
 									ev.stopPropagation();
-									toggleEntryCollapse(e.id);
+									void navigator.clipboard.writeText(copyText);
 								}}
 							>
-								<ChevronRight
-									className={[
-										'h-3 w-3 transition-transform duration-200',
-										open ? 'rotate-90' : '',
-									].join(' ')}
-								/>
+								<Copy className="h-3 w-3" />
 							</button>
-						</div>
+						) : null}
+						<button
+							type="button"
+							className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
+							title={open ? 'Collapse' : 'Expand'}
+							onClick={(ev) => {
+								ev.stopPropagation();
+								toggleEntryCollapse(e.id);
+							}}
+						>
+							<ChevronRight className={['h-3 w-3 transition-transform duration-200', open ? 'rotate-90' : ''].join(' ')} />
+						</button>
 					</div>
-				);
-				return (
-					<ActivityBlock
-						key={e.id}
-						titlePrefix={summary.prefix}
-						titleContent={summary.content}
-						titleMono={useMono}
-						status={e.status !== 'completed' ? e.status : undefined}
-						copyContent={copyText}
-						icon={<Terminal className="h-3.5 w-3.5" />}
-						contentVariant="ansi"
-						collapsible
-						collapsed={collapsed}
-						onToggleCollapse={() => toggleEntryCollapse(e.id)}
-						detailHeader={shellHeader}
-						approval={e.approval}
-						onApprove={approve}
-					>
-						{displayContent}
-					</ActivityBlock>
+				</div>
+			);
+			return (
+				<ActivityBlock
+					key={e.id}
+					titlePrefix={summary.prefix}
+					titleContent={summary.content}
+					titleMono={useMono}
+					status={e.status !== 'completed' ? e.status : undefined}
+					copyContent={copyText}
+					icon={<Terminal className="h-3.5 w-3.5" />}
+					contentVariant="ansi"
+					collapsible
+					collapsed={collapsed}
+					onToggleCollapse={() => toggleEntryCollapse(e.id)}
+					detailHeader={shellHeader}
+					approval={e.approval}
+					onApprove={approve}
+				>
+					{displayContent}
+				</ActivityBlock>
 			);
 		}
 
-			if (e.kind === 'fileChange') {
-				const summary = buildFileChangeSummary(e);
-				const isPending = e.status !== 'completed';
-				const defaultCollapsed = settings.defaultCollapseDetails;
-				const approval = e.approval;
-				return (
-					<div key={e.id} className="space-y-2">
-						{summary.changes.length > 0 ? (
-							summary.changes.map((change) => (
-								<FileChangeEntryCard
-									key={`${change.path}-${change.kind.type}`}
-									change={change}
-									isPending={isPending}
-									defaultCollapsed={defaultCollapsed}
-								/>
-							))
-						) : (
-							<div className="text-[10px] italic text-text-muted">No diff content</div>
-						)}
-						{approval ? (
-							<div className="mt-1 flex flex-wrap items-center justify-between gap-2 pl-2 pr-1">
-								<div className="min-w-0 text-xs text-text-muted">
-									Approval required
-									{approval.reason ? `: ${approval.reason}` : ''}.
-								</div>
-								<div className="flex shrink-0 gap-2">
-									<button
-										type="button"
-										className="rounded-md bg-status-success/20 px-2.5 py-1 text-[11px] font-semibold text-status-success hover:bg-status-success/30 transition-colors"
-										onClick={() => approve(approval.requestId, 'accept')}
-									>
-										Approve
-									</button>
-									<button
-										type="button"
-										className="rounded-md bg-status-error/15 px-2.5 py-1 text-[11px] font-semibold text-status-error hover:bg-status-error/25 transition-colors"
-										onClick={() => approve(approval.requestId, 'decline')}
-									>
-										Decline
-									</button>
-								</div>
+		if (e.kind === 'fileChange') {
+			const summary = buildFileChangeSummary(e);
+			const isPending = e.status !== 'completed';
+			const defaultCollapsed = settings.defaultCollapseDetails;
+			const approval = e.approval;
+			return (
+				<div key={e.id} className="space-y-2">
+					{summary.changes.length > 0 ? (
+						summary.changes.map((change) => (
+							<FileChangeEntryCard key={`${change.path}-${change.kind.type}`} change={change} isPending={isPending} defaultCollapsed={defaultCollapsed} />
+						))
+					) : (
+						<div className="text-[10px] italic text-text-muted">No diff content</div>
+					)}
+					{approval ? (
+						<div className="mt-1 flex flex-wrap items-center justify-between gap-2 pl-2 pr-1">
+							<div className="min-w-0 text-xs text-text-muted">
+								Approval required
+								{approval.reason ? `: ${approval.reason}` : ''}.
 							</div>
-						) : null}
-					</div>
-				);
-			}
+							<div className="flex shrink-0 gap-2">
+								<button
+									type="button"
+									className="rounded-md bg-status-success/20 px-2.5 py-1 text-[11px] font-semibold text-status-success hover:bg-status-success/30 transition-colors"
+									onClick={() => approve(approval.requestId, 'accept')}
+								>
+									Approve
+								</button>
+								<button
+									type="button"
+									className="rounded-md bg-status-error/15 px-2.5 py-1 text-[11px] font-semibold text-status-error hover:bg-status-error/25 transition-colors"
+									onClick={() => approve(approval.requestId, 'decline')}
+								>
+									Decline
+								</button>
+							</div>
+						</div>
+					) : null}
+				</div>
+			);
+		}
 
 		if (e.kind === 'webSearch') {
 			const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
@@ -4637,7 +4417,7 @@ export function CodexChat() {
 
 		if (e.kind === 'mcp') {
 			const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-			const contentBlocks = Array.isArray(e.result?.content) ? e.result?.content ?? [] : [];
+			const contentBlocks = Array.isArray(e.result?.content) ? (e.result?.content ?? []) : [];
 			const structuredContent = e.result?.structuredContent ?? null;
 			const errorMessage = e.error?.message;
 			const progressMessage = !e.result && !e.error ? e.message : undefined;
@@ -4670,9 +4450,7 @@ export function CodexChat() {
 					<div className="space-y-2">
 						{progressMessage ? <div className="text-[10px] text-text-muted">{progressMessage}</div> : null}
 						{hasContent ? renderMcpContentBlocks(contentBlocks) : null}
-						{errorMessage ? (
-							<div className="whitespace-pre-wrap text-[10px] text-status-error">{errorMessage}</div>
-						) : null}
+						{errorMessage ? <div className="whitespace-pre-wrap text-[10px] text-status-error">{errorMessage}</div> : null}
 						{hasStructured ? (
 							<pre className="whitespace-pre-wrap break-words rounded-md bg-white/5 px-2 py-1 text-[10px] text-text-muted">
 								{stringifyJsonSafe(structuredContent)}
@@ -4710,13 +4488,7 @@ export function CodexChat() {
 					collapsed={hasBody ? collapsed : true}
 					onToggleCollapse={hasBody ? () => toggleEntryCollapse(e.id) : undefined}
 				>
-					{hasBody ? (
-						<ChatMarkdown
-							text={displayBody}
-							className="text-[11px] text-text-muted"
-							dense
-						/>
-					) : null}
+					{hasBody ? <ChatMarkdown text={displayBody} className="text-[11px] text-text-muted" dense /> : null}
 				</ActivityBlock>
 			);
 		}
@@ -4751,10 +4523,7 @@ export function CodexChat() {
 						: 'bg-bg-panel/10 text-text-muted';
 
 			return (
-				<div
-					key={e.id}
-					className={`am-row am-row-hover text-xs ${color}`}
-				>
+				<div key={e.id} className={`am-row am-row-hover text-xs ${color}`}>
 					<div className="whitespace-pre-wrap break-words">{e.text}</div>
 				</div>
 			);
@@ -4766,15 +4535,9 @@ export function CodexChat() {
 	return (
 		<div className="flex h-full min-w-0 flex-col overflow-x-hidden">
 			{/* 自定义标题栏 */}
-			<div
-				className="flex h-10 shrink-0 items-center border-b border-white/10 bg-bg-panel/60"
-				data-tauri-drag-region
-			>
+			<div className="flex h-10 shrink-0 items-center border-b border-white/10 bg-bg-panel/60" data-tauri-drag-region>
 				{/* macOS 窗口按钮占位 */}
-				<div
-					className="w-20 shrink-0"
-					data-tauri-drag-region
-				/>
+				<div className="w-20 shrink-0" data-tauri-drag-region />
 
 				<div className="flex min-w-0 items-center gap-2">
 					{/* 项目选择下拉菜单 */}
@@ -4786,21 +4549,14 @@ export function CodexChat() {
 							title={activeThread?.cwd ?? workspaceRoot ?? ''}
 						>
 							<span className="truncate">
-								{activeThread?.cwd || workspaceRoot
-									? repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? '')
-									: 'Select Project'}
+								{activeThread?.cwd || workspaceRoot ? repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? '') : 'Select Project'}
 							</span>
 							<ChevronDown className="h-4 w-4 text-text-menuLabel" />
 						</button>
 
 						{isWorkspaceMenuOpen ? (
 							<>
-								<div
-									className="fixed inset-0 z-40"
-									onClick={() => setIsWorkspaceMenuOpen(false)}
-									role="button"
-									tabIndex={0}
-								/>
+								<div className="fixed inset-0 z-40" onClick={() => setIsWorkspaceMenuOpen(false)} role="button" tabIndex={0} />
 								<div className={`absolute left-0 top-full z-50 mt-2 w-[260px] p-1.5 ${MENU_STYLES.popover}`}>
 									{/* CURRENT PROJECT */}
 									<div className={MENU_STYLES.popoverTitle}>Current Project</div>
@@ -4816,7 +4572,7 @@ export function CodexChat() {
 													{repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? '') || 'Not set'}
 												</div>
 												<div className="truncate text-[11px] text-text-menuDesc">
-													{activeThread?.cwd ?? workspaceRoot
+													{(activeThread?.cwd ?? workspaceRoot)
 														? `~${(activeThread?.cwd ?? workspaceRoot ?? '').replace(/^\/Users\/[^/]+/, '')}`
 														: 'No project selected'}
 												</div>
@@ -4828,21 +4584,13 @@ export function CodexChat() {
 									<div className="mx-2 my-1.5 border-t border-border-menuDivider" />
 
 									{/* New Window */}
-									<button
-										type="button"
-										className={MENU_STYLES.popoverItem}
-										onClick={() => void openNewWindow()}
-									>
+									<button type="button" className={MENU_STYLES.popoverItem} onClick={() => void openNewWindow()}>
 										<Box className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 										<span>New Window</span>
 									</button>
 
 									{/* Open Project */}
-									<button
-										type="button"
-										className={MENU_STYLES.popoverItem}
-										onClick={() => void openWorkspaceDialog()}
-									>
+									<button type="button" className={MENU_STYLES.popoverItem} onClick={() => void openWorkspaceDialog()}>
 										<Folder className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 										<span>Open Project</span>
 									</button>
@@ -4866,12 +4614,8 @@ export function CodexChat() {
 														>
 															<Folder className="h-4 w-4 shrink-0 text-text-menuLabel" />
 															<div className="min-w-0">
-																<div className="truncate text-[12px] font-medium text-text-main">
-																	{repoNameFromPath(path)}
-																</div>
-																<div className="truncate text-[11px] text-text-menuDesc">
-																	{`~${path.replace(/^\/Users\/[^/]+/, '')}`}
-																</div>
+																<div className="truncate text-[12px] font-medium text-text-main">{repoNameFromPath(path)}</div>
+																<div className="truncate text-[11px] text-text-menuDesc">{`~${path.replace(/^\/Users\/[^/]+/, '')}`}</div>
 															</div>
 														</button>
 													))}
@@ -4882,21 +4626,13 @@ export function CodexChat() {
 									<div className="mx-2 my-1.5 border-t border-border-menuDivider" />
 
 									{/* About */}
-									<button
-										type="button"
-										className={MENU_STYLES.popoverItem}
-										onClick={() => void showAbout()}
-									>
+									<button type="button" className={MENU_STYLES.popoverItem} onClick={() => void showAbout()}>
 										<Info className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 										<span>About AgentMesh</span>
 									</button>
 
 									{/* Check for Updates */}
-									<button
-										type="button"
-										className={MENU_STYLES.popoverItem}
-										onClick={() => void showUpdates()}
-									>
+									<button type="button" className={MENU_STYLES.popoverItem} onClick={() => void showUpdates()}>
 										<RotateCw className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 										<span>Check for Updates...</span>
 									</button>
@@ -4939,10 +4675,7 @@ export function CodexChat() {
 					) : null}
 				</div>
 
-				<div
-					className="flex-1"
-					data-tauri-drag-region
-				/>
+				<div className="flex-1" data-tauri-drag-region />
 
 				<div className="relative mr-3 flex shrink-0 items-center gap-1.5">
 					<button
@@ -4968,12 +4701,7 @@ export function CodexChat() {
 
 					{isSettingsMenuOpen ? (
 						<>
-							<div
-								className="fixed inset-0 z-40"
-								onClick={() => setIsSettingsMenuOpen(false)}
-								role="button"
-								tabIndex={0}
-							/>
+							<div className="fixed inset-0 z-40" onClick={() => setIsSettingsMenuOpen(false)} role="button" tabIndex={0} />
 							<div className={`absolute right-0 top-[44px] z-50 w-[220px] p-1.5 ${MENU_STYLES.popover}`}>
 								<div className={MENU_STYLES.popoverTitle}>Menu</div>
 								<button
@@ -5024,10 +4752,7 @@ export function CodexChat() {
 
 			{/* 主内容区域 */}
 			<div className="flex min-h-0 min-w-0 flex-1">
-				<div
-					className="relative shrink-0"
-					style={{ width: SIDEBAR_WIDTH_PX }}
-				>
+				<div className="relative shrink-0" style={{ width: SIDEBAR_WIDTH_PX }}>
 					<aside className="flex h-full w-full flex-col items-center gap-4 border-r border-white/10 bg-bg-panel/40 pt-6 pb-0.5">
 						<button
 							type="button"
@@ -5054,9 +4779,7 @@ export function CodexChat() {
 
 				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-8 pt-6 pb-0.5">
 					<div className="relative flex items-center justify-between gap-4">
-						<div className="min-w-0 flex-1">
-							{workspaceRootError ? <div className="mt-2 text-xs text-status-warning">{workspaceRootError}</div> : null}
-						</div>
+						<div className="min-w-0 flex-1">{workspaceRootError ? <div className="mt-2 text-xs text-status-warning">{workspaceRootError}</div> : null}</div>
 
 						<div className="relative flex shrink-0 items-center">
 							<button
@@ -5073,26 +4796,17 @@ export function CodexChat() {
 						</div>
 					</div>
 
-					<div
-						ref={scrollRef}
-						className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4"
-					>
+					<div ref={scrollRef} className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4">
 						{renderTurns.map((turn) => {
 							const collapsedExplicit = collapsedWorkingByTurnId[turn.id];
 							const workingOpen = collapsedExplicit === undefined ? turn.status === 'inProgress' : !collapsedExplicit;
 							const hasWorking = turn.workingItemCount > 0;
 
 							return (
-								<div
-									key={turn.id}
-									className="space-y-2"
-								>
+								<div key={turn.id} className="space-y-2">
 									<div className="space-y-2">
 										{turn.userEntries.map((e) => (
-											<div
-												key={e.id}
-												className="flex justify-end"
-											>
+											<div key={e.id} className="flex justify-end">
 												<div className="max-w-[77%] rounded-2xl bg-white/5 px-2.5 py-1.5 text-[11px] leading-[1.25] text-text-dim">
 													{/* Attachments in message bubble */}
 													{e.attachments && e.attachments.length > 0 ? (
@@ -5116,19 +4830,12 @@ export function CodexChat() {
 																	) : (
 																		<FileText className="h-3 w-3" />
 																	)}
-																	<span className="max-w-[100px] truncate">
-																		{att.type === 'prompt' ? `prompts:${att.name}` : att.name}
-																	</span>
+																	<span className="max-w-[100px] truncate">{att.type === 'prompt' ? `prompts:${att.name}` : att.name}</span>
 																</div>
 															))}
 														</div>
 													) : null}
-													<ChatMarkdown
-														text={e.text}
-														className="text-[11px] !leading-[1.25] text-text-dim"
-														textClassName="text-text-dim"
-														dense
-													/>
+													<ChatMarkdown text={e.text} className="text-[11px] !leading-[1.25] text-text-dim" textClassName="text-text-dim" dense />
 												</div>
 											</div>
 										))}
@@ -5145,15 +4852,10 @@ export function CodexChat() {
 													{turnStatusLabel(turn.status)}
 													{turn.id === PENDING_TURN_ID ? ' (pending)' : ''}
 												</span>
-												<span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-text-menuDesc">
-													{turn.workingItemCount}
-												</span>
+												<span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-text-menuDesc">{turn.workingItemCount}</span>
 											</div>
 											<ChevronRight
-												className={[
-													'h-3.5 w-3.5 text-text-menuDesc transition-transform duration-200',
-													workingOpen ? 'rotate-90' : '',
-												].join(' ')}
+												className={['h-3.5 w-3.5 text-text-menuDesc transition-transform duration-200', workingOpen ? 'rotate-90' : ''].join(' ')}
 											/>
 										</button>
 									) : null}
@@ -5164,10 +4866,7 @@ export function CodexChat() {
 												{turn.workingItems.map((item) => {
 													if (item.kind === 'exploration') {
 														const { prefix, content } = formatExplorationHeader(item.status, item.uniqueFileCount);
-														const collapsed =
-															item.status === 'exploring'
-																? false
-																: (collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails);
+														const collapsed = item.status === 'exploring' ? false : (collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails);
 														const hasItems = item.items.length > 0;
 														const copyContent = content ? `${prefix} ${content}` : prefix;
 														return (
@@ -5194,21 +4893,13 @@ export function CodexChat() {
 
 									<div className="space-y-2">
 										{turn.assistantMessageEntries.map((e) => (
-											<div
-												key={e.id}
-												className="px-1 py-1 text-[11px] leading-[1.25] text-text-dim"
-											>
+											<div key={e.id} className="px-1 py-1 text-[11px] leading-[1.25] text-text-dim">
 												{e.renderPlaceholderWhileStreaming && !e.completed ? (
 													<div className="text-[12px] text-text-menuDesc">Generating…</div>
 												) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
 													<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
 												) : (
-													<ChatMarkdown
-														text={e.text}
-														className="text-[11px] !leading-[1.25] text-text-dim"
-														textClassName="text-text-dim"
-														dense
-													/>
+													<ChatMarkdown text={e.text} className="text-[11px] !leading-[1.25] text-text-dim" textClassName="text-text-dim" dense />
 												)}
 											</div>
 										))}
@@ -5371,27 +5062,19 @@ export function CodexChat() {
 														key={skill.name}
 														type="button"
 														data-highlighted={idx === skillHighlightIndex}
-														className={
-															idx === skillHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
-														}
+														className={idx === skillHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem}
 														onClick={() => executeSkillSelection(skill)}
 														onMouseEnter={() => setSkillHighlightIndex(idx)}
 													>
 														<Zap className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-														<span>
-															{indices && indices.length > 0
-																? highlightMatches(skill.name, indices)
-																: skill.name}
-														</span>
+														<span>{indices && indices.length > 0 ? highlightMatches(skill.name, indices) : skill.name}</span>
 														<span className={MENU_STYLES.popoverItemDesc} title={skill.shortDescription || skill.description}>
 															{skill.shortDescription || skill.description}
 														</span>
 													</button>
 												))
 											) : (
-												<div className={`${MENU_STYLES.popoverItemDesc} px-2 py-1`}>
-													{skills.length === 0 ? 'No skills available' : 'No matching skills'}
-												</div>
+												<div className={`${MENU_STYLES.popoverItemDesc} px-2 py-1`}>{skills.length === 0 ? 'No skills available' : 'No matching skills'}</div>
 											)
 										) : isSlashMenuOpen ? (
 											// Slash menu: Commands + Prompts + Skills
@@ -5442,19 +5125,15 @@ export function CodexChat() {
 																	key={cmd.id}
 																	type="button"
 																	data-highlighted={idx === slashHighlightIndex}
-																	className={
-																		idx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
-																	}
+																	className={idx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem}
 																	onClick={() => executeSlashCommand(cmd.id)}
 																	onMouseEnter={() => setSlashHighlightIndex(idx)}
 																>
 																	<IconComponent className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-																	<span>
-																		{indices && indices.length > 0
-																			? highlightMatches(cmd.label, indices)
-																			: cmd.label}
+																	<span>{indices && indices.length > 0 ? highlightMatches(cmd.label, indices) : cmd.label}</span>
+																	<span className={MENU_STYLES.popoverItemDesc} title={cmd.description}>
+																		{cmd.description}
 																	</span>
-																	<span className={MENU_STYLES.popoverItemDesc} title={cmd.description}>{cmd.description}</span>
 																</button>
 															);
 														})}
@@ -5464,8 +5143,9 @@ export function CodexChat() {
 												{filteredPromptsForSlashMenu.length > 0 && (
 													<>
 														<div
-															className={`${MENU_STYLES.popoverTitle} ${filteredSlashCommands.length > 0 ? 'mt-2 border-t border-border-menuDivider pt-2' : ''
-																}`}
+															className={`${MENU_STYLES.popoverTitle} ${
+																filteredSlashCommands.length > 0 ? 'mt-2 border-t border-border-menuDivider pt-2' : ''
+															}`}
 														>
 															Prompts
 														</div>
@@ -5476,18 +5156,12 @@ export function CodexChat() {
 																	key={prompt.name}
 																	type="button"
 																	data-highlighted={globalIdx === slashHighlightIndex}
-																	className={
-																		globalIdx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
-																	}
+																	className={globalIdx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem}
 																	onClick={() => executePromptSelection(prompt)}
 																	onMouseEnter={() => setSlashHighlightIndex(globalIdx)}
 																>
 																	<FileText className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-																	<span>
-																		{indices && indices.length > 0
-																			? highlightMatches(`prompts:${prompt.name}`, indices)
-																			: `prompts:${prompt.name}`}
-																	</span>
+																	<span>{indices && indices.length > 0 ? highlightMatches(`prompts:${prompt.name}`, indices) : `prompts:${prompt.name}`}</span>
 																	<span className={MENU_STYLES.popoverItemDesc} title={prompt.description || 'send saved prompt'}>
 																		{prompt.description || 'send saved prompt'}
 																	</span>
@@ -5500,10 +5174,9 @@ export function CodexChat() {
 												{filteredSkillsForSlashMenu.length > 0 && (
 													<>
 														<div
-															className={`${MENU_STYLES.popoverTitle} ${filteredSlashCommands.length > 0 || filteredPromptsForSlashMenu.length > 0
-																? 'mt-2 border-t border-border-menuDivider pt-2'
-																: ''
-																}`}
+															className={`${MENU_STYLES.popoverTitle} ${
+																filteredSlashCommands.length > 0 || filteredPromptsForSlashMenu.length > 0 ? 'mt-2 border-t border-border-menuDivider pt-2' : ''
+															}`}
 														>
 															Skills
 														</div>
@@ -5514,18 +5187,12 @@ export function CodexChat() {
 																	key={skill.name}
 																	type="button"
 																	data-highlighted={globalIdx === slashHighlightIndex}
-																	className={
-																		globalIdx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem
-																	}
+																	className={globalIdx === slashHighlightIndex ? MENU_STYLES.popoverItemActive : MENU_STYLES.popoverItem}
 																	onClick={() => executeSkillSelection(skill)}
 																	onMouseEnter={() => setSlashHighlightIndex(globalIdx)}
 																>
 																	<Zap className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-																	<span>
-																		{indices && indices.length > 0
-																			? highlightMatches(skill.name, indices)
-																			: skill.name}
-																	</span>
+																	<span>{indices && indices.length > 0 ? highlightMatches(skill.name, indices) : skill.name}</span>
 																	<span className={MENU_STYLES.popoverItemDesc} title={skill.shortDescription || skill.description}>
 																		{skill.shortDescription || skill.description}
 																	</span>
@@ -5544,12 +5211,7 @@ export function CodexChat() {
 											<>
 												{fileSearchResults.length > 0 ? (
 													fileSearchResults.map((f) => (
-														<button
-															key={f.path}
-															type="button"
-															className={MENU_STYLES.popoverItem}
-															onClick={() => void addFileAttachment(f)}
-														>
+														<button key={f.path} type="button" className={MENU_STYLES.popoverItem} onClick={() => void addFileAttachment(f)}>
 															{f.isDirectory ? (
 																<Folder className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
 															) : (
@@ -5567,11 +5229,7 @@ export function CodexChat() {
 									{/* Add image option (only for + menu) */}
 									{isAddContextOpen ? (
 										<div className="mt-1.5 border-t border-border-menuDivider pt-1.5">
-											<button
-												type="button"
-												className={MENU_STYLES.popoverItem}
-												onClick={() => fileInputRef.current?.click()}
-											>
+											<button type="button" className={MENU_STYLES.popoverItem} onClick={() => fileInputRef.current?.click()}>
 												<Image className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
 												<span>Add image</span>
 											</button>
@@ -5586,21 +5244,10 @@ export function CodexChat() {
 							<div className="mb-2 flex flex-wrap gap-1.5">
 								{/* File attachments */}
 								{fileAttachments.map((f) => (
-									<div
-										key={f.path}
-										className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-bg-panelHover px-2 py-1 text-xs"
-									>
-										{f.content?.startsWith('data:image') ? (
-											<Image className="h-3.5 w-3.5 text-text-dim" />
-										) : (
-											<File className="h-3.5 w-3.5 text-text-dim" />
-										)}
+									<div key={f.path} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-bg-panelHover px-2 py-1 text-xs">
+										{f.content?.startsWith('data:image') ? <Image className="h-3.5 w-3.5 text-text-dim" /> : <File className="h-3.5 w-3.5 text-text-dim" />}
 										<span className="max-w-[120px] truncate">{f.name}</span>
-										<button
-											type="button"
-											className="rounded p-0.5 hover:bg-white/10"
-											onClick={() => removeFileAttachment(f.path)}
-										>
+										<button type="button" className="rounded p-0.5 hover:bg-white/10" onClick={() => removeFileAttachment(f.path)}>
 											<X className="h-3 w-3" />
 										</button>
 									</div>
@@ -5609,13 +5256,7 @@ export function CodexChat() {
 						) : null}
 
 						{/* Hidden file input for image upload */}
-						<input
-							ref={fileInputRef}
-							type="file"
-							accept="image/*"
-							className="hidden"
-							onChange={handleImageUpload}
-						/>
+						<input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
 
 						{/* Input area with inline tags for skill/prompt */}
 						<div className="flex flex-wrap items-start gap-1.5">
@@ -5624,11 +5265,7 @@ export function CodexChat() {
 								<div className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs text-blue-400">
 									<FileText className="h-3.5 w-3.5" />
 									<span className="max-w-[160px] truncate">prompts:{selectedPrompt.name}</span>
-									<button
-										type="button"
-										className="rounded p-0.5 hover:bg-blue-500/20"
-										onClick={() => setSelectedPrompt(null)}
-									>
+									<button type="button" className="rounded p-0.5 hover:bg-blue-500/20" onClick={() => setSelectedPrompt(null)}>
 										<X className="h-3 w-3" />
 									</button>
 								</div>
@@ -5638,11 +5275,7 @@ export function CodexChat() {
 								<div className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs text-primary">
 									<Zap className="h-3.5 w-3.5" />
 									<span className="max-w-[160px] truncate">{selectedSkill.name}</span>
-									<button
-										type="button"
-										className="rounded p-0.5 hover:bg-primary/20"
-										onClick={() => setSelectedSkill(null)}
-									>
+									<button type="button" className="rounded p-0.5 hover:bg-primary/20" onClick={() => setSelectedSkill(null)}>
 										<X className="h-3 w-3" />
 									</button>
 								</div>
@@ -5672,22 +5305,12 @@ export function CodexChat() {
 						<div className="mt-2 flex items-center justify-between gap-2">
 							<div className="flex items-center gap-2">
 								{/* + Add Context Button */}
-								<button
-									type="button"
-									className="am-icon-button h-7 w-7"
-									title="Add context"
-									onClick={() => setIsAddContextOpen((v) => !v)}
-								>
+								<button type="button" className="am-icon-button h-7 w-7" title="Add context" onClick={() => setIsAddContextOpen((v) => !v)}>
 									<Plus className="h-3.5 w-3.5" />
 								</button>
 
 								{/* / Slash Commands Button */}
-								<button
-									type="button"
-									className="am-icon-button h-7 w-7"
-									title="Commands"
-									onClick={() => setIsSlashMenuOpen((v) => !v)}
-								>
+								<button type="button" className="am-icon-button h-7 w-7" title="Commands" onClick={() => setIsSlashMenuOpen((v) => !v)}>
 									<Slash className="h-3.5 w-3.5" />
 								</button>
 
@@ -5703,16 +5326,13 @@ export function CodexChat() {
 									onClick={() => setAutoContextEnabled((v) => !v)}
 									title={
 										autoContext
-											? `cwd: ${autoContext.cwd}\nRecent: ${autoContext.recentFiles.length} files\nGit: ${autoContext.gitStatus?.branch ?? 'N/A'
-											}`
+											? `cwd: ${autoContext.cwd}\nRecent: ${autoContext.recentFiles.length} files\nGit: ${autoContext.gitStatus?.branch ?? 'N/A'}`
 											: 'Auto context'
 									}
 								>
 									<span>Auto context</span>
 									{autoContext?.gitStatus ? (
-										<span className="rounded bg-white/10 px-1 py-0.5 text-[10px] leading-none">
-											{autoContext.gitStatus.branch}
-										</span>
+										<span className="rounded bg-white/10 px-1 py-0.5 text-[10px] leading-none">{autoContext.gitStatus.branch}</span>
 									) : null}
 								</button>
 							</div>
@@ -5728,19 +5348,8 @@ export function CodexChat() {
 									{/* Background circle */}
 									<div className="absolute inset-0 rounded-full bg-[#3a3a3a]" />
 									{/* Spinning ring - using SVG for better visibility */}
-									<svg
-										className="absolute inset-0 h-full w-full animate-spin"
-										viewBox="0 0 32 32"
-									>
-										<circle
-											cx="16"
-											cy="16"
-											r="14"
-											fill="none"
-											stroke="currentColor"
-											strokeWidth="2"
-											className="text-white/20"
-										/>
+									<svg className="absolute inset-0 h-full w-full animate-spin" viewBox="0 0 32 32">
+										<circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20" />
 										<circle
 											cx="16"
 											cy="16"
@@ -5780,13 +5389,7 @@ export function CodexChat() {
 									onClick={() => setOpenStatusPopover((prev) => (prev === 'profile' ? null : 'profile'))}
 									title="Switch mode"
 								>
-									<span className="truncate">
-										{approvalPolicy === 'never'
-											? 'Agent (full access)'
-											: approvalPolicy === 'untrusted'
-												? 'Agent'
-												: 'Custom'}
-									</span>
+									<span className="truncate">{approvalPolicy === 'never' ? 'Agent (full access)' : approvalPolicy === 'untrusted' ? 'Agent' : 'Custom'}</span>
 									<ChevronDown className="h-3 w-3" />
 								</button>
 
@@ -5804,10 +5407,7 @@ export function CodexChat() {
 										>
 											<Users className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 											<span>Agent</span>
-											<Check
-												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${approvalPolicy === 'untrusted' ? '' : 'invisible'
-													}`}
-											/>
+											<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${approvalPolicy === 'untrusted' ? '' : 'invisible'}`} />
 										</button>
 										<button
 											type="button"
@@ -5820,10 +5420,7 @@ export function CodexChat() {
 										>
 											<Zap className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 											<span>Agent (full access)</span>
-											<Check
-												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${approvalPolicy === 'never' ? '' : 'invisible'
-													}`}
-											/>
+											<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${approvalPolicy === 'never' ? '' : 'invisible'}`} />
 										</button>
 										<button
 											type="button"
@@ -5837,8 +5434,9 @@ export function CodexChat() {
 											<FileText className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 											<span>Custom (config.toml)</span>
 											<Check
-												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${approvalPolicy === 'on-request' || approvalPolicy === 'on-failure' ? '' : 'invisible'
-													}`}
+												className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${
+													approvalPolicy === 'on-request' || approvalPolicy === 'on-failure' ? '' : 'invisible'
+												}`}
 											/>
 										</button>
 									</div>
@@ -5878,16 +5476,12 @@ export function CodexChat() {
 															title={translateModelDesc(m.description)}
 														>
 															<span>{m.displayName}</span>
-															<Check
-																className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`}
-															/>
+															<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
 														</button>
 													);
 												})
 											)}
-											{modelsError ? (
-												<div className="px-3 py-1 text-[11px] text-status-warning">{modelsError}</div>
-											) : null}
+											{modelsError ? <div className="px-3 py-1 text-[11px] text-status-warning">{modelsError}</div> : null}
 										</div>
 									</div>
 								) : null}
@@ -5928,9 +5522,7 @@ export function CodexChat() {
 														title={policyTitles[policy]}
 													>
 														<span>{policy}</span>
-														<Check
-															className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`}
-														/>
+														<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
 													</button>
 												);
 											})}
@@ -5945,9 +5537,7 @@ export function CodexChat() {
 									className={statusBarItemClass(openStatusPopover === 'model_reasoning_effort')}
 									onClick={() => {
 										setStatusPopoverError(null);
-										setOpenStatusPopover((prev) =>
-											prev === 'model_reasoning_effort' ? null : 'model_reasoning_effort'
-										);
+										setOpenStatusPopover((prev) => (prev === 'model_reasoning_effort' ? null : 'model_reasoning_effort'));
 									}}
 									title="model_reasoning_effort"
 								>
@@ -5956,9 +5546,7 @@ export function CodexChat() {
 									) : (
 										<Brain className="h-3.5 w-3.5 text-text-menuLabel" />
 									)}
-									<span className="truncate">
-										{selectedEffort ? reasoningEffortLabelEn(selectedEffort) : 'Default'}
-									</span>
+									<span className="truncate">{selectedEffort ? reasoningEffortLabelEn(selectedEffort) : 'Default'}</span>
 									<ChevronDown className="h-3 w-3" />
 								</button>
 
@@ -5981,9 +5569,7 @@ export function CodexChat() {
 														>
 															{reasoningEffortIcon(opt.reasoningEffort, `${MENU_STYLES.iconSm} text-text-menuLabel`)}
 															<span>{reasoningEffortLabelEn(opt.reasoningEffort)}</span>
-															<Check
-																className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`}
-															/>
+															<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
 														</button>
 													);
 												})
@@ -5999,32 +5585,18 @@ export function CodexChat() {
 						</div>
 					</div>
 
-					{openStatusPopover ? (
-						<div
-							className="fixed inset-0 z-40"
-							onClick={() => setOpenStatusPopover(null)}
-							role="button"
-							tabIndex={0}
-						/>
-					) : null}
+					{openStatusPopover ? <div className="fixed inset-0 z-40" onClick={() => setOpenStatusPopover(null)} role="button" tabIndex={0} /> : null}
 
 					{statusPopoverError ? <div className="mt-2 text-xs text-status-warning">{statusPopoverError}</div> : null}
 
 					{isConfigOpen ? (
 						<div className="fixed inset-0 z-50 flex">
-							<div
-								className="flex-1 bg-black/60"
-								onClick={() => setIsConfigOpen(false)}
-								role="button"
-								tabIndex={0}
-							/>
+							<div className="flex-1 bg-black/60" onClick={() => setIsConfigOpen(false)} role="button" tabIndex={0} />
 							<div className="w-[520px] max-w-[90vw] border-l border-white/10 bg-bg-panel/95 p-6 backdrop-blur">
 								<div className="mb-4 flex items-start justify-between gap-3">
 									<div>
 										<div className="text-sm font-semibold">~/.codex/config.toml</div>
-										<div className="mt-1 text-xs text-text-muted">
-											Edit Codex configuration directly. Changes apply to future turns.
-										</div>
+										<div className="mt-1 text-xs text-text-muted">Edit Codex configuration directly. Changes apply to future turns.</div>
 									</div>
 									<button
 										type="button"
@@ -6036,9 +5608,7 @@ export function CodexChat() {
 								</div>
 
 								{configError ? (
-									<div className="mb-3 rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
-										{configError}
-									</div>
+									<div className="mb-3 rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{configError}</div>
 								) : null}
 
 								<textarea
@@ -6071,12 +5641,7 @@ export function CodexChat() {
 
 					{isSessionsOpen ? (
 						<div className="fixed inset-0 z-50 flex">
-							<div
-								className="flex-1 bg-black/60"
-								onClick={() => setIsSessionsOpen(false)}
-								role="button"
-								tabIndex={0}
-							/>
+							<div className="flex-1 bg-black/60" onClick={() => setIsSessionsOpen(false)} role="button" tabIndex={0} />
 							<div className="w-[420px] max-w-[92vw] border-l border-white/10 bg-bg-panel/95 p-6 backdrop-blur">
 								<div className="mb-4 flex items-start justify-between gap-3">
 									<div>
@@ -6102,9 +5667,7 @@ export function CodexChat() {
 								</div>
 
 								{sessionsError ? (
-									<div className="mb-3 rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
-										{sessionsError}
-									</div>
+									<div className="mb-3 rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{sessionsError}</div>
 								) : null}
 
 								<div className="min-h-0 overflow-auto rounded-2xl border border-white/10 bg-bg-panel/70 p-2">
@@ -6113,34 +5676,32 @@ export function CodexChat() {
 									) : sessions.length === 0 ? (
 										<div className="p-3 text-sm text-text-muted">No sessions yet.</div>
 									) : (
-											<div className="space-y-2">
-												{sessions.map((s) => {
-													const isSelected = s.id === selectedThreadId;
-													const isRunning = Boolean(runningThreadIds[s.id]);
-													return (
-														<button
-															key={s.id}
-															type="button"
+										<div className="space-y-2">
+											{sessions.map((s) => {
+												const isSelected = s.id === selectedThreadId;
+												const isRunning = Boolean(runningThreadIds[s.id]);
+												return (
+													<button
+														key={s.id}
+														type="button"
 														className={[
 															'w-full rounded-xl border px-3 py-2 text-left transition',
-															isSelected
-																? 'border-primary/40 bg-primary/10'
-																: 'border-white/10 bg-bg-panelHover hover:border-white/20',
+															isSelected ? 'border-primary/40 bg-primary/10' : 'border-white/10 bg-bg-panelHover hover:border-white/20',
 														].join(' ')}
 														onClick={() => void selectSession(s.id)}
 													>
 														<div className="truncate text-sm font-semibold">{s.preview || '—'}</div>
 
-															<div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-text-dim">
-																<span className="truncate">{s.modelProvider}</span>
-																<span className="flex shrink-0 items-center gap-1.5">
-																	{isRunning ? <SessionRunningIndicator /> : null}
-																	<span>{formatSessionUpdatedAtMs(s)}</span>
-																</span>
-															</div>
-														</button>
-													);
-												})}
+														<div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-text-dim">
+															<span className="truncate">{s.modelProvider}</span>
+															<span className="flex shrink-0 items-center gap-1.5">
+																{isRunning ? <SessionRunningIndicator /> : null}
+																<span>{formatSessionUpdatedAtMs(s)}</span>
+															</span>
+														</div>
+													</button>
+												);
+											})}
 										</div>
 									)}
 								</div>
@@ -6150,12 +5711,7 @@ export function CodexChat() {
 
 					{isSettingsOpen ? (
 						<div className="fixed inset-0 z-50 flex">
-							<div
-								className="flex-1 bg-black/60"
-								onClick={() => setIsSettingsOpen(false)}
-								role="button"
-								tabIndex={0}
-							/>
+							<div className="flex-1 bg-black/60" onClick={() => setIsSettingsOpen(false)} role="button" tabIndex={0} />
 							<div className="w-[520px] max-w-[92vw] border-l border-white/10 bg-bg-panel/95 p-6 backdrop-blur">
 								<div className="mb-4 flex items-start justify-between gap-3">
 									<div>
@@ -6175,9 +5731,7 @@ export function CodexChat() {
 									<label className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3">
 										<div className="min-w-0">
 											<div className="text-sm font-semibold">Show reasoning</div>
-											<div className="mt-1 text-xs text-text-muted">
-												Display Thought/Reasoning items in the timeline.
-											</div>
+											<div className="mt-1 text-xs text-text-muted">Display Thought/Reasoning items in the timeline.</div>
 										</div>
 										<input
 											type="checkbox"
@@ -6194,9 +5748,7 @@ export function CodexChat() {
 									<label className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3">
 										<div className="min-w-0">
 											<div className="text-sm font-semibold">Default collapse details</div>
-											<div className="mt-1 text-xs text-text-muted">
-												When enabled, command output & diffs start collapsed (you can always expand).
-											</div>
+											<div className="mt-1 text-xs text-text-muted">When enabled, command output & diffs start collapsed (you can always expand).</div>
 										</div>
 										<input
 											type="checkbox"
@@ -6227,21 +5779,15 @@ export function CodexChat() {
 											</button>
 										</div>
 
-										{diagnosticsError ? (
-											<div className="mt-2 text-xs text-status-warning">{diagnosticsError}</div>
-										) : null}
+										{diagnosticsError ? <div className="mt-2 text-xs text-status-warning">{diagnosticsError}</div> : null}
 
 										{diagnostics ? (
 											<div className="mt-3 space-y-2 text-[11px] text-text-muted">
 												<div className="truncate">
-													{diagnostics.resolvedCodexBin
-														? `resolved codex: ${diagnostics.resolvedCodexBin}`
-														: 'resolved codex: (not found)'}
+													{diagnostics.resolvedCodexBin ? `resolved codex: ${diagnostics.resolvedCodexBin}` : 'resolved codex: (not found)'}
 												</div>
 												<div className="truncate">
-													{diagnostics.envOverride
-														? `AGENTMESH_CODEX_BIN: ${diagnostics.envOverride}`
-														: 'AGENTMESH_CODEX_BIN: (unset)'}
+													{diagnostics.envOverride ? `AGENTMESH_CODEX_BIN: ${diagnostics.envOverride}` : 'AGENTMESH_CODEX_BIN: (unset)'}
 												</div>
 												<div className="truncate">
 													PATH source: {diagnostics.pathSource ?? '(unknown)'}
