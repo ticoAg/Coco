@@ -6,6 +6,8 @@ use serde_json::Value;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+use crate::codex_patch_diff;
+
 fn resolve_codex_home() -> PathBuf {
     if let Ok(v) = std::env::var("CODEX_HOME") {
         if !v.trim().is_empty() {
@@ -166,16 +168,24 @@ fn merge_file_change_changes(base: &Value, rollout: &Value) -> Value {
             continue;
         };
         let diff_missing = value_is_missing(change.get("diff"));
-        if !diff_missing {
+        let line_numbers_missing = value_is_missing(change.get("lineNumbersAvailable"));
+        if !diff_missing && !line_numbers_missing {
             continue;
         }
         if let Some(rollout_match) = rollout_changes
             .iter()
             .find(|c| c.get("path").and_then(|v| v.as_str()) == Some(path))
         {
-            if let Some(rollout_diff) = rollout_match.get("diff") {
-                if let Some(obj) = change.as_object_mut() {
-                    obj.insert("diff".to_string(), rollout_diff.clone());
+            if let Some(obj) = change.as_object_mut() {
+                if diff_missing {
+                    if let Some(rollout_diff) = rollout_match.get("diff") {
+                        obj.insert("diff".to_string(), rollout_diff.clone());
+                    }
+                }
+                if line_numbers_missing {
+                    if let Some(rollout_line_numbers) = rollout_match.get("lineNumbersAvailable") {
+                        obj.insert("lineNumbersAvailable".to_string(), rollout_line_numbers.clone());
+                    }
                 }
             }
         }
@@ -456,9 +466,22 @@ fn extract_rollout_path_from_resume_response(res: &Value) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+fn extract_cwd_from_resume_response(res: &Value) -> Option<PathBuf> {
+    res.get("cwd")
+        .and_then(|v| v.as_str())
+        .map(PathBuf::from)
+        .or_else(|| {
+            res.get("thread")
+                .and_then(|t| t.get("cwd"))
+                .and_then(|v| v.as_str())
+                .map(PathBuf::from)
+        })
+}
+
 async fn parse_rollout_activity_by_turn(
     rollout_path: &Path,
     turn_count: usize,
+    cwd: Option<&Path>,
 ) -> std::io::Result<Vec<Vec<Value>>> {
     let mut per_turn: Vec<Vec<Value>> = vec![Vec::new(); turn_count.max(1)];
 
@@ -635,16 +658,22 @@ async fn parse_rollout_activity_by_turn(
                         .and_then(|v| v.as_str())
                         .unwrap_or("completed");
                     let segments = parse_apply_patch_segments(input);
-                    let changes: Vec<Value> = segments
-                        .into_iter()
-                        .map(|seg| {
-                            serde_json::json!({
-                                "path": seg.path,
-                                "kind": seg.kind,
-                                "diff": seg.diff,
-                            })
-                        })
-                        .collect();
+                    let mut changes: Vec<Value> = Vec::with_capacity(segments.len());
+                    for seg in segments {
+                        let (diff, line_numbers_available) = codex_patch_diff::enrich_file_change_diff(
+                            &seg.path,
+                            &seg.kind,
+                            &seg.diff,
+                            cwd,
+                        )
+                        .await;
+                        changes.push(serde_json::json!({
+                            "path": seg.path,
+                            "kind": seg.kind,
+                            "diff": diff,
+                            "lineNumbersAvailable": line_numbers_available,
+                        }));
+                    }
                     let item = serde_json::json!({
                         "type": "fileChange",
                         "id": call_id,
@@ -925,7 +954,9 @@ pub async fn augment_thread_resume_response(res: Value, thread_id: &str) -> Resu
         return Ok(res);
     };
 
-    let activity_by_turn = match parse_rollout_activity_by_turn(&rollout_path, turn_count).await {
+    let cwd = extract_cwd_from_resume_response(&res);
+    let activity_by_turn =
+        match parse_rollout_activity_by_turn(&rollout_path, turn_count, cwd.as_deref()).await {
         Ok(v) => v,
         Err(err) => {
             warn!(

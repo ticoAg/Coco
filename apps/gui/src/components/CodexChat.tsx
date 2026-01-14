@@ -112,7 +112,7 @@ type ChatEntry =
 		kind: 'fileChange';
 		id: string;
 		status: string;
-		changes: Array<{ path: string; diff?: string; kind?: unknown }>;
+		changes: Array<{ path: string; diff?: string; kind?: unknown; lineNumbersAvailable?: boolean }>;
 		approval?: {
 			requestId: number;
 			decision?: 'accept' | 'decline';
@@ -743,7 +743,8 @@ type DiffLineKind = 'insert' | 'delete' | 'context' | 'ellipsis';
 type ParsedDiffLine = {
 	kind: DiffLineKind;
 	text: string;
-	lineNumber?: number;
+	oldLine?: number;
+	newLine?: number;
 };
 
 type ParsedDiff = {
@@ -764,6 +765,7 @@ type DiffReviewChange = {
 	kind: ParsedFileChangeKind;
 	diff: string;
 	parsed: ParsedDiff;
+	lineNumbersAvailable?: boolean;
 };
 
 type FileChangeSummary = {
@@ -951,15 +953,11 @@ function parseUnifiedDiff(diff: string): ParsedDiff {
 	let sawHunk = false;
 	let added = 0;
 	let removed = 0;
-	let maxLineNumber = 0;
 	const lines: ParsedDiffLine[] = [];
 	let inHunk = false;
 
-	const pushLine = (kind: DiffLineKind, text: string, lineNumber?: number) => {
-		if (typeof lineNumber === 'number') {
-			maxLineNumber = Math.max(maxLineNumber, lineNumber);
-		}
-		lines.push({ kind, text, lineNumber });
+	const pushLine = (kind: DiffLineKind, text: string, oldLine?: number, newLine?: number) => {
+		lines.push({ kind, text, oldLine, newLine });
 	};
 
 	for (const raw of rawLines) {
@@ -982,21 +980,21 @@ function parseUnifiedDiff(diff: string): ParsedDiff {
 
 		if (line.startsWith('+') && !line.startsWith('+++')) {
 			const text = line.slice(1);
-			pushLine('insert', text, newLine);
+			pushLine('insert', text, undefined, newLine);
 			newLine += 1;
 			added += 1;
 			continue;
 		}
 		if (line.startsWith('-') && !line.startsWith('---')) {
 			const text = line.slice(1);
-			pushLine('delete', text, oldLine);
+			pushLine('delete', text, oldLine, undefined);
 			oldLine += 1;
 			removed += 1;
 			continue;
 		}
 		if (line.startsWith(' ')) {
 			const text = line.slice(1);
-			pushLine('context', text, newLine);
+			pushLine('context', text, oldLine, newLine);
 			oldLine += 1;
 			newLine += 1;
 			continue;
@@ -1004,34 +1002,84 @@ function parseUnifiedDiff(diff: string): ParsedDiff {
 	}
 
 	if (!sawHunk) {
-		let fallbackLine = 1;
+		let fallbackOld = 1;
+		let fallbackNew = 1;
 		for (const raw of rawLines) {
 			const line = raw.replace(/\r$/, '');
 			if (line.startsWith('+') && !line.startsWith('+++')) {
-				pushLine('insert', line.slice(1), fallbackLine);
-				fallbackLine += 1;
+				pushLine('insert', line.slice(1), undefined, fallbackNew);
+				fallbackNew += 1;
 				added += 1;
 				continue;
 			}
 			if (line.startsWith('-') && !line.startsWith('---')) {
-				pushLine('delete', line.slice(1), fallbackLine);
-				fallbackLine += 1;
+				pushLine('delete', line.slice(1), fallbackOld, undefined);
+				fallbackOld += 1;
 				removed += 1;
 				continue;
 			}
 			if (line.startsWith(' ')) {
-				pushLine('context', line.slice(1), fallbackLine);
-				fallbackLine += 1;
+				pushLine('context', line.slice(1), fallbackOld, fallbackNew);
+				fallbackOld += 1;
+				fallbackNew += 1;
 			}
 		}
 	}
 
+	const collapsed = collapseDiffContext(lines, 3);
+	const maxLineNumber = collapsed.reduce((max, line) => {
+		let next = max;
+		if (typeof line.oldLine === 'number') next = Math.max(next, line.oldLine);
+		if (typeof line.newLine === 'number') next = Math.max(next, line.newLine);
+		return next;
+	}, 0);
 	return {
-		lines,
+		lines: collapsed,
 		added,
 		removed,
-		lineNumberWidth: maxLineNumber.toString().length || 1,
+		lineNumberWidth: Math.max(1, maxLineNumber).toString().length,
 	};
+}
+
+function diffHasLineNumbers(diff: string): boolean {
+	return /^@@\s*-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s*@@/m.test(diff);
+}
+
+function stripDiffLineNumbers(parsed: ParsedDiff): ParsedDiff {
+	if (!parsed.lines.length) return parsed;
+	return {
+		...parsed,
+		lines: parsed.lines.map((line) => ({ ...line, oldLine: undefined, newLine: undefined })),
+		lineNumberWidth: 1,
+	};
+}
+
+function collapseDiffContext(lines: ParsedDiffLine[], contextLines: number): ParsedDiffLine[] {
+	if (contextLines <= 0) return lines;
+	const out: ParsedDiffLine[] = [];
+	let i = 0;
+	while (i < lines.length) {
+		const line = lines[i];
+		if (line.kind !== 'context') {
+			out.push(line);
+			i += 1;
+			continue;
+		}
+		let j = i;
+		while (j < lines.length && lines[j]?.kind === 'context') {
+			j += 1;
+		}
+		const runLength = j - i;
+		if (runLength <= contextLines * 2) {
+			out.push(...lines.slice(i, j));
+		} else {
+			out.push(...lines.slice(i, i + contextLines));
+			out.push({ kind: 'ellipsis', text: '⋮' });
+			out.push(...lines.slice(j - contextLines, j));
+		}
+		i = j;
+	}
+	return out;
 }
 
 function parseFileChangeKind(kind: unknown): ParsedFileChangeKind {
@@ -1057,10 +1105,16 @@ function parseFileChangeKind(kind: unknown): ParsedFileChangeKind {
 	return { type: rawType as ParsedFileChangeKind['type'] };
 }
 
-function parseDiffForChange(diff: string, kind: ParsedFileChangeKind): ParsedDiff {
+function parseDiffForChange(
+	diff: string,
+	kind: ParsedFileChangeKind,
+	lineNumbersAvailable?: boolean
+): ParsedDiff {
+	const shouldUseNumbers = lineNumbersAvailable ?? diffHasLineNumbers(diff);
 	const parsed = parseUnifiedDiff(diff);
-	if (parsed.lines.length > 0 || !diff) return parsed;
-	if (kind.type !== 'add' && kind.type !== 'delete') return parsed;
+	const normalized = shouldUseNumbers ? parsed : stripDiffLineNumbers(parsed);
+	if (normalized.lines.length > 0 || !diff) return normalized;
+	if (kind.type !== 'add' && kind.type !== 'delete') return normalized;
 
 	const rawLines = diff.split(/\r?\n/);
 	const trimmedLines =
@@ -1082,17 +1136,19 @@ function parseDiffForChange(diff: string, kind: ParsedFileChangeKind): ParsedDif
 		lines.push({
 			kind: kind.type === 'add' ? 'insert' : 'delete',
 			text: line,
-			lineNumber,
+			oldLine: kind.type === 'delete' ? lineNumber : undefined,
+			newLine: kind.type === 'add' ? lineNumber : undefined,
 		});
 		lineNumber += 1;
 	}
 	const count = contentLines.length;
-	return {
+	const fallback: ParsedDiff = {
 		lines,
 		added: kind.type === 'add' ? count : 0,
 		removed: kind.type === 'delete' ? count : 0,
 		lineNumberWidth: Math.max(1, count).toString().length,
 	};
+	return shouldUseNumbers ? fallback : stripDiffLineNumbers(fallback);
 }
 
 function formatDiffPath(path: string, movePath?: string) {
@@ -1104,13 +1160,14 @@ function buildFileChangeSummary(entry: Extract<ChatEntry, { kind: 'fileChange' }
 	const changes: DiffReviewChange[] = entry.changes.map((change) => {
 		const kind = parseFileChangeKind(change.kind);
 		const diff = change.diff ?? '';
-		const parsed = parseDiffForChange(diff, kind);
+		const parsed = parseDiffForChange(diff, kind, change.lineNumbersAvailable);
 		return {
 			path: change.path,
 			movePath: kind.movePath,
 			kind,
 			diff,
 			parsed,
+			lineNumbersAvailable: change.lineNumbersAvailable,
 		};
 	});
 	const totalAdded = changes.reduce((sum, change) => sum + change.parsed.added, 0);
@@ -1234,26 +1291,35 @@ function FileChangeEntryCard({
 function renderDiffLines(parsed: ParsedDiff): React.ReactNode {
 	if (!parsed.lines.length) return null;
 	const gutterWidth = Math.max(parsed.lineNumberWidth, 1);
+	const formatLineNumber = (value?: number) => (typeof value === 'number' ? String(value) : '');
 	return (
 		<div className="space-y-0.5">
 			{parsed.lines.map((line, idx) => {
 				if (line.kind === 'ellipsis') {
 					return (
-						<div key={`diff-ellipsis-${idx}`} className="text-[10px] text-text-muted/70">
-							⋮
+						<div
+							key={`diff-ellipsis-${idx}`}
+							className="grid w-full font-mono text-[11px] leading-snug text-text-muted/70"
+							style={{ gridTemplateColumns: `${gutterWidth}ch 2ch 1fr` }}
+						>
+							<span className="text-right text-text-muted/40" />
+							<span className="text-text-muted/40" />
+							<span>⋮</span>
 						</div>
 					);
 				}
-				const lineNo = line.lineNumber ?? 0;
+				const lineNo = line.newLine ?? line.oldLine;
 				const lineClass =
 					line.kind === 'insert' ? 'text-green-400' : line.kind === 'delete' ? 'text-red-400' : 'text-text-muted';
+				const rowClass =
+					line.kind === 'insert' ? 'bg-green-500/5' : line.kind === 'delete' ? 'bg-red-500/5' : '';
 				return (
 					<div
 						key={`diff-${idx}`}
-						className="grid font-mono text-[11px] leading-snug"
+						className={['grid w-full font-mono text-[11px] leading-snug', rowClass].filter(Boolean).join(' ')}
 						style={{ gridTemplateColumns: `${gutterWidth}ch 2ch 1fr` }}
 					>
-						<span className="text-text-muted/60">{String(lineNo).padStart(gutterWidth, ' ')}</span>
+						<span className="text-right text-text-muted/60">{formatLineNumber(lineNo)}</span>
 						<span className={lineClass}>{line.kind === 'insert' ? '+' : line.kind === 'delete' ? '-' : ' '}</span>
 						<span className={`${lineClass} whitespace-pre`}>{line.text}</span>
 					</div>
@@ -2195,7 +2261,14 @@ function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
 				kind: 'fileChange',
 				id: it.id,
 				status: it.status,
-				changes: it.changes.map((c) => ({ path: c.path, diff: c.diff, kind: c.kind })),
+				changes: it.changes.map((c) => ({
+					path: c.path,
+					diff: c.diff,
+					kind: c.kind,
+					lineNumbersAvailable:
+						(c as { lineNumbersAvailable?: boolean; line_numbers_available?: boolean }).lineNumbersAvailable ??
+						(c as { lineNumbersAvailable?: boolean; line_numbers_available?: boolean }).line_numbers_available,
+				})),
 			};
 		}
 		case 'websearch': {

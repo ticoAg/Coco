@@ -126,7 +126,7 @@ export type CodexThreadItem =
   | {
       type: "fileChange";
       id: string;
-      changes: Array<{ path: string; kind: unknown; diff: string }>;
+      changes: Array<{ path: string; kind: unknown; diff: string; lineNumbersAvailable?: boolean }>;
       status: "inProgress" | "completed" | "failed" | "declined";
     }
   | {

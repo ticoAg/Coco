@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod codex_app_server;
+mod codex_patch_diff;
 mod codex_rollout_restore;
 
 use codex_app_server::CodexAppServer;

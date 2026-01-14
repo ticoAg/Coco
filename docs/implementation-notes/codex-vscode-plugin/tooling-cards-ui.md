@@ -49,6 +49,10 @@
 - 滚动条与渐隐：`am-shell-scroll` 定义自定义 scrollbar；`am-scroll-fade` 提供上下渐隐（与插件 `vertical-scroll-fade-mask` 行为一致）。
 - Exec 卡片仍保留摘要行，同时在详情区增加 Shell header（复制/折叠按钮），与 VSCode 的 “summary + shell header” 双层结构一致。
 - Patch（文件变更）不再使用外层标题行，改为每个文件单独 header + diff 内容，审批按钮移动到列表末尾。
+- 文件变更 diff 行整行浅红/浅绿，且对未变更区段做折叠（每段保留上下各 3 行，其余用 `⋮` 占位，见 `collapseDiffContext`）。
+- diff 行号采用单列（优先新行号，其次旧行号）；新增/上下文显示新行号、删除行显示旧行号。
+- Tauri 后端会对 `apply_patch` 做“反向应用”来推导真实行号：读取当前 workspace 文件并生成带 `@@` 行号的 unified diff（`apps/gui/src-tauri/src/codex_patch_diff.rs`，在 `codex_rollout_restore.rs` 与 `codex_app_server.rs` 中使用）。
+- 若文件已变化/找不到/过大导致无法匹配，会设置 `lineNumbersAvailable=false`，前端仍显示 diff，但行号留空。
 
 ## Reading 卡片（读取文件列表）
 

@@ -23,6 +23,8 @@ use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
 use tokio::time::timeout;
 
+use crate::codex_patch_diff;
+
 const EVENT_NAME: &str = "codex_app_server";
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const CODEX_BIN_ENV: &str = "AGENTMESH_CODEX_BIN";
@@ -71,6 +73,7 @@ struct CodexAppServerInner {
     stdin: Mutex<ChildStdin>,
     pending: Mutex<HashMap<i64, oneshot::Sender<Result<Value, String>>>>,
     next_request_id: AtomicI64,
+    cwd: PathBuf,
 }
 
 impl CodexAppServer {
@@ -106,6 +109,7 @@ impl CodexAppServer {
             stdin: Mutex::new(stdin),
             pending: Mutex::new(HashMap::new()),
             next_request_id: AtomicI64::new(-1),
+            cwd: cwd.to_path_buf(),
         });
 
         tokio::spawn(run_stdout_loop(Arc::clone(&inner), stdout));
@@ -472,7 +476,7 @@ async fn run_stdout_loop(inner: Arc<CodexAppServerInner>, stdout: ChildStdout) {
             continue;
         }
 
-        let parsed: Value = match serde_json::from_str(line) {
+        let mut parsed: Value = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(err) => {
                 let _ = inner.app.emit(
@@ -540,6 +544,12 @@ async fn run_stdout_loop(inner: Arc<CodexAppServerInner>, stdout: ChildStdout) {
 
         // Notification (method + params, no id).
         if parsed.get("method").is_some() {
+            if let Some(method) = parsed.get("method").and_then(|v| v.as_str()) {
+                if method == "item/started" || method == "item/completed" {
+                    let cwd = inner.cwd.clone();
+                    enrich_file_change_notification(&mut parsed, &cwd).await;
+                }
+            }
             let _ = inner.app.emit(
                 EVENT_NAME,
                 CodexJsonRpcEvent {
@@ -602,5 +612,54 @@ fn as_i64(value: &Value) -> Option<i64> {
         Value::Number(n) => n.as_i64(),
         Value::String(s) => s.parse::<i64>().ok(),
         _ => None,
+    }
+}
+
+async fn enrich_file_change_notification(message: &mut Value, cwd: &Path) {
+    let method = message.get("method").and_then(|v| v.as_str()).unwrap_or("");
+    if method != "item/started" && method != "item/completed" {
+        return;
+    }
+    let Some(params) = message.get_mut("params") else {
+        return;
+    };
+    let Some(item) = params.get_mut("item") else {
+        return;
+    };
+    if item.get("type").and_then(|v| v.as_str()) != Some("fileChange") {
+        return;
+    }
+
+    let Some(existing_changes) = item.get("changes").and_then(|v| v.as_array()).cloned() else {
+        return;
+    };
+
+    let mut updated: Vec<Value> = Vec::with_capacity(existing_changes.len());
+    for mut change in existing_changes {
+        let path = change
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(|v| v.to_string());
+        let diff = change
+            .get("diff")
+            .and_then(|v| v.as_str())
+            .map(|v| v.to_string());
+        let kind = change.get("kind").cloned().unwrap_or(Value::Null);
+        if let (Some(path), Some(diff)) = (path, diff) {
+            let (next_diff, line_numbers_available) =
+                codex_patch_diff::enrich_file_change_diff(&path, &kind, &diff, Some(cwd)).await;
+            if let Some(obj) = change.as_object_mut() {
+                obj.insert("diff".to_string(), Value::String(next_diff));
+                obj.insert(
+                    "lineNumbersAvailable".to_string(),
+                    Value::Bool(line_numbers_available),
+                );
+            }
+        }
+        updated.push(change);
+    }
+
+    if let Some(obj) = item.as_object_mut() {
+        obj.insert("changes".to_string(), Value::Array(updated));
     }
 }
