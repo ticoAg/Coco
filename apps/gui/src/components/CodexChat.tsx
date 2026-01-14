@@ -654,10 +654,12 @@ function markdownWithHardBreaks(text: string): string {
 function ChatMarkdown({
 	text,
 	className,
+	textClassName,
 	dense = false,
 }: {
 	text: string;
 	className?: string;
+	textClassName?: string;
 	dense?: boolean;
 }) {
 	const normalized = useMemo(() => markdownWithHardBreaks(text), [text]);
@@ -667,6 +669,7 @@ function ChatMarkdown({
 		: 'my-1 whitespace-pre-wrap break-words';
 	const listClass = dense ? 'my-0.5' : 'my-1';
 	const preClass = dense ? 'my-1.5' : 'my-2';
+	const textClass = textClassName ?? 'text-text-muted';
 
 	return (
 		<div
@@ -678,43 +681,43 @@ function ChatMarkdown({
 				className ?? '',
 			].join(' ')}
 		>
-				<ReactMarkdown
-					components={{
-						p: ({ children }) => <p className={`${paragraphClass} text-text-muted`}>{children}</p>,
-						ul: ({ children }) => <ul className={`${listClass} list-disc pl-5 text-text-muted`}>{children}</ul>,
-						ol: ({ children }) => <ol className={`${listClass} list-decimal pl-5 text-text-muted`}>{children}</ol>,
-						li: ({ children }) => <li className="my-0.5 text-text-muted">{children}</li>,
-						pre: ({ children }) => (
-							<pre
-								className={`${preClass} whitespace-pre-wrap break-words rounded-lg bg-black/30 px-3 py-2 text-[11px] leading-snug text-text-muted`}
-							>
+			<ReactMarkdown
+				components={{
+					p: ({ children }) => <p className={`${paragraphClass} ${textClass}`}>{children}</p>,
+					ul: ({ children }) => <ul className={`${listClass} list-disc pl-5 ${textClass}`}>{children}</ul>,
+					ol: ({ children }) => <ol className={`${listClass} list-decimal pl-5 ${textClass}`}>{children}</ol>,
+					li: ({ children }) => <li className={`my-0.5 ${textClass}`}>{children}</li>,
+					pre: ({ children }) => (
+						<pre
+							className={`${preClass} whitespace-pre-wrap break-words rounded-lg bg-black/30 px-3 py-2 text-[11px] leading-snug ${textClass}`}
+						>
+							{children}
+						</pre>
+					),
+					code: ({ className, children }) => {
+						const isBlock = typeof className === 'string' && className.includes('language-');
+						return !isBlock ? (
+							<code className={`rounded bg-white/10 px-1 py-0 font-mono text-[11px] leading-[1.25] ${textClass}`}>
 								{children}
-							</pre>
-						),
-						code: ({ className, children }) => {
-							const isBlock = typeof className === 'string' && className.includes('language-');
-							return !isBlock ? (
-								<code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[12px] text-text-muted">
-									{children}
-								</code>
-							) : (
-								<code className="font-mono text-[11px] text-text-muted">{children}</code>
-							);
-						},
-						a: ({ href, children }) => (
-							<a
-								href={href}
-								className="text-blue-400 underline underline-offset-2 hover:text-blue-300"
-								target="_blank"
-								rel="noreferrer"
-							>
-								{children}
-							</a>
-						),
-					}}
-				>
-					{normalized}
-				</ReactMarkdown>
+							</code>
+						) : (
+							<code className={`font-mono text-[11px] ${textClass}`}>{children}</code>
+						);
+					},
+					a: ({ href, children }) => (
+						<a
+							href={href}
+							className="text-blue-400 underline underline-offset-2 hover:text-blue-300"
+							target="_blank"
+							rel="noreferrer"
+						>
+							{children}
+						</a>
+					),
+				}}
+			>
+				{normalized}
+			</ReactMarkdown>
 		</div>
 	);
 }
@@ -5090,7 +5093,7 @@ export function CodexChat() {
 												key={e.id}
 												className="flex justify-end"
 											>
-												<div className="max-w-[77%] rounded-2xl bg-white/5 px-3 py-2 text-sm text-text-main">
+												<div className="max-w-[77%] rounded-2xl bg-white/5 px-2.5 py-1.5 text-[11px] leading-[1.25] text-text-dim">
 													{/* Attachments in message bubble */}
 													{e.attachments && e.attachments.length > 0 ? (
 														<div className="mb-2 flex flex-wrap gap-1">
@@ -5122,7 +5125,8 @@ export function CodexChat() {
 													) : null}
 													<ChatMarkdown
 														text={e.text}
-														className="text-text-main"
+														className="text-[11px] !leading-[1.25] text-text-dim"
+														textClassName="text-text-dim"
 														dense
 													/>
 												</div>
@@ -5192,7 +5196,7 @@ export function CodexChat() {
 										{turn.assistantMessageEntries.map((e) => (
 											<div
 												key={e.id}
-												className="px-1 py-1 text-[12px] leading-[1.25] text-text-muted"
+												className="px-1 py-1 text-[11px] leading-[1.25] text-text-dim"
 											>
 												{e.renderPlaceholderWhileStreaming && !e.completed ? (
 													<div className="text-[12px] text-text-menuDesc">Generating…</div>
@@ -5201,7 +5205,8 @@ export function CodexChat() {
 												) : (
 													<ChatMarkdown
 														text={e.text}
-														className="text-text-muted !leading-[1.25]"
+														className="text-[11px] !leading-[1.25] text-text-dim"
+														textClassName="text-text-dim"
 														dense
 													/>
 												)}
