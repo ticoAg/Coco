@@ -59,6 +59,7 @@
 - `entryFromThreadItem`（`apps/gui/src/components/CodexChat.tsx`）：
   - `reasoning` → 保留 `reasoningSummary` / `reasoningContent` 数组，`text` 由 `buildReasoningText` 组装。
   - 渲染层通过 `expandReasoningEntries` + `buildReasoningSegments` 把 `summary[]` 拆成多个 reasoning block，**最后一段追加 content**。
+  - 若 `summary[]` 为空但 `content` 有值，优先合并到前一条 reasoning block，避免额外标题（无前置 reasoning 时仍单独显示）。
 - 增量事件处理：
   - `item/reasoning/summaryTextDelta` / `item/reasoning/textDelta` → `applyReasoningDelta`，按 `summaryIndex` / `contentIndex` 更新数组。
   - `item/reasoning/summaryPartAdded` / `item/reasoning/contentPartAdded` → `applyReasoningPartAdded` 预扩展数组长度。
@@ -67,10 +68,94 @@
 - `mergeReadingEntries`：在 Working 数据层合并连续 `read`。
 - `segmentExplorationItems`：把 `list_files/search/read + reasoning` 串成 exploration 组。
 - `formatExplorationHeader`：生成 “Exploring/Explored N files” 标题。
+- `parseCommand`：命令解析用于探索分组与标题生成（`apps/gui/src/components/CodexChat.tsx`）。
+  - `sed -n` / `nl -ba` 识别为 `read`，`sed -i`（或 `--in-place`）避免误判。
+  - 支持管道命令按 segment 解析（`rg ... | head` / `nl ... | sed -n ...`）。
+- `getCmdSummary`：unknown/format/test/lint/noop 等命令的标题优先展示原始 `command`（保留 shell wrapper）。
+- `normalizeCommandOutput`：对 `exec_command` 输出做清理，去除 `Chunk ID/Wall time/Exit code/Original token count/Output:` 等元信息，仅保留实际 stdout/stderr（命令 block 与 reading group 均使用）。
+- `formatCommandLine` / `prefixCommandLine`：命令 block 的内容首行固定输出 `$ '...'`（保留原始 wrapper 的字符串）；reading group 在有输出时同样添加首行命令，避免重复 `$` 前缀。
 
 ---
 
-## 3. 对齐结果（核心差异已消除）
+## 3. 差异精准定位与排查方法（推荐流程）
+
+### 3.1 锁定数据源与会话范围
+- GUI 侧真实渲染数据来自 `thread/resume` + rollout 还原：
+  - `codex_thread_resume` → `augment_thread_resume_response`（`apps/gui/src-tauri/src/lib.rs` / `apps/gui/src-tauri/src/codex_rollout_restore.rs`）。
+- rollout 路径优先取 `thread.path`，缺失时会在 `~/.codex/sessions` 下按 `threadId` 模糊检索（`augment_thread_resume_response`）。
+- 建议先记录目标 turn 的输入文本（`event_msg.user_message`），确保与 VSCode 插件显示的是同一轮。
+
+### 3.2 用 rollout 精确切分 turn 与取样
+- turn 划分规则：`event_msg` 的 `user_message` 作为新 turn 起点（`parse_rollout_activity_by_turn`）。
+- 快速定位某 turn 的 reasoning 标题与命令（示例脚本，找到目标标题后输出该 turn 的命令序列）：
+
+```bash
+python3 - <<'PY'
+import json
+from pathlib import Path
+path = Path('~/.codex/sessions/2026/01/14/rollout-...jsonl').expanduser()
+turn_index = -1
+current = None
+target_title = 'Designing reasoning summary segmentation and grouping'
+with path.open() as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        if obj.get('type') == 'event_msg' and obj.get('payload', {}).get('type') == 'user_message':
+            turn_index += 1
+            current = {'turn': turn_index, 'reasoning': [], 'commands': []}
+            continue
+        if obj.get('type') != 'response_item' or current is None:
+            continue
+        payload = obj.get('payload', {})
+        if payload.get('type') == 'reasoning':
+            summary = payload.get('summary') or []
+            if summary and isinstance(summary[0], dict):
+                current['reasoning'].append(summary[0].get('text', ''))
+        if payload.get('type') == 'function_call' and payload.get('name') == 'exec_command':
+            args = payload.get('arguments', '')
+            try:
+                args = json.loads(args).get('cmd', args)
+            except Exception:
+                pass
+            current['commands'].append(args)
+        if any(target_title in r for r in current['reasoning']):
+            print('TURN', current['turn'])
+            print('REASONING TITLES:')
+            for r in current['reasoning']:
+                print('-', r.splitlines()[0])
+            print('COMMANDS:')
+            for c in current['commands']:
+                print('-', c)
+            break
+PY
+```
+
+### 3.3 对照 `thread/resume` items 与 rollout
+- 如果 `thread.turns[].items` 缺少 `commandExecution`，说明探索分组所需活动项来源不足；
+- 如果 `commandExecution` 存在但没有 `commandActions`，将回退到 `parseCommand`；
+- 合并逻辑位置：`merge_turn_items`（`apps/gui/src-tauri/src/codex_rollout_restore.rs`）。
+
+### 3.4 排查探索分组缺失原因
+- `resolveParsedCmd` 优先用 `commandActions`，否则走 `parseCommand`；
+- `segmentExplorationItems` 只把 `read/search/list_files` 作为探索起点；
+- 常见问题：
+  - shell wrapper 未解包（已在 GUI 侧处理 `bash/zsh -lc`）；
+  - `sed/nl` 未识别为 read，导致探索链中断；
+  - 仅有 `reasoning` 而无 `commandExecution`，无探索起点。
+
+### 3.5 UI 渲染与分组路径定位
+- `renderTurns` 中的 `workingEntries → expandReasoningEntries → mergeReadingEntries → segmentExplorationItems`
+- 相关位置：`apps/gui/src/components/CodexChat.tsx`（`renderTurns`、`segmentExplorationItems`、`parseCommand`）。
+
+---
+
+## 4. 对齐结果（核心差异已消除）
 
 - Reasoning 拆分粒度：已按 `summary[]` 分段渲染，并保留 reasoning content（追加在最后一段）。
 - Reading 聚合：已前置合并 `read` 并进入探索分组。
@@ -80,13 +165,13 @@
 
 ---
 
-## 4. 对齐实现备注
+## 5. 对齐实现备注
 
 - rollout restore 仍复用现有逻辑；如出现 reasoning 段落丢失或合并异常，可评估 `dedupe_adjacent_reasoning` 的影响。
 
 ---
 
-## 5. 定位速查表
+## 6. 定位速查表
 
 - 插件：`mapStateToLocalConversationItems`（`plugin-index.js:77848`）
 - 插件：`mergeReadingItems`（`plugin-index.js:78073`）

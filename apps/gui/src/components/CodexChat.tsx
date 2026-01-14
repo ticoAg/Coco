@@ -199,12 +199,81 @@ interface ParsedCmd {
 	path?: string; // optional path hint
 }
 
-/**
- * Parse a command string to extract semantic type and parameters.
- * Matches VS Code Codex plugin's command classification logic.
- */
-function parseCommand(cmdString: string): ParsedCmd {
-	const cmd = cmdString?.trim() ?? '';
+function stripOuterQuotes(value: string): string {
+	const trimmed = value.trim();
+	const isSingleQuoted = trimmed.startsWith("'") && trimmed.endsWith("'");
+	const isDoubleQuoted = trimmed.startsWith('"') && trimmed.endsWith('"');
+	if (!isSingleQuoted && !isDoubleQuoted) return trimmed;
+	let inner = trimmed.slice(1, -1);
+	if (isSingleQuoted) {
+		inner = inner.replace(/'\"'\"'/g, "'");
+	} else {
+		inner = inner.replace(/\\"/g, '"');
+	}
+	return inner;
+}
+
+function unwrapShellCommand(command: string): string {
+	const trimmed = command.trim();
+	if (!trimmed) return trimmed;
+	const patterns = [
+		/^(?:\/bin\/)?(?:bash|zsh|sh)\s+-lc\s+([\s\S]+)$/i,
+		/^(?:\/bin\/)?(?:bash|zsh|sh)\s+(?:-l\s+)?-c\s+([\s\S]+)$/i,
+	];
+	for (const pattern of patterns) {
+		const match = trimmed.match(pattern);
+		if (match && match[1]) {
+			return stripOuterQuotes(match[1]);
+		}
+	}
+	return trimmed;
+}
+
+function normalizeShellCommand(command: string): string {
+	const unwrapped = unwrapShellCommand(command);
+	return unwrapped.replace(/^\$\s+/, '').trim();
+}
+
+function splitPipeSegments(command: string): string[] {
+	const segments: string[] = [];
+	let buffer = '';
+	let inSingle = false;
+	let inDouble = false;
+	for (let i = 0; i < command.length; i += 1) {
+		const char = command[i];
+		if (char === "'" && !inDouble) {
+			inSingle = !inSingle;
+			buffer += char;
+			continue;
+		}
+		if (char === '"' && !inSingle) {
+			inDouble = !inDouble;
+			buffer += char;
+			continue;
+		}
+		if (char === '|' && !inSingle && !inDouble) {
+			const trimmed = buffer.trim();
+			if (trimmed) segments.push(trimmed);
+			buffer = '';
+			continue;
+		}
+		buffer += char;
+	}
+	const tail = buffer.trim();
+	if (tail) segments.push(tail);
+	return segments;
+}
+
+function extractLastPathArg(command: string): string | undefined {
+	const match = command.match(/(?:^|\s)([^\s"']+|"[^"]+"|'[^']+')\s*$/);
+	if (!match) return undefined;
+	const token = stripOuterQuotes(match[1]);
+	if (!token || token.startsWith('-')) return undefined;
+	return token;
+}
+
+function parseCommandSingle(cmdString: string): ParsedCmd {
+	const cmd = cmdString.trim();
 	if (!cmd) {
 		return { type: 'unknown', cmd: '' };
 	}
@@ -248,6 +317,22 @@ function parseCommand(cmdString: string): ParsedCmd {
 		return { type: 'read', cmd };
 	}
 
+	// Pattern: sed/nl (read file; ignore in-place edits)
+	if (/^sed\b/.test(lowerCmd)) {
+		const hasInPlace = /(^|\s)-i\b/.test(lowerCmd) || /--in-place\b/.test(lowerCmd);
+		if (hasInPlace) {
+			return { type: 'unknown', cmd };
+		}
+		const name = extractLastPathArg(cmd);
+		if (name) return { type: 'read', cmd, name };
+		return { type: 'unknown', cmd };
+	}
+	if (/^nl\b/.test(lowerCmd)) {
+		const name = extractLastPathArg(cmd);
+		if (name) return { type: 'read', cmd, name };
+		return { type: 'unknown', cmd };
+	}
+
 	// Pattern: format/prettier/black/gofmt
 	if (/^(prettier|black|gofmt|rustfmt|clang-format|autopep8)\b/.test(lowerCmd)) {
 		return { type: 'format', cmd };
@@ -269,6 +354,23 @@ function parseCommand(cmdString: string): ParsedCmd {
 	}
 
 	return { type: 'unknown', cmd };
+}
+
+/**
+ * Parse a command string to extract semantic type and parameters.
+ * Matches VS Code Codex plugin's command classification logic.
+ */
+function parseCommand(cmdString: string): ParsedCmd {
+	const cmd = normalizeShellCommand(cmdString ?? '');
+	if (!cmd) return { type: 'unknown', cmd: '' };
+	const segments = splitPipeSegments(cmd);
+	if (segments.length > 1) {
+		for (const segment of segments) {
+			const parsed = parseCommandSingle(segment);
+			if (parsed.type !== 'unknown') return parsed;
+		}
+	}
+	return parseCommandSingle(cmd);
 }
 
 function normalizeCommandActions(value: unknown): CommandAction[] {
@@ -353,7 +455,11 @@ function normalizeMcpError(value: unknown): McpToolCallError | null {
  * Generate a smart summary for a parsed command.
  * Matches VS Code Codex plugin's CmdSummaryText behavior.
  */
-function getCmdSummary(parsed: ParsedCmd, isFinished: boolean): { prefix: string; content: string } {
+function getCmdSummary(
+	parsed: ParsedCmd,
+	isFinished: boolean,
+	rawCommand?: string
+): { prefix: string; content: string } {
 	switch (parsed.type) {
 		case 'search':
 			if (parsed.query && parsed.path) {
@@ -396,9 +502,44 @@ function getCmdSummary(parsed: ParsedCmd, isFinished: boolean): { prefix: string
 		default:
 			return {
 				prefix: isFinished ? 'Ran' : 'Running',
-				content: parsed.cmd,
+				content: rawCommand?.trim() || parsed.cmd,
 			};
 	}
+}
+
+function normalizeCommandOutput(output: string | null): string {
+	if (!output) return '';
+	const lines = output.replace(/\r\n?/g, '\n').split('\n');
+	const filtered = lines.filter((line) => {
+		const trimmed = line.trim();
+		if (!trimmed) return true;
+		if (/^Chunk ID:/.test(trimmed)) return false;
+		if (/^Wall time:/.test(trimmed)) return false;
+		if (/^Process exited with code/.test(trimmed)) return false;
+		if (/^Original token count:/.test(trimmed)) return false;
+		if (/^Output:\s*$/.test(trimmed)) return false;
+		return true;
+	});
+	let result = filtered.join('\n');
+	result = result.replace(/^\s*\n+/, '');
+	return result;
+}
+
+function formatCommandLine(command: string): string {
+	const trimmed = command.trim();
+	if (!trimmed) return '';
+	const escaped = trimmed.replace(/'/g, `'\"'\"'`);
+	return `$ '${escaped}'`;
+}
+
+function prefixCommandLine(command: string, output: string | null): string {
+	const cleaned = normalizeCommandOutput(output);
+	const cmdLine = formatCommandLine(command);
+	if (!cmdLine) return cleaned;
+	const lines = cleaned.replace(/\r\n?/g, '\n').split('\n');
+	const firstNonEmpty = lines.find((line) => line.trim() !== '');
+	if (firstNonEmpty && firstNonEmpty.startsWith('$')) return cleaned;
+	return cleaned ? `${cmdLine}\n${cleaned}` : cmdLine;
 }
 
 /**
@@ -1001,6 +1142,95 @@ function DiffCountBadge({ added, removed }: { added: number; removed: number }) 
 	);
 }
 
+function fileChangeVerb(kind: ParsedFileChangeKind, isPending: boolean): string {
+	if (isPending) {
+		return kind.type === 'add' ? 'Adding' : kind.type === 'delete' ? 'Deleting' : 'Editing';
+	}
+	return kind.type === 'add' ? 'Added' : kind.type === 'delete' ? 'Deleted' : 'Edited';
+}
+
+function FileChangeEntryCard({
+	change,
+	isPending,
+	defaultCollapsed,
+}: {
+	change: DiffReviewChange;
+	isPending: boolean;
+	defaultCollapsed: boolean;
+}) {
+	const initialOpen = isPending ? true : !defaultCollapsed;
+	const [open, setOpen] = useState(initialOpen);
+	const verb = fileChangeVerb(change.kind, isPending);
+	const label = formatDiffPath(change.path, change.movePath);
+	const copyText = change.diff ? `${label}\n${change.diff}`.trim() : label;
+	const hasDiff = change.parsed.lines.length > 0;
+
+	return (
+			<div className={['am-block', open ? 'am-block-open' : ''].join(' ')}>
+			<div
+				className="am-shell-header group"
+				onClick={() => setOpen((prev) => !prev)}
+				role="button"
+				tabIndex={0}
+				onKeyDown={(e) => {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						setOpen((prev) => !prev);
+					}
+				}}
+			>
+				<div className="min-w-0 flex items-center gap-2 text-text-main/90">
+					<span className="shrink-0 text-text-menuLabel">{verb}</span>
+					<span className="truncate font-mono text-[12px]">{label}</span>
+					<DiffCountBadge added={change.parsed.added} removed={change.parsed.removed} />
+				</div>
+				<div className="flex items-center gap-1">
+					{copyText ? (
+						<button
+							type="button"
+							className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
+							title="Copy diff"
+							onClick={(ev) => {
+								ev.stopPropagation();
+								void navigator.clipboard.writeText(copyText);
+							}}
+						>
+							<Copy className="h-3 w-3" />
+						</button>
+					) : null}
+					<button
+						type="button"
+						className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
+						title={open ? 'Collapse' : 'Expand'}
+						onClick={(ev) => {
+							ev.stopPropagation();
+							setOpen((prev) => !prev);
+						}}
+					>
+						<ChevronRight
+							className={[
+								'h-3 w-3 transition-transform duration-200',
+								open ? 'rotate-90' : '',
+							].join(' ')}
+						/>
+					</button>
+				</div>
+			</div>
+			<Collapse open={open} innerClassName="pt-0">
+				<div className="am-shell">
+					<div className="am-shell-scroll am-scroll-fade">
+						{hasDiff ? (
+							<div className="space-y-0.5">{renderDiffLines(change.parsed)}</div>
+						) : (
+							<div className="text-[10px] italic text-text-muted">No diff content</div>
+						)}
+					</div>
+				</div>
+			</Collapse>
+		</div>
+	);
+}
+
 function renderDiffLines(parsed: ParsedDiff): React.ReactNode {
 	if (!parsed.lines.length) return null;
 	const gutterWidth = Math.max(parsed.lineNumberWidth, 1);
@@ -1203,6 +1433,8 @@ interface ActivityBlockProps {
 	onToggleCollapse?: () => void;
 	/** 内容区域 */
 	children?: React.ReactNode;
+	/** 详情区头部（可选） */
+	detailHeader?: React.ReactNode;
 	/** 审批信息 */
 	approval?: {
 		requestId: number;
@@ -1220,14 +1452,15 @@ interface ActivityBlockProps {
 		titleMono = false,
 		summaryActions,
 		status,
-	copyContent,
+		copyContent,
 	contentVariant = 'plain',
 	contentMono,
 	contentClassName,
-	collapsible = false,
-	collapsed = true,
-	onToggleCollapse,
-	children,
+		collapsible = false,
+		collapsed = true,
+		onToggleCollapse,
+		children,
+		detailHeader,
 		approval,
 		onApprove,
 		icon,
@@ -1253,16 +1486,18 @@ interface ActivityBlockProps {
 		}
 		return children;
 	})();
-	const showStatus = status && status !== 'completed';
-	const open = !collapsible || !collapsed;
+		const showStatus = status && status !== 'completed';
+		const open = !collapsible || !collapsed;
+		const showOpenBorder = collapsible && open;
 
-			return (
-				<div
-					className={[
-						'min-w-0 am-block',
-						summaryHover ? 'am-block-outline am-block-hover' : '',
-					].join(' ')}
-				>
+				return (
+					<div
+						className={[
+							'min-w-0 am-block',
+							showOpenBorder ? 'am-block-open' : '',
+							summaryHover ? 'am-block-hover' : '',
+						].join(' ')}
+					>
 				{/* Summary row (compact) */}
 				<div
 					className={[
@@ -1292,59 +1527,61 @@ interface ActivityBlockProps {
 					}
 				}}
 			>
-				<div className="min-w-0 flex-1 truncate text-[12px]">
-					<span className="inline-flex min-w-0 items-center gap-2">
-						{icon ? <span className="shrink-0 text-text-menuDesc">{icon}</span> : null}
-						<span className="shrink-0 font-medium text-text-menuLabel">{titlePrefix}</span>
-						<span className={['am-row-title truncate text-text-main/90', titleMono ? 'font-mono text-[11px]' : ''].join(' ')}>
-							{titleContent}
+					<div className="min-w-0 flex-1 truncate text-[13px]">
+						<span className="inline-flex min-w-0 items-center gap-2">
+							{icon ? <span className="shrink-0 text-text-menuDesc">{icon}</span> : null}
+							<span className="shrink-0 font-medium text-text-menuLabel">{titlePrefix}</span>
+							<span className={['am-row-title truncate text-text-main/90', titleMono ? 'font-mono text-[12px]' : ''].join(' ')}>
+								{titleContent}
+							</span>
 						</span>
-					</span>
-			</div>
+				</div>
 			<div className="flex shrink-0 items-center gap-1.5">
 				{showStatus ? <span className="text-[10px] text-text-menuDesc opacity-80">{status}</span> : null}
 					{summaryActions ? <div className="flex items-center gap-2">{summaryActions}</div> : null}
-				<button
-					type="button"
-					className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
-					title="Copy content"
-					onClick={(ev) => {
-							ev.stopPropagation();
-							void navigator.clipboard.writeText(copyContent);
-							setDidCopy(true);
-						}}
-					>
-						{didCopy ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-					</button>
-					{collapsible && onToggleCollapse ? (
-						<button
-							type="button"
-							className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
-							title={open ? 'Collapse' : 'Expand'}
-							onClick={(ev) => {
+					<button
+						type="button"
+						className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
+						title="Copy content"
+						onClick={(ev) => {
 								ev.stopPropagation();
-								onToggleCollapse();
+								void navigator.clipboard.writeText(copyContent);
+								setDidCopy(true);
 							}}
 						>
-							<ChevronRight
-								className={[
-									'h-4 w-4 transition-transform duration-200',
-									open ? 'rotate-90' : '',
-								].join(' ')}
-							/>
+							{didCopy ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
 						</button>
-					) : null}
+						{collapsible && onToggleCollapse ? (
+							<button
+								type="button"
+								className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
+								title={open ? 'Collapse' : 'Expand'}
+								onClick={(ev) => {
+									ev.stopPropagation();
+									onToggleCollapse();
+								}}
+							>
+								<ChevronRight
+									className={[
+										'h-3 w-3 transition-transform duration-200',
+										open ? 'rotate-90' : '',
+									].join(' ')}
+								/>
+							</button>
+						) : null}
 				</div>
 			</div>
 
 			{/* Details (only when expanded) */}
-				{children ? (
-					<Collapse open={open} innerClassName="pt-0">
-						<div className="am-scroll-fade max-h-[320px] overflow-auto border-t border-white/5 bg-token-codeBackground/20 px-3 py-2">
+			{children ? (
+				<Collapse open={open} innerClassName="pt-0">
+					<div className="am-shell">
+						{detailHeader ? <div className="am-shell-header">{detailHeader}</div> : null}
+						<div className="am-shell-scroll am-scroll-fade">
 							<div
 								className={[
-									'min-w-0 text-[11px] leading-relaxed !text-text-muted',
-									useMono ? 'font-mono' : 'font-sans',
+									'min-w-0 text-[12px] leading-[1.5] text-text-muted',
+									useMono ? 'font-mono font-medium' : 'font-sans',
 									effectiveVariant === 'markdown'
 										? 'whitespace-normal'
 										: effectiveVariant === 'ansi'
@@ -1356,8 +1593,9 @@ interface ActivityBlockProps {
 								{contentNode}
 							</div>
 						</div>
-					</Collapse>
-				) : null}
+					</div>
+				</Collapse>
+			) : null}
 
 			{/* Approval (compact, inline) */}
 			{approval && onApprove ? (
@@ -1700,6 +1938,26 @@ function expandReasoningEntries(entries: ChatEntry[]): ChatEntry[] {
 	const expanded: ChatEntry[] = [];
 	for (const entry of entries) {
 		if (entry.kind === 'assistant' && entry.role === 'reasoning') {
+			const summaryParts = normalizeReasoningParts(entry.reasoningSummary);
+			const contentParts = normalizeReasoningParts(entry.reasoningContent);
+			const contentText = contentParts.filter(Boolean).join('\n').trim();
+
+			if (summaryParts.length === 0 && contentText) {
+				const last = expanded[expanded.length - 1];
+				if (last && last.kind === 'assistant' && last.role === 'reasoning') {
+					const mergedText = [last.text?.trim(), contentText].filter(Boolean).join('\n\n');
+					const mergedStreaming = !!last.streaming || !!entry.streaming;
+					const mergedCompleted = mergedStreaming ? false : !!last.completed && !!entry.completed;
+					expanded[expanded.length - 1] = {
+						...last,
+						text: mergedText,
+						streaming: mergedStreaming,
+						completed: mergedCompleted,
+					};
+					continue;
+				}
+			}
+
 			expanded.push(...buildReasoningSegments(entry));
 			continue;
 		}
@@ -4069,14 +4327,16 @@ export function CodexChat() {
 	const sidebarIconButtonPx = Math.round(SIDEBAR_ICON_BUTTON_PX);
 	const sidebarIconSizePx = Math.max(10, Math.round(sidebarIconButtonPx * 0.62));
 
-	const renderWorkingItem = (item: WorkingItem): JSX.Element | null => {
-		if (isReadingGroup(item)) {
-			const isFinished = item.entries.every((entry) => entry.status !== 'inProgress');
-			const collapsed = collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails;
-			const parsedEntries = item.entries.map((entry) => ({
-				entry,
-				parsed: resolveParsedCmd(entry.command, entry.commandActions),
-			}));
+		const renderWorkingItem = (item: WorkingItem): JSX.Element | null => {
+			if (isReadingGroup(item)) {
+				const isFinished = item.entries.every((entry) => entry.status !== 'inProgress');
+				const collapsed = collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails;
+				const parsedEntries = item.entries.map((entry) => ({
+					entry,
+					parsed: resolveParsedCmd(entry.command, entry.commandActions),
+					output: normalizeCommandOutput(entry.output ?? null),
+					displayOutput: prefixCommandLine(entry.command, entry.output ?? null),
+				}));
 			const uniqueByName: typeof parsedEntries = [];
 			const seen = new Set<string>();
 			for (let i = parsedEntries.length - 1; i >= 0; i -= 1) {
@@ -4100,23 +4360,14 @@ export function CodexChat() {
 						? lastName
 						: `${lastName} +${count}`;
 
-			const copyContent = item.entries
-				.map((entry) => [`$ ${entry.command}`, entry.output ?? ''].filter(Boolean).join('\n'))
-				.join('\n\n');
+				const copyContent = parsedEntries
+					.map(({ output, displayOutput }) => (output ? displayOutput : ''))
+					.filter(Boolean)
+					.join('\n\n');
 
-			const uniqueForChips: typeof parsedEntries = [];
-			const seenChipNames = new Set<string>();
-			for (const entry of parsedEntries) {
-				const name = entry.parsed.name;
-				if (!name) continue;
-				if (seenChipNames.has(name)) continue;
-				seenChipNames.add(name);
-				uniqueForChips.push(entry);
-			}
-
-			return (
-				<ActivityBlock
-					key={item.id}
+				return (
+					<ActivityBlock
+						key={item.id}
 					titlePrefix={prefix}
 					titleContent={title}
 					status={!isFinished ? 'in progress' : undefined}
@@ -4126,30 +4377,19 @@ export function CodexChat() {
 					collapsible
 					collapsed={collapsed}
 					onToggleCollapse={() => toggleEntryCollapse(item.id)}
-				>
-					<div className="flex flex-wrap gap-1.5 py-1">
-						{uniqueForChips.map((entry) => (
-							<div
-								key={entry.entry.id}
-								className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-text-muted"
-							>
-								<FileText className="h-3 w-3 opacity-60" />
-								<span>{entry.parsed.name || 'file'}</span>
-							</div>
-						))}
-					</div>
-					{parsedEntries.some(({ entry }) => entry.output) ? (
-						<div className="mt-2 space-y-2 border-t border-white/5 pt-2">
-							{parsedEntries
-								.filter(({ entry }) => entry.output)
-								.map(({ entry, parsed }) => (
-									<div key={entry.id} className="space-y-1">
-										<div className="text-[9px] font-medium text-text-muted">{parsed.name || 'file'}</div>
-										<div className="whitespace-pre-wrap break-words font-mono text-[10px] text-text-muted">
-											{renderAnsiText(entry.output!)}
+					>
+						{parsedEntries.some(({ output }) => output) ? (
+							<div className="space-y-2">
+								{parsedEntries
+									.filter(({ output }) => output)
+									.map(({ entry, parsed, displayOutput }) => (
+										<div key={entry.id} className="space-y-1">
+											<div className="text-[9px] font-medium text-text-muted">{parsed.name || 'file'}</div>
+											<div className="whitespace-pre-wrap break-words font-mono text-[10px] text-text-muted">
+												{renderAnsiText(displayOutput)}
+											</div>
 										</div>
-									</div>
-								))}
+									))}
 						</div>
 					) : null}
 				</ActivityBlock>
@@ -4180,102 +4420,125 @@ export function CodexChat() {
 			);
 		}
 
-		if (e.kind === 'command') {
-			const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-			const displayContent = e.output ?? '';
-			const parsed = resolveParsedCmd(e.command, e.commandActions);
-			const isFinished = e.status !== 'inProgress';
-			const summary = getCmdSummary(parsed, isFinished);
-			const useMono =
-				parsed.type === 'unknown' || parsed.type === 'format' || parsed.type === 'test' || parsed.type === 'lint';
-			return (
-				<ActivityBlock
-					key={e.id}
-					titlePrefix={summary.prefix}
-					titleContent={summary.content}
-					titleMono={useMono}
-					status={e.status !== 'completed' ? e.status : undefined}
-					copyContent={displayContent.replace(/\x1b\[[0-9;]*m/g, '')}
-					icon={<Terminal className="h-3.5 w-3.5" />}
-					contentVariant="ansi"
-					collapsible
-					collapsed={collapsed}
-					onToggleCollapse={() => toggleEntryCollapse(e.id)}
-					approval={e.approval}
-					onApprove={approve}
-				>
-					{displayContent}
-				</ActivityBlock>
-			);
-		}
-
-		if (e.kind === 'fileChange') {
-			const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
-			const summary = buildFileChangeSummary(e);
-			const fullContent = summary.changes
-				.map((c) => `${formatDiffPath(c.path, c.movePath)}\n${c.diff}`)
-				.join('\n\n');
-			const isFinished = e.status === 'completed';
-			const titlePrefix = isFinished
-				? summary.titlePrefix
-				: summary.titlePrefix === 'Added'
-					? 'Adding'
-					: summary.titlePrefix === 'Deleted'
-						? 'Deleting'
-						: 'Editing';
-
-			return (
-				<ActivityBlock
-					key={e.id}
-					titlePrefix={titlePrefix}
-					titleContent={summary.titleContent}
-					status={e.status !== 'completed' ? e.status : undefined}
-					copyContent={fullContent}
-					icon={<FileText className="h-3.5 w-3.5" />}
-					contentClassName="font-sans"
-					summaryActions={
-						<>
-							<DiffCountBadge added={summary.totalAdded} removed={summary.totalRemoved} />
-						</>
-					}
-					collapsible
-					collapsed={collapsed}
-					onToggleCollapse={() => toggleEntryCollapse(e.id)}
-					approval={e.approval}
-					onApprove={approve}
-				>
-					<div className="space-y-4">
-						{summary.changes.map((change) => {
-							const verb =
-								change.kind.type === 'add'
-									? 'Added'
-									: change.kind.type === 'delete'
-										? 'Deleted'
-										: 'Edited';
-							const label = formatDiffPath(change.path, change.movePath);
-							return (
-								<div key={`${change.path}-${change.kind.type}`} className="space-y-2">
-									<div className="flex items-center justify-between gap-2">
-										<div className="min-w-0 text-[11px] text-text-main">
-											<span className="text-text-menuLabel">{verb}</span>
-											<span className="ml-2 truncate">{label}</span>
-										</div>
-										<DiffCountBadge added={change.parsed.added} removed={change.parsed.removed} />
-									</div>
-									{change.parsed.lines.length > 0 ? (
-										<div className="rounded-md border border-white/5 bg-black/30 px-2 py-1">
-											{renderDiffLines(change.parsed)}
-										</div>
-									) : (
-										<div className="text-[10px] italic text-text-muted">No diff content</div>
-									)}
-								</div>
-							);
-						})}
+			if (e.kind === 'command') {
+				const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+				const displayContent = prefixCommandLine(e.command, e.output ?? null);
+				const copyText = displayContent.replace(/\x1b\[[0-9;]*m/g, '');
+				const parsed = resolveParsedCmd(e.command, e.commandActions);
+				const isFinished = e.status !== 'inProgress';
+				const summary = getCmdSummary(parsed, isFinished, e.command);
+				const useMono =
+					parsed.type === 'unknown' || parsed.type === 'format' || parsed.type === 'test' || parsed.type === 'lint';
+				const open = !collapsed;
+				const shellHeader = (
+					<div className="group flex min-w-0 items-center justify-between gap-2">
+						<div className="flex min-w-0 items-center gap-2">
+							<span className="text-text-menuLabel">Shell</span>
+							{e.cwd ? (
+								<span className="truncate font-mono text-[10px] text-text-menuDesc">{e.cwd}</span>
+							) : null}
+						</div>
+						<div className="flex items-center gap-1">
+							{copyText ? (
+								<button
+									type="button"
+									className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
+									title="Copy shell"
+									onClick={(ev) => {
+										ev.stopPropagation();
+										void navigator.clipboard.writeText(copyText);
+									}}
+								>
+									<Copy className="h-3 w-3" />
+								</button>
+							) : null}
+							<button
+								type="button"
+								className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
+								title={open ? 'Collapse' : 'Expand'}
+								onClick={(ev) => {
+									ev.stopPropagation();
+									toggleEntryCollapse(e.id);
+								}}
+							>
+								<ChevronRight
+									className={[
+										'h-3 w-3 transition-transform duration-200',
+										open ? 'rotate-90' : '',
+									].join(' ')}
+								/>
+							</button>
+						</div>
 					</div>
-				</ActivityBlock>
+				);
+				return (
+					<ActivityBlock
+						key={e.id}
+						titlePrefix={summary.prefix}
+						titleContent={summary.content}
+						titleMono={useMono}
+						status={e.status !== 'completed' ? e.status : undefined}
+						copyContent={copyText}
+						icon={<Terminal className="h-3.5 w-3.5" />}
+						contentVariant="ansi"
+						collapsible
+						collapsed={collapsed}
+						onToggleCollapse={() => toggleEntryCollapse(e.id)}
+						detailHeader={shellHeader}
+						approval={e.approval}
+						onApprove={approve}
+					>
+						{displayContent}
+					</ActivityBlock>
 			);
 		}
+
+			if (e.kind === 'fileChange') {
+				const summary = buildFileChangeSummary(e);
+				const isPending = e.status !== 'completed';
+				const defaultCollapsed = settings.defaultCollapseDetails;
+				const approval = e.approval;
+				return (
+					<div key={e.id} className="space-y-2">
+						{summary.changes.length > 0 ? (
+							summary.changes.map((change) => (
+								<FileChangeEntryCard
+									key={`${change.path}-${change.kind.type}`}
+									change={change}
+									isPending={isPending}
+									defaultCollapsed={defaultCollapsed}
+								/>
+							))
+						) : (
+							<div className="text-[10px] italic text-text-muted">No diff content</div>
+						)}
+						{approval ? (
+							<div className="mt-1 flex flex-wrap items-center justify-between gap-2 pl-2 pr-1">
+								<div className="min-w-0 text-xs text-text-muted">
+									Approval required
+									{approval.reason ? `: ${approval.reason}` : ''}.
+								</div>
+								<div className="flex shrink-0 gap-2">
+									<button
+										type="button"
+										className="rounded-md bg-status-success/20 px-2.5 py-1 text-[11px] font-semibold text-status-success hover:bg-status-success/30 transition-colors"
+										onClick={() => approve(approval.requestId, 'accept')}
+									>
+										Approve
+									</button>
+									<button
+										type="button"
+										className="rounded-md bg-status-error/15 px-2.5 py-1 text-[11px] font-semibold text-status-error hover:bg-status-error/25 transition-colors"
+										onClick={() => approve(approval.requestId, 'decline')}
+									>
+										Decline
+									</button>
+								</div>
+							</div>
+						) : null}
+					</div>
+				);
+			}
 
 		if (e.kind === 'webSearch') {
 			const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
