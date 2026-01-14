@@ -80,3 +80,91 @@ GUI SHALL 将 stream-error 与 system-error 类型消息作为 Working 区域的
 - **WHEN** GUI 显示该条 error
 - **THEN** GUI 在 Working 区域渲染 stream-error 详情
 
+### Requirement: Codex Session Running Indicator
+GUI SHALL 在 Codex 会话列表中显示“运行中”指示，当 thread 存在进行中的 turn。
+GUI SHALL 在加载会话列表时调用 `thread/loaded/list` 作为运行中指示的初始种子，并在收到 `turn/started` 与 `turn/completed` 通知时更新该指示。
+
+#### Scenario: Mark running session from turn lifecycle
+- **GIVEN** 会话列表已显示
+- **WHEN** GUI 收到某 thread 的 `turn/started`
+- **THEN** 该会话显示运行中指示，直到收到同 thread 的 `turn/completed`
+
+#### Scenario: Seed running sessions on load
+- **GIVEN** GUI 加载会话列表
+- **WHEN** `thread/loaded/list` 返回若干 thread id
+- **THEN** 这些会话显示运行中指示
+
+### Requirement: Exploration Grouping for Tooling Activity
+GUI SHALL group contiguous `read`, `search`, and `list_files` activities (including aggregated reading-files) together with adjacent reasoning into an Exploration block in the Working area.
+GUI SHALL label the Exploration block as "Exploring" while the turn is in progress, and "Explored" once complete, including the unique file count when available.
+
+#### Scenario: Exploration grouping in progress
+- **GIVEN** a turn contains consecutive `list_files`/`search`/`read` activities and reasoning
+- **WHEN** the turn is still in progress
+- **THEN** GUI shows a single Exploration block titled "Exploring" with nested items and a unique file count
+
+#### Scenario: Exploration grouping completed
+- **GIVEN** a turn contains consecutive `list_files`/`search`/`read` activities and reasoning
+- **WHEN** the turn finishes
+- **THEN** GUI shows the same group titled "Explored" and preserves the nested items
+
+### Requirement: Reasoning Summary Segmentation with Content
+GUI SHALL render each reasoning summary entry as its own reasoning block while also displaying reasoning content when present.
+GUI SHALL preserve reasoning content visibility even when summaries are segmented.
+
+#### Scenario: Reasoning summary produces multiple blocks
+- **GIVEN** a reasoning item includes multiple summary entries and content
+- **WHEN** GUI renders the Working area
+- **THEN** GUI renders multiple reasoning blocks (one per summary entry) and still displays the reasoning content
+
+#### Scenario: Reasoning content without summary
+- **GIVEN** a reasoning item has no summary entries but includes content
+- **WHEN** GUI renders the Working area
+- **THEN** GUI renders a single reasoning block showing the content
+
+### Requirement: Auto Context Repo Selector
+GUI SHALL provide a header repo selector that:
+- shows the current repo name (when available),
+- lists up to 3 related repo names,
+- allows adding related repos via a directory picker,
+- allows removing a related repo via a hover-only red "-" affordance,
+- shows absolute paths only on hover (not in the main label).
+
+#### Scenario: Add related repo
+- **GIVEN** a GUI session with a current repo path available
+- **WHEN** the user clicks "+ add dir" and selects a directory
+- **THEN** the related repo name appears in the header and the absolute path is shown on hover
+
+#### Scenario: Related repo limit
+- **GIVEN** three related repos are already selected
+- **WHEN** the user views the header
+- **THEN** the "+ add dir" button is not shown
+
+#### Scenario: Remove related repo
+- **GIVEN** a related repo is listed
+- **WHEN** the user hovers the repo name and clicks the red "-"
+- **THEN** the repo is removed from the related list
+
+#### Scenario: No current repo
+- **GIVEN** no current repo is available (no active thread)
+- **WHEN** the header renders
+- **THEN** the current repo label is not shown
+
+### Requirement: Auto Context Message Wrapper
+When Auto context is enabled, GUI SHALL wrap the outgoing user message as:
+
+#### Scenario: Wrap with current + related repos
+- **GIVEN** Auto context is enabled with a current repo and two related repos
+- **WHEN** the user sends a message
+- **THEN** the outgoing text includes the header with current and two related repo lines
+
+#### Scenario: Auto context disabled
+- **GIVEN** Auto context is disabled
+- **WHEN** the user sends a message
+- **THEN** the outgoing text is the raw user input without a wrapper
+
+Format example:
+
+```
+# Context from my IDE setup:
+
