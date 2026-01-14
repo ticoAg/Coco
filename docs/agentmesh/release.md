@@ -1,10 +1,12 @@
-# Release（macOS DMG）
+# Release（macOS DMG + Ubuntu DEB）
 
-本项目采用 **tag 驱动的 GitHub Release**：当你 push 一个形如 `vX.Y.Z` 的 tag 时，GitHub Actions 会构建并发布 3 个 `.dmg` 产物：
+本项目采用 **tag 驱动的 GitHub Release**：当你 push 一个形如 `vX.Y.Z` 的 tag 时，GitHub Actions 会构建并发布以下产物：
 
-- `intel only`：`x86_64-apple-darwin`
-- `apple silicon only`：`aarch64-apple-darwin`
-- `universal-apple-darwin`：同时兼容 Intel + Apple Silicon
+- macOS DMG（3 个）：
+  - `intel only`：`x86_64-apple-darwin`
+  - `apple silicon only`：`aarch64-apple-darwin`
+  - `universal-apple-darwin`：同时兼容 Intel + Apple Silicon
+- Ubuntu DEB（1 个）：`x86_64`（`ubuntu-latest` runner）
 
 > 目前 **不做签名/公证（no-sign）**，用户打开时可能会遇到 Gatekeeper 提示，这是预期行为。
 
@@ -70,12 +72,13 @@ git push origin vX.Y.Z
 
 ### 5) 等待 GitHub Actions 发布
 
-GitHub Actions 的 `Release (DMG)` workflow 会：
+GitHub Actions 的 `Release (DMG + DEB)` workflow 会：
 
 1. 解析 tag 得到版本号（`vX.Y.Z` → `X.Y.Z`）
 2. 校验版本一致性
 3. 依次构建 3 个 DMG（intel / apple silicon / universal）
-4. 将 `.dmg` 上传到对应的 GitHub Release
+4. 构建 Ubuntu DEB（`x86_64`）
+5. 将 `.dmg` / `.deb` 上传到对应的 GitHub Release
 
 ## 本地构建 DMG（排查用）
 
@@ -98,3 +101,19 @@ npm run tauri:build -- --target universal-apple-darwin --bundles dmg --no-sign -
 产物目录通常在：
 
 `apps/gui/src-tauri/target/**/bundle/dmg/*.dmg`
+
+## 本地构建 DEB（排查用）
+
+在 Ubuntu（`x86_64`）上：
+
+```bash
+cd apps/gui
+npm ci
+
+# deb
+npm run tauri:build -- --bundles deb --no-sign --ci
+```
+
+产物目录通常在：
+
+`apps/gui/src-tauri/target/**/bundle/deb/*.deb`
