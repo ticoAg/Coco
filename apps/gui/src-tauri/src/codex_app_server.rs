@@ -77,7 +77,11 @@ struct CodexAppServerInner {
 }
 
 impl CodexAppServer {
-    pub async fn spawn(app: tauri::AppHandle, cwd: &Path, profile: Option<String>) -> Result<Self, String> {
+    pub async fn spawn(
+        app: tauri::AppHandle,
+        cwd: &Path,
+        profile: Option<String>,
+    ) -> Result<Self, String> {
         let (codex_bin, env, env_source) = resolve_codex_bin_and_env().await?;
 
         let mut cmd = Command::new(codex_bin);

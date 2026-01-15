@@ -270,12 +270,7 @@ export function StatusBar({
 										{profiles.map((profile) => {
 											const selected = selectedProfile === profile;
 											return (
-												<button
-													key={profile}
-													type="button"
-													className={MENU_STYLES.popoverItem}
-													onClick={() => void applyProfile(profile)}
-												>
+												<button key={profile} type="button" className={MENU_STYLES.popoverItem} onClick={() => void applyProfile(profile)}>
 													<span>{profile}</span>
 													<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
 												</button>
