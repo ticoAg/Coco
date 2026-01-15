@@ -274,6 +274,7 @@ export const apiClient = {
 	codexModelList,
 	codexConfigReadEffective,
 	codexConfigWriteChatDefaults,
+	codexSetProfile,
 	codexReadConfig,
 	codexWriteConfig,
 	codexDiagnostics,

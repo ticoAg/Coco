@@ -1092,34 +1092,6 @@ export function CodexChat() {
 		[models, selectedEffort, selectedModel]
 	);
 
-	const applyProfile = useCallback(
-		async (nextProfile: string) => {
-			if (nextProfile === selectedProfile) return;
-			const runningFocusedTurn = activeTurnId ? turnsById[activeTurnId]?.status === 'inProgress' : false;
-			if (runningFocusedTurn) {
-				const confirmed = window.confirm('Switching profile will stop the running turn and resume the session. Continue?');
-				if (!confirmed) return;
-			}
-
-			setStatusPopoverError(null);
-			const prevProfile = selectedProfile;
-			setSelectedProfile(nextProfile);
-			setOpenStatusPopover(null);
-
-			try {
-				await apiClient.codexSetProfile(nextProfile);
-				if (selectedThreadId) {
-					await selectSession(selectedThreadId);
-				}
-				await loadModelsAndChatDefaults();
-			} catch (err) {
-				setSelectedProfile(prevProfile);
-				setStatusPopoverError(errorMessage(err, 'Failed to switch profile'));
-			}
-		},
-		[activeTurnId, loadModelsAndChatDefaults, selectedProfile, selectedThreadId, selectSession, turnsById]
-	);
-
 	const applyReasoningEffort = useCallback(
 		async (nextEffort: ReasoningEffort) => {
 			if (nextEffort === selectedEffort) return;
@@ -1266,6 +1238,34 @@ export function CodexChat() {
 			}
 		},
 		[settings.defaultCollapseDetails]
+	);
+
+	const applyProfile = useCallback(
+		async (nextProfile: string) => {
+			if (nextProfile === selectedProfile) return;
+			const runningFocusedTurn = activeTurnId ? turnsById[activeTurnId]?.status === 'inProgress' : false;
+			if (runningFocusedTurn) {
+				const confirmed = window.confirm('Switching profile will stop the running turn and resume the session. Continue?');
+				if (!confirmed) return;
+			}
+
+			setStatusPopoverError(null);
+			const prevProfile = selectedProfile;
+			setSelectedProfile(nextProfile);
+			setOpenStatusPopover(null);
+
+			try {
+				await apiClient.codexSetProfile(nextProfile);
+				if (selectedThreadId) {
+					await selectSession(selectedThreadId);
+				}
+				await loadModelsAndChatDefaults();
+			} catch (err) {
+				setSelectedProfile(prevProfile);
+				setStatusPopoverError(errorMessage(err, 'Failed to switch profile'));
+			}
+		},
+		[activeTurnId, loadModelsAndChatDefaults, selectedProfile, selectedThreadId, selectSession, turnsById]
 	);
 
 	const createNewSession = useCallback(async () => {
