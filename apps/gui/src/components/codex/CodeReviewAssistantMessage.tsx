@@ -76,7 +76,7 @@ function FindingCard({ finding }: { finding: CodeReviewFinding }) {
 }
 
 export function CodeReviewAssistantMessage(props: { output: CodeReviewStructuredOutput; completed: boolean }): JSX.Element {
-	const findings = props.output.findings ?? [];
+	const findings = useMemo(() => props.output.findings ?? [], [props.output.findings]);
 	const split = useMemo(() => {
 		const primary: CodeReviewFinding[] = [];
 		const secondary: CodeReviewFinding[] = [];

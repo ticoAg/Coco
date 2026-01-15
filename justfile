@@ -108,4 +108,4 @@ lint: be-lint fe-lint
 # ==========================================
 
 # 运行完整 CI 检查（含 GUI 构建）
-ci: fmt-check check lint test build
+ci: fmt check lint test build

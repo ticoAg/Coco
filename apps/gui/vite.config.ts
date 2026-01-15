@@ -15,4 +15,19 @@ export default defineConfig({
       "@": "/src",
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("react-dom") || id.includes("react")) return "react-vendor";
+          if (id.includes("lucide-react")) return "icons";
+          if (id.includes("framer-motion")) return "motion";
+          if (id.includes("react-markdown")) return "markdown";
+          if (id.includes("@tauri-apps")) return "tauri";
+          return "vendor";
+        },
+      },
+    },
+  },
 });
