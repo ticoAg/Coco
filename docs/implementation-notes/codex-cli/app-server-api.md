@@ -83,7 +83,13 @@ GUI 通过 Tauri 后端与 codex app-server 进程通信，使用 JSON-RPC 协�
 - **前端 API**: `apiClient.codexConfigWriteChatDefaults()`
 - **源码**: `lib.rs:987-1043`
 
-### 9. skills/list
+### 9. set profile
+- **描述**: 设置当前 GUI 会话使用的 Codex profile，并在下次请求时重启 app-server
+- **Tauri 命令**: `codex_set_profile`
+- **前端 API**: `apiClient.codexSetProfile()`
+- **源码**: `lib.rs:1118-1143`
+
+### 10. skills/list
 - **描述**: 列出所有可用的技能
 - **Tauri 命令**: `codex_skill_list`
 - **前端 API**: `apiClient.codexSkillList()`

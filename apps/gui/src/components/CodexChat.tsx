@@ -112,6 +112,123 @@ function parseReasoningEffortValue(value: unknown): ReasoningEffort | null {
 	return null;
 }
 
+function normalizeProfileName(value: string): string {
+	const trimmed = value.trim();
+	if (!trimmed) return '';
+	const doubleQuoted = trimmed.match(/^"(.*)"$/);
+	if (doubleQuoted) return doubleQuoted[1] ?? '';
+	const singleQuoted = trimmed.match(/^'(.*)'$/);
+	if (singleQuoted) return singleQuoted[1] ?? '';
+	return trimmed;
+}
+
+function uniqueStrings(values: string[]): string[] {
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const value of values) {
+		const trimmed = value.trim();
+		if (!trimmed || seen.has(trimmed)) continue;
+		seen.add(trimmed);
+		out.push(trimmed);
+	}
+	return out;
+}
+
+function extractProfileModels(value: unknown): string[] {
+	if (typeof value === 'string') return [value];
+	if (Array.isArray(value)) {
+		return value.filter((item): item is string => typeof item === 'string');
+	}
+	return [];
+}
+
+function collectProfilesFromConfig(config: unknown): { profiles: string[]; models: string[]; selectedProfile: string | null } {
+	if (!config || typeof config !== 'object') {
+		return { profiles: [], models: [], selectedProfile: null };
+	}
+	const configRecord = config as Record<string, unknown>;
+	const profilesRecord = configRecord.profiles;
+	const profiles: string[] = [];
+	const models: string[] = [];
+	if (profilesRecord && typeof profilesRecord === 'object') {
+		for (const [rawName, rawProfile] of Object.entries(profilesRecord as Record<string, unknown>)) {
+			const name = normalizeProfileName(rawName);
+			if (name) profiles.push(name);
+			const profileConfig = rawProfile && typeof rawProfile === 'object' ? (rawProfile as Record<string, unknown>) : null;
+			for (const model of extractProfileModels(profileConfig?.model)) {
+				models.push(model);
+			}
+		}
+	}
+	const selectedProfile = typeof configRecord.profile === 'string' ? normalizeProfileName(configRecord.profile) : null;
+	return { profiles, models, selectedProfile };
+}
+
+function parseProfilesFromToml(raw: string): { profiles: string[]; models: string[] } {
+	const profiles: string[] = [];
+	const models: string[] = [];
+	let activeProfile: string | null = null;
+	for (const line of raw.split(/\r?\n/)) {
+		const trimmed = line.trim();
+		if (!trimmed || trimmed.startsWith('#')) continue;
+		const sectionMatch = trimmed.match(/^\[profiles\.(.+)\]$/);
+		if (sectionMatch) {
+			const rawName = sectionMatch[1] ?? '';
+			const name = normalizeProfileName(rawName);
+			activeProfile = name || null;
+			if (activeProfile) profiles.push(activeProfile);
+			continue;
+		}
+		if (!activeProfile) continue;
+		const modelMatch = trimmed.match(/^model\s*=\s*(.+)$/);
+		if (!modelMatch) continue;
+		const rawValue = modelMatch[1]?.trim() ?? '';
+		if (!rawValue) continue;
+		if (rawValue.startsWith('[') && rawValue.endsWith(']')) {
+			const inner = rawValue.slice(1, -1);
+			for (const entry of inner.split(',')) {
+				const cleaned = normalizeProfileName(entry.trim());
+				if (cleaned) models.push(cleaned);
+			}
+		} else {
+			const cleaned = normalizeProfileName(rawValue);
+			if (cleaned) models.push(cleaned);
+		}
+	}
+	return { profiles, models };
+}
+
+function buildFallbackModelInfo(models: string[]): CodexModelInfo[] {
+	return models.map((model, index) => ({
+		id: `fallback:${model}`,
+		model,
+		displayName: model,
+		description: '',
+		supportedReasoningEfforts: [],
+		defaultReasoningEffort: 'none',
+		isDefault: index === 0,
+	}));
+}
+
+function mergeModelOptions(base: CodexModelInfo[], extraModels: string[]): CodexModelInfo[] {
+	const merged: CodexModelInfo[] = [...base];
+	const known = new Set(base.map((model) => model.model));
+	for (const model of extraModels) {
+		if (known.has(model)) continue;
+		known.add(model);
+		merged.push({
+			id: `profile:${model}`,
+			model,
+			displayName: model,
+			description: '',
+			supportedReasoningEfforts: [],
+			defaultReasoningEffort: 'none',
+			isDefault: false,
+		});
+	}
+	return merged;
+}
+
 function countEntryKinds(entries: ChatEntry[]): Record<string, number> {
 	const counts: Record<string, number> = {};
 	for (const entry of entries) {
@@ -677,6 +794,8 @@ export function CodexChat() {
 
 	const [models, setModels] = useState<CodexModelInfo[]>([]);
 	const [modelsError, setModelsError] = useState<string | null>(null);
+	const [profiles, setProfiles] = useState<string[]>([]);
+	const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
 
 	const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
 	const [activeThread, setActiveThread] = useState<CodexThread | null>(null);
@@ -857,10 +976,33 @@ export function CodexChat() {
 		try {
 			const [modelsRes, configRes] = await Promise.all([apiClient.codexModelList(null, 200), apiClient.codexConfigReadEffective(false)]);
 
-			const nextModels = (modelsRes as { data: CodexModelInfo[] }).data ?? [];
+			const config = (configRes as any)?.config ?? {};
+			const { profiles: configProfiles, models: configProfileModels, selectedProfile: configSelectedProfile } = collectProfilesFromConfig(config);
+			let rawProfiles = configProfiles;
+			let rawProfileModels = configProfileModels;
+			if (rawProfiles.length === 0) {
+				try {
+					const rawConfig = await apiClient.codexReadConfig();
+					const parsed = parseProfilesFromToml(rawConfig);
+					rawProfiles = parsed.profiles;
+					rawProfileModels = parsed.models;
+				} catch {
+					// Ignore raw parse failures.
+				}
+			}
+			const uniqueProfiles = uniqueStrings(rawProfiles);
+			const profileModels = uniqueStrings(rawProfileModels);
+			setProfiles(uniqueProfiles);
+			const normalizedSelectedProfile = configSelectedProfile && uniqueProfiles.includes(configSelectedProfile) ? configSelectedProfile : null;
+			setSelectedProfile(normalizedSelectedProfile);
+
+			let nextModels = (modelsRes as { data: CodexModelInfo[] }).data ?? [];
+			nextModels = mergeModelOptions(nextModels, profileModels);
+			if (nextModels.length === 0) {
+				nextModels = buildFallbackModelInfo(['gpt-5.2', 'gpt-5.2-codex']);
+			}
 			setModels(nextModels);
 
-			const config = (configRes as any)?.config ?? {};
 			const configuredModel = typeof config.model === 'string' ? config.model : null;
 			const configuredEffort = parseReasoningEffortValue(config.model_reasoning_effort);
 			const configuredApproval = parseApprovalPolicyValue(config.approval_policy);
@@ -948,6 +1090,34 @@ export function CodexChat() {
 			}
 		},
 		[models, selectedEffort, selectedModel]
+	);
+
+	const applyProfile = useCallback(
+		async (nextProfile: string) => {
+			if (nextProfile === selectedProfile) return;
+			const runningFocusedTurn = activeTurnId ? turnsById[activeTurnId]?.status === 'inProgress' : false;
+			if (runningFocusedTurn) {
+				const confirmed = window.confirm('Switching profile will stop the running turn and resume the session. Continue?');
+				if (!confirmed) return;
+			}
+
+			setStatusPopoverError(null);
+			const prevProfile = selectedProfile;
+			setSelectedProfile(nextProfile);
+			setOpenStatusPopover(null);
+
+			try {
+				await apiClient.codexSetProfile(nextProfile);
+				if (selectedThreadId) {
+					await selectSession(selectedThreadId);
+				}
+				await loadModelsAndChatDefaults();
+			} catch (err) {
+				setSelectedProfile(prevProfile);
+				setStatusPopoverError(errorMessage(err, 'Failed to switch profile'));
+			}
+		},
+		[activeTurnId, loadModelsAndChatDefaults, selectedProfile, selectedThreadId, selectSession, turnsById]
 	);
 
 	const applyReasoningEffort = useCallback(
@@ -3000,11 +3170,14 @@ export function CodexChat() {
 						selectedModelInfo={selectedModelInfo}
 						models={models}
 						modelsError={modelsError}
+						profiles={profiles}
+						selectedProfile={selectedProfile}
 						selectedEffort={selectedEffort}
 						effortOptions={effortOptions}
 						contextUsageLabel={contextUsageLabel}
 						applyApprovalPolicy={applyApprovalPolicy}
 						applyModel={applyModel}
+						applyProfile={applyProfile}
 						applyReasoningEffort={applyReasoningEffort}
 					/>
 

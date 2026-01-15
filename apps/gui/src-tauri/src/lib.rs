@@ -99,6 +99,7 @@ pub fn run() {
             codex_model_list,
             codex_config_read_effective,
             codex_config_write_chat_defaults,
+            codex_set_profile,
             codex_read_config,
             codex_write_config,
             codex_diagnostics,
@@ -132,6 +133,7 @@ pub fn run() {
                     workspace_root,
                 )),
                 codex: TokioMutex::new(None),
+                codex_profile: TokioMutex::new(None),
             });
 
             if cfg!(debug_assertions) {
@@ -150,6 +152,7 @@ pub fn run() {
 struct AppState {
     orchestrator: std::sync::Mutex<agentmesh_orchestrator::Orchestrator>,
     codex: TokioMutex<Option<CodexAppServer>>,
+    codex_profile: TokioMutex<Option<String>>,
 }
 
 static NEXT_WINDOW_ID: AtomicU32 = AtomicU32::new(2);
@@ -721,7 +724,8 @@ async fn get_or_start_codex(
         .unwrap_or_else(|e| e.into_inner())
         .workspace_root()
         .to_path_buf();
-    let server = CodexAppServer::spawn(app, &cwd).await?;
+    let profile = { state.codex_profile.lock().await.clone() };
+    let server = CodexAppServer::spawn(app, &cwd, profile).await?;
     *guard = Some(server.clone());
     Ok(server)
 }
@@ -1108,6 +1112,34 @@ async fn codex_config_write_chat_defaults(
     });
 
     codex.request("config/batchWrite", Some(params)).await
+}
+
+#[tauri::command]
+async fn codex_set_profile(
+    state: tauri::State<'_, AppState>,
+    profile: Option<String>,
+) -> Result<(), String> {
+    let normalized = profile
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    {
+        let mut active_profile = state.codex_profile.lock().await;
+        if *active_profile == normalized {
+            return Ok(());
+        }
+        *active_profile = normalized;
+    }
+
+    let server = {
+        let mut guard = state.codex.lock().await;
+        guard.take()
+    };
+    if let Some(server) = server {
+        server.shutdown().await;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]

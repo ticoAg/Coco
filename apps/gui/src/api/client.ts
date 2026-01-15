@@ -174,6 +174,12 @@ export async function codexConfigWriteChatDefaults(options: {
 	});
 }
 
+export async function codexSetProfile(profile?: string | null): Promise<void> {
+	await invoke<void>('codex_set_profile', {
+		profile: profile ?? null,
+	});
+}
+
 export async function codexReadConfig(): Promise<string> {
 	return invoke<string>('codex_read_config');
 }

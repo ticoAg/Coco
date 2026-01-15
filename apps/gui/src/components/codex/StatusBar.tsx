@@ -4,7 +4,7 @@ import type { CodexModelInfo, ReasoningEffort } from '../../types/codex';
 import type { ApprovalPolicy } from './types/command';
 import { MENU_STYLES } from './styles/menu-styles';
 
-export type StatusPopover = 'profile' | 'approval_policy' | 'model' | 'model_reasoning_effort' | null;
+export type StatusPopover = 'profile' | 'config_profile' | 'approval_policy' | 'model' | 'model_reasoning_effort' | null;
 
 interface StatusBarProps {
 	openStatusPopover: StatusPopover;
@@ -16,11 +16,14 @@ interface StatusBarProps {
 	selectedModelInfo: CodexModelInfo | null;
 	models: CodexModelInfo[];
 	modelsError: string | null;
+	profiles: string[];
+	selectedProfile: string | null;
 	selectedEffort: ReasoningEffort | null;
 	effortOptions: Array<{ reasoningEffort: ReasoningEffort; description: string }>;
 	contextUsageLabel: React.ReactNode;
 	applyApprovalPolicy: (policy: ApprovalPolicy) => void | Promise<void>;
 	applyModel: (model: string) => void | Promise<void>;
+	applyProfile: (profile: string) => void | Promise<void>;
 	applyReasoningEffort: (effort: ReasoningEffort) => void | Promise<void>;
 }
 
@@ -125,11 +128,14 @@ export function StatusBar({
 	selectedModelInfo,
 	models,
 	modelsError,
+	profiles,
+	selectedProfile,
 	selectedEffort,
 	effortOptions,
 	contextUsageLabel,
 	applyApprovalPolicy,
 	applyModel,
+	applyProfile,
 	applyReasoningEffort,
 }: StatusBarProps) {
 	return (
@@ -241,6 +247,46 @@ export function StatusBar({
 							</div>
 						) : null}
 					</div>
+
+					{profiles.length > 0 ? (
+						<div className="relative">
+							<button
+								type="button"
+								className={statusBarItemClass(openStatusPopover === 'config_profile')}
+								onClick={() => {
+									clearStatusPopoverError();
+									setOpenStatusPopover((prev) => (prev === 'config_profile' ? null : 'config_profile'));
+								}}
+								title="profile"
+							>
+								<span className="truncate">{selectedProfile ?? 'profile'}</span>
+								<ChevronDown className="h-3 w-3" />
+							</button>
+
+							{openStatusPopover === 'config_profile' ? (
+								<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
+									<div className={MENU_STYLES.popoverTitle}>Select profile</div>
+									<div className="max-h-[40vh] overflow-auto">
+										{profiles.map((profile) => {
+											const selected = selectedProfile === profile;
+											return (
+												<button
+													key={profile}
+													type="button"
+													className={MENU_STYLES.popoverItem}
+													onClick={() => void applyProfile(profile)}
+												>
+													<span>{profile}</span>
+													<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
+												</button>
+											);
+										})}
+										{statusPopoverError ? <div className="px-3 py-1 text-[11px] text-status-warning">{statusPopoverError}</div> : null}
+									</div>
+								</div>
+							) : null}
+						</div>
+					) : null}
 
 					<div className="relative">
 						<button
