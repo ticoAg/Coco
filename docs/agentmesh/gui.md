@@ -78,7 +78,8 @@ macOS-only 的 `.app` 里可以包含：
 - 进程/协议：由 Tauri Rust 侧直接启动系统 PATH 中的 `codex app-server`，通过 stdio JSON-RPC 进行双向通信。
 - 会话历史：复用 `~/.codex/sessions`（对应 app-server 的 `thread/list`），按最近更新时间排序，显示 `threadId` + `preview` 摘要。
 - 工作目录（workspace root）：GUI 顶部提供主入口（Current/Recent/Open Project/New Window/About/Updates）可切换工作目录与相关操作；切换后会重启 `codex app-server` 并默认开启新会话。工作目录与最近项目（最多 5 条）都会持久化到 App Data（默认优先级低于环境变量 `AGENTMESH_WORKSPACE_ROOT`）。
-- 输入区覆盖：仅提供 `model` 与 `model_reasoning_effort` 的快捷选择（其余配置从 `~/.codex/config.toml` 读取）。
+- 输入区覆盖：仅提供 `model` 与 `model_reasoning_effort` 的快捷选择（其余配置从 `~/.codex/config.toml` 读取）；`model` 选项来自 `model/list`，若存在 profiles 则合并 `profiles.*.model` 并去重，空集则回退 `gpt-5.2` / `gpt-5.2-codex`。
+- Profile 选择：当 `config.toml` 定义 `profiles` 时，底部状态栏展示 profile 下拉；切换仅影响当前 GUI 会话，会重启 app-server 并恢复当前 session（若当前 turn 进行中需确认）。
 - Auto context（轻量 repo 包装）：当开启 Auto context 时，GUI 会在发送给 Codex 的文本前追加一个固定格式的 header（包含当前 repo 与最多 3 个 related repo 的绝对路径），以便模型自行按路径读取/定位相关文件；聊天区展示实际发送给 Codex 的文本；GUI 顶部 repo selector 仅显示 repo 名称，悬停显示绝对路径，related repo 悬停右侧出现红色 `-` 可移除（会话级，new session 重置）。
 - 配置入口：在 GUI 内打开一个面板，直接编辑 `~/.codex/config.toml`（路径按平台 HOME 目录解析）。
 - 审批交互：当 Codex 请求命令/文件变更审批时，不弹模态框；以**会话消息**形式渲染「批准/拒绝」按钮，点击后回传给 Codex。

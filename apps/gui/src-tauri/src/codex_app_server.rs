@@ -77,10 +77,13 @@ struct CodexAppServerInner {
 }
 
 impl CodexAppServer {
-    pub async fn spawn(app: tauri::AppHandle, cwd: &Path) -> Result<Self, String> {
+    pub async fn spawn(app: tauri::AppHandle, cwd: &Path, profile: Option<String>) -> Result<Self, String> {
         let (codex_bin, env, env_source) = resolve_codex_bin_and_env().await?;
 
         let mut cmd = Command::new(codex_bin);
+        if let Some(profile) = profile.as_deref().filter(|p| !p.trim().is_empty()) {
+            cmd.arg("-c").arg(format!("profile={profile}"));
+        }
         cmd.arg("app-server")
             .kill_on_drop(true)
             .stdin(Stdio::piped())
