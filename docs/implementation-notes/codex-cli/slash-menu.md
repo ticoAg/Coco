@@ -26,11 +26,11 @@
 ### Codex CLI 参考实现
 | 文件 | 描述 |
 |------|------|
-| `codex/codex-rs/tui2/src/bottom_pane/command_popup.rs` | 命令弹窗实现 |
-| `codex/codex-rs/tui2/src/bottom_pane/skill_popup.rs` | 技能弹窗实现 |
-| `codex/codex-rs/tui2/src/slash_command.rs` | 斜杠命令定义 |
-| `codex/codex-rs/core/src/custom_prompts.rs` | Prompts 加载逻辑 |
-| `codex/codex-rs/core/src/skills/loader.rs` | Skills 加载逻辑 |
+| `github:openai/codex/codex-rs/tui2/src/bottom_pane/command_popup.rs` | 命令弹窗实现 |
+| `github:openai/codex/codex-rs/tui2/src/bottom_pane/skill_popup.rs` | 技能弹窗实现 |
+| `github:openai/codex/codex-rs/tui2/src/slash_command.rs` | 斜杠命令定义 |
+| `github:openai/codex/codex-rs/core/src/custom_prompts.rs` | Prompts 加载逻辑 |
+| `github:openai/codex/codex-rs/core/src/skills/loader.rs` | Skills 加载逻辑 |
 
 ---
 
@@ -175,5 +175,5 @@ const [selectedPrompt, setSelectedPrompt] = useState<CustomPrompt | null>(null);
 
 ## 参考
 
-- Codex TUI2 命令弹窗: `codex/codex-rs/tui2/src/bottom_pane/command_popup.rs`
-- Codex TUI2 技能弹窗: `codex/codex-rs/tui2/src/bottom_pane/skill_popup.rs`
+- Codex TUI2 命令弹窗: `github:openai/codex/codex-rs/tui2/src/bottom_pane/command_popup.rs`
+- Codex TUI2 技能弹窗: `github:openai/codex/codex-rs/tui2/src/bottom_pane/skill_popup.rs`

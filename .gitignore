@@ -119,9 +119,8 @@ target/
 # Local registry caches
 .agentmesh/registry/
 
-# Codex submodule (if managed as submodule, git tracks the folder reference)
-# If 'codex' is a local clone for dev only and not a submodule, ignore it:
-/codex/
+# Codex repository (now in sibling directory ../codex, not inside this repo)
+# /codex/
 CLAUDE.md
 
 .agent/

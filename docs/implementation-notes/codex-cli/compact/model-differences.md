@@ -8,7 +8,7 @@
 
 在 `tui2` 中，`/compact` 固定触发 `Op::Compact`：
 
-- `codex/codex-rs/tui2/src/chatwidget.rs:1562`
+- `github:openai/codex/codex-rs/tui2/src/chatwidget.rs:1562`
 
 也就是说：
 
@@ -21,30 +21,30 @@
 
 `gpt-5.2-codex` 的 base instructions 来自：
 
-- `codex/codex-rs/core/gpt-5.2-codex_prompt.md`
+- `github:openai/codex/codex-rs/core/gpt-5.2-codex_prompt.md`
 
 在 `ModelInfo` 映射中设置：
 
-- `codex/codex-rs/core/src/models_manager/model_info.rs:178`
+- `github:openai/codex/codex-rs/core/src/models_manager/model_info.rs:178`
   - `base_instructions: GPT_5_2_CODEX_INSTRUCTIONS.to_string()`
 
 ### 2.2 gpt-5.2 的 base instructions
 
 `gpt-5.2` 的 base instructions 来自：
 
-- `codex/codex-rs/core/gpt_5_2_prompt.md`
+- `github:openai/codex/codex-rs/core/gpt_5_2_prompt.md`
 
 在 `ModelInfo` 映射中设置：
 
-- `codex/codex-rs/core/src/models_manager/model_info.rs:236`
+- `github:openai/codex/codex-rs/core/src/models_manager/model_info.rs:236`
   - `base_instructions: GPT_5_2_INSTRUCTIONS.to_string()`
 
 ### 2.3 为什么这会影响 /compact
 
 1) **Local compaction** 本质是一次普通 streaming turn：模型会读到其 base instructions，因此输出 summary 的风格/内容会受影响（详见 `flow-and-implementation.md` 第 5 节）。
 2) **Remote compaction** 会把 `instructions` 字段一并发送给 `/responses/compact`：
-   - `codex/codex-rs/core/src/client.rs:372`（计算 instructions）
-   - `codex/codex-rs/core/src/client.rs:375`（payload 中携带 instructions）
+   - `github:openai/codex/codex-rs/core/src/client.rs:372`（计算 instructions）
+   - `github:openai/codex/codex-rs/core/src/client.rs:375`（payload 中携带 instructions）
 
 因此 remote compaction 的输出（replacement history）也可能随模型 instructions 改变。
 
@@ -53,14 +53,14 @@
 在 `ModelInfo` 映射中：
 
 - `gpt-5.2-codex`：`support_verbosity: false`
-  - `codex/codex-rs/core/src/models_manager/model_info.rs:178`
+  - `github:openai/codex/codex-rs/core/src/models_manager/model_info.rs:178`
 - `gpt-5.2`：`support_verbosity: true` 且默认 `Verbosity::Low`
-  - `codex/codex-rs/core/src/models_manager/model_info.rs:239`
+  - `github:openai/codex/codex-rs/core/src/models_manager/model_info.rs:239`
 
 streaming 请求会在支持 verbosity 时序列化 `text.verbosity`：
 
-- `codex/codex-rs/core/src/client.rs:236`
-- 生成 text param：`codex/codex-rs/core/src/client.rs:248`
+- `github:openai/codex/codex-rs/core/src/client.rs:236`
+- 生成 text param：`github:openai/codex/codex-rs/core/src/client.rs:248`
 
 对 `/compact` 的影响：
 
@@ -72,9 +72,9 @@ streaming 请求会在支持 verbosity 时序列化 `text.verbosity`：
 `ModelInfo` 中的 truncation policy：
 
 - `gpt-5.2-codex`：`TruncationPolicyConfig::tokens(10_000)`
-  - `codex/codex-rs/core/src/models_manager/model_info.rs:187`
+  - `github:openai/codex/codex-rs/core/src/models_manager/model_info.rs:187`
 - `gpt-5.2`：`TruncationPolicyConfig::bytes(10_000)`
-  - `codex/codex-rs/core/src/models_manager/model_info.rs:247`
+  - `github:openai/codex/codex-rs/core/src/models_manager/model_info.rs:247`
 
 这会影响：
 
@@ -88,13 +88,13 @@ streaming 请求会在支持 verbosity 时序列化 `text.verbosity`：
 在本 repo 的 model presets 中：
 
 - `gpt-5.2-codex`：`supported_in_api: false`
-  - `codex/codex-rs/core/src/models_manager/model_presets.rs:14`
+  - `github:openai/codex/codex-rs/core/src/models_manager/model_presets.rs:14`
 - `gpt-5.2`：`supported_in_api: true`
-  - `codex/codex-rs/core/src/models_manager/model_presets.rs:94`
+  - `github:openai/codex/codex-rs/core/src/models_manager/model_presets.rs:94`
 
 并且 core 会根据 auth mode 过滤可见模型：
 
-- `codex/codex-rs/core/src/models_manager/manager.rs:275`
+- `github:openai/codex/codex-rs/core/src/models_manager/manager.rs:275`
   - 非 ChatGPT auth（例如 API key）时：只保留 `supported_in_api == true` 的模型
 
 这意味着在 **API key 模式** 下：
@@ -107,16 +107,16 @@ streaming 请求会在支持 verbosity 时序列化 `text.verbosity`：
 官方文档描述 `remote_compaction` 是 “ChatGPT auth only”，但代码 gating 目前是：
 
 - `provider.is_openai() && session.enabled(Feature::RemoteCompaction)`
-  - `codex/codex-rs/core/src/compact.rs:35`
+  - `github:openai/codex/codex-rs/core/src/compact.rs:35`
 
 其中 `provider.is_openai()` 仅检查 provider name 是否为 `"OpenAI"`：
 
-- `codex/codex-rs/core/src/model_provider_info.rs:253`
+- `github:openai/codex/codex-rs/core/src/model_provider_info.rs:253`
 
 而真正决定请求打到哪里的是：
 
 - `ModelProviderInfo::to_api_provider(auth_mode)` 的默认 base_url
-  - `codex/codex-rs/core/src/model_provider_info.rs:130`
+  - `github:openai/codex/codex-rs/core/src/model_provider_info.rs:130`
 
 对 API key 模式而言，这可能导致 remote compaction 走到：
 

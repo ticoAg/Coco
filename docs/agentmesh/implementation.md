@@ -81,7 +81,7 @@ Skills 在本项目里视为各家 agent 可共享的一种**能力封装形式*
 
 ### 3.1 `codex app-server`（面向富 UI/自动化的底层接口）
 
-Codex 自带 `codex app-server`（参见 `codex/codex-rs/app-server/README.md`）：
+Codex 自带 `codex app-server`（参见 `github:openai/codex/codex-rs/app-server/README.md`）：
 
 - 传输：stdio 双向通信，JSON-RPC 2.0（按行 JSONL 流式）
 - 基元：`Thread`（会话）/ `Turn`（一轮输入到输出）/ `Item`（过程中产生的消息、命令、文件变更等）
@@ -96,9 +96,9 @@ Codex 自带 `codex app-server`（参见 `codex/codex-rs/app-server/README.md`�
 
 ### 3.2 `codex exec --json`（备选：一次性跑完一轮并输出 JSONL 事件）
 
-Codex 也提供 `codex exec`（参见 `codex/codex-rs/exec/`）：
+Codex 也提供 `codex exec`（参见 `github:openai/codex/codex-rs/exec/`）：
 
-- `--json`：stdout 输出 JSONL 事件（事件结构见 `codex/codex-rs/exec/src/exec_events.rs`）
+- `--json`：stdout 输出 JSONL 事件（事件结构见 `github:openai/codex/codex-rs/exec/src/exec_events.rs`）
 - 输出里包含 `thread.started` 的 `thread_id`，可用于后续 `resume`
 
 这条路径的特点是：实现简单、无需长期后台服务，但“会话/turn”能力相对 `app-server` 更弱一些（更像一次性执行器）。

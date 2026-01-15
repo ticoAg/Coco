@@ -47,10 +47,10 @@
 - 不做 TUI 控制台，不解析 ANSI 屏幕；只处理 JSON/JSONL 级别的事件与结果
 
 **实现方式（示例）**
-- 先做 **`codex exec --json`**（参考 `codex/codex-rs/exec/`）：一次性跑完并输出 JSONL 事件
+- 先做 **`codex exec --json`**（参考 `github:openai/codex/codex-rs/exec/`）：一次性跑完并输出 JSONL 事件
   - 适合并行 subagents（<=8）：子进程 + 读 stdout JSONL 就能驱动 GUI 状态
   - 配合独立 `CODEX_HOME` + git worktree，可获得良好的“独立上下文 + 并发隔离”体验
-- 再做 `codex app-server`（参考 `codex/codex-rs/app-server/README.md`）：
+- 再做 `codex app-server`（参考 `github:openai/codex/codex-rs/app-server/README.md`）：
   - stdio JSON-RPC，Thread/Turn/Item 模型，事件流式输出
   - 支持 approvals（server→client 请求），天然对齐 `gate.blocked` 与 GUI 的审批交互
 - 细节：见 [`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)

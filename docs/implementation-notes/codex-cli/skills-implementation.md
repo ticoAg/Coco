@@ -211,5 +211,5 @@ pub const SKILL_INSTRUCTIONS_PREFIX: &str = "<skill";
 - API 客户端：`apps/gui/src/api/client.ts`
 - 聊天组件：`apps/gui/src/components/CodexChat.tsx`
 - 后端命令：`apps/gui/src-tauri/src/lib.rs`
-- TUI2 实现：`codex/codex-rs/tui2/src/chatwidget.rs`
-- 注入逻辑：`codex/codex-rs/core/src/skills/injection.rs`
+- TUI2 实现：`github:openai/codex/codex-rs/tui2/src/chatwidget.rs`
+- 注入逻辑：`github:openai/codex/codex-rs/core/src/skills/injection.rs`

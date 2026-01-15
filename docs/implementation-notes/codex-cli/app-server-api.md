@@ -14,7 +14,7 @@ GUI 通过 Tauri 后端与 codex app-server 进程通信，使用 JSON-RPC 协�
 | Codex App Server 客户端 | `apps/gui/src-tauri/src/codex_app_server.rs` |
 | 前端 API 客户端 | `apps/gui/src/api/client.ts` |
 | 前端类型定义 | `apps/gui/src/types/codex.ts` |
-| Codex 协议定义 | `codex/codex-rs/app-server-protocol/src/protocol/common.rs` |
+| Codex 协议定义 | `github:openai/codex/codex-rs/app-server-protocol/src/protocol/common.rs` |
 
 ---
 
@@ -146,5 +146,5 @@ App-server 可能向客户端发送需要响应的请求（如审批请求）：
 
 ## 参考资料
 
-- Codex App-Server README: `codex/codex-rs/app-server/README.md`
-- 协议测试用例: `codex/codex-rs/app-server/tests/`
+- Codex App-Server README: `github:openai/codex/codex-rs/app-server/README.md`
+- 协议测试用例: `github:openai/codex/codex-rs/app-server/tests/`

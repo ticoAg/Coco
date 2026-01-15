@@ -6,7 +6,7 @@
 
 ## 1. 接口选项：`codex app-server`
 
-Codex 提供 `codex app-server`（参见 `codex/codex-rs/app-server/README.md`），这是 Codex 用来支撑 VS Code 等富界面的底层接口。
+Codex 提供 `codex app-server`（参见 `github:openai/codex/codex-rs/app-server/README.md`），这是 Codex 用来支撑 VS Code 等富界面的底层接口。
 
 ### 1.1 进程与传输
 
@@ -58,7 +58,7 @@ Codex 提供 `codex app-server`（参见 `codex/codex-rs/app-server/README.md`�
 
 ### 1.5 协议 Schema（强类型/兼容性）
 
-Codex app-server 支持生成与当前版本**严格匹配**的 schema（参见 `codex/codex-rs/app-server/README.md`）：
+Codex app-server 支持生成与当前版本**严格匹配**的 schema（参见 `github:openai/codex/codex-rs/app-server/README.md`）：
 
 ```
 codex app-server generate-ts --out DIR
@@ -74,7 +74,7 @@ adapter 开发时可以把 schema 作为“真源”，避免手写字段导致�
 - `codex exec --json -C <cwd> "<PROMPT>"`
 - `codex exec resume <SESSION_ID> --json "<PROMPT>"`
 
-事件结构可参考 `codex/codex-rs/exec/src/exec_events.rs`，其中：
+事件结构可参考 `github:openai/codex/codex-rs/exec/src/exec_events.rs`，其中：
 
 - `thread.started.thread_id` 可作为后续 resume 的 session id
 - `item.*` 中包含 agentMessage / commandExecution / fileChange / todoList 等

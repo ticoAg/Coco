@@ -105,7 +105,7 @@
 
 - **摘要行**：展示 `Edited/Added/Deleted` + 文件路径（多文件时显示 `N files`），右侧显示 `+/-` 统计。
 - **展开内容**：点击标题展开后，按文件分组渲染 diff。
-- **渲染风格**：参考 `codex/codex-rs/tui2/src/diff_render.rs`，保留行号、红删绿增、`+/-` 统计。
+- **渲染风格**：参考 `github:openai/codex/codex-rs/tui2/src/diff_render.rs`，保留行号、红删绿增、`+/-` 统计。
 - **换行策略**：diff 行不自动换行，超长行通过横向滚动查看。
 - **统计逻辑**：优先从 unified diff 统计；若无 hunk 且 `kind` 为 add/delete，则把原始内容行视为新增/删除（兼容 v2 `FileChange` 的 `diff` 仅包含原文的情况）。
 
