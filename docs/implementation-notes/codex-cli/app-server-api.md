@@ -12,6 +12,8 @@ GUI 通过 Tauri 后端与 codex app-server 进程通信，使用 JSON-RPC 协�
 |------|------|
 | Tauri 后端命令 | `apps/gui/src-tauri/src/lib.rs` |
 | Codex App Server 客户端 | `apps/gui/src-tauri/src/codex_app_server.rs` |
+| AgentMesh app-server adapter client（可复用） | `crates/agentmesh-codex/src/app_server_client.rs` |
+| Orchestrator wrapper（语义 API：start/resume/fork/turn/...） | `crates/agentmesh-orchestrator/src/codex_app_server_adapter.rs` |
 | 前端 API 客户端 | `apps/gui/src/api/client.ts` |
 | 前端类型定义 | `apps/gui/src/types/codex.ts` |
 | Codex 协议定义 | `github:openai/codex/codex-rs/app-server-protocol/src/protocol/v2.rs`（v2）与 `.../protocol/common.rs`（共享类型/通知） |
@@ -106,6 +108,7 @@ GUI 通过 Tauri 后端与 codex app-server 进程通信，使用 JSON-RPC 协�
 - **参数（可选）**: 支持传 model/cwd/approvalPolicy/sandbox 等 overrides（以 v2 schema 为准）
 - **用途**: 允许用户从某个对话点创建分支，尝试不同的方向
 - **建议**: 在会话列表/会话页提供 "Fork" 按钮（计划在 OpenSpec change `update-gui-codex-chat-fork-rollback` 落地）
+- **备注（AgentMesh adapter）**: `crates/agentmesh-codex/src/app_server_client.rs` 已提供 `thread_fork()` 封装与 session.json 更新；GUI 仍未接入。
 
 ### 2. thread/archive
 - **描述**: 归档/删除会话
@@ -121,6 +124,7 @@ GUI 通过 Tauri 后端与 codex app-server 进程通信，使用 JSON-RPC 协�
 - **用途**: 撤销最近若干 turns 的“会话历史”，用于控制上下文污染/回到此前对话点
 - **重要语义**: rollback 只修改 thread 的历史，不会回滚本地文件修改
 - **建议**: 在会话页提供 "Rollback"（MVP: last 1 turn；计划在 OpenSpec change `update-gui-codex-chat-fork-rollback` 落地）
+- **备注（AgentMesh adapter）**: `crates/agentmesh-codex/src/app_server_client.rs` 已提供 `thread_rollback()`（仅回滚历史，不回滚文件）；GUI 仍未接入。
 
 ---
 

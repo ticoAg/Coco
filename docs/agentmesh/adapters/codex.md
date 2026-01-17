@@ -57,11 +57,15 @@ Codex 提供 `codex app-server`（参见 `github:openai/codex/codex-rs/app-serve
 
 每个 `agent_instance` 通常会落盘：
 
-- `agents/<instance>/runtime/requests.jsonl`：你发给 Codex 的 request（含 id）
-- `agents/<instance>/runtime/events.jsonl`：Codex 的 notifications + responses
+- `agents/<instance>/runtime/requests.jsonl`：client→server 的 JSON-RPC 消息（requests / notifications / responses）
+- `agents/<instance>/runtime/events.jsonl`：server→client 的 JSON-RPC 消息（responses / notifications / requests；含 approvals 请求）
 - `agents/<instance>/runtime/rollout.jsonl`：可选，把 Codex 的 `rolloutPath` 拷贝进任务目录（便于归档与复盘）
 - `agents/<instance>/session.json`：持久化 `threadId`、默认 cwd、approval/sandbox 策略等（便于 resume）
 - `shared/evidence/index.json`：建议由 Controller 汇总维护的 Evidence Index（报告/决策用 `evidence:<id>` 引用）
+
+实现参考：
+- app-server client（spawn + stdio JSONL loop + recording）：`crates/agentmesh-codex/src/app_server_client.rs`
+- orchestrator wrapper（semantic API：start/resume/fork/rollback/turn/...）：`crates/agentmesh-orchestrator/src/codex_app_server_adapter.rs`
 
 > 说明：Codex 自身也会在本地保存 rollout（JSONL）。任务目录里拷贝一份的价值在于“任务闭环可复现”，不依赖用户机器上的 Codex home。
 

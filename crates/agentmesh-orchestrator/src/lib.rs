@@ -26,6 +26,10 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
+mod codex_app_server_adapter;
+
+pub use codex_app_server_adapter::CodexAppServerAdapter;
+
 #[derive(Debug, Clone)]
 pub struct Orchestrator {
     store: TaskStore,
@@ -33,6 +37,8 @@ pub struct Orchestrator {
 
 #[derive(Debug, thiserror::Error)]
 pub enum OrchestratorError {
+    #[error("{0}")]
+    CodexAppServer(#[from] agentmesh_codex::CodexAppServerError),
     #[error("{0}")]
     Store(#[from] TaskStoreError),
     #[error("io error: {0}")]
@@ -145,7 +151,11 @@ struct EvidenceEntry {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 enum EvidenceSource {
     FileAnchor {
         path: String,
@@ -470,13 +480,9 @@ impl Orchestrator {
                     id: evidence_id.clone(),
                     kind: "runtime-event-range".to_string(),
                     title: format!("Worker {} runtime", w.agent_instance),
-                    summary: format!(
-                        "[{}] {}",
-                        w.status,
-                        w.summary.trim().to_string()
-                    )
-                    .trim()
-                    .to_string(),
+                    summary: format!("[{}] {}", w.status, w.summary.trim().to_string())
+                        .trim()
+                        .to_string(),
                     created_at: generated_at.to_rfc3339(),
                     sources: vec![EvidenceSource::RuntimeEventRange {
                         events_ref: format!(
@@ -1570,10 +1576,7 @@ mod tests {
         assert!(json_content.contains("question-two"));
         assert!(json_content.contains("action-two"));
 
-        let evidence_index_path = task_dir
-            .join("shared")
-            .join("evidence")
-            .join("index.json");
+        let evidence_index_path = task_dir.join("shared").join("evidence").join("index.json");
         let evidence_index: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(evidence_index_path).unwrap()).unwrap();
         let evidence_entries = evidence_index.as_array().unwrap();
@@ -1583,7 +1586,10 @@ mod tests {
             .iter()
             .find(|v| v.get("id").and_then(|s| s.as_str()) == Some("worker-w1"))
             .unwrap();
-        assert_eq!(w1.get("kind").and_then(|s| s.as_str()), Some("runtime-event-range"));
+        assert_eq!(
+            w1.get("kind").and_then(|s| s.as_str()),
+            Some("runtime-event-range")
+        );
         let w1_sources = w1.get("sources").and_then(|v| v.as_array()).unwrap();
         assert_eq!(
             w1_sources[0].get("type").and_then(|s| s.as_str()),

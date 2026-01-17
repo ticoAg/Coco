@@ -63,6 +63,7 @@ dependencies = [
 name = "agentmesh-orchestrator"
 version = "1.0.2"
 dependencies = [
+ "agentmesh-codex",
  "agentmesh-core",
  "chrono",
  "libc",

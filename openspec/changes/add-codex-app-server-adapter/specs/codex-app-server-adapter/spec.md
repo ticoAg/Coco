@@ -52,17 +52,36 @@ adapter SHALL 支持：
 - **WHEN** adapter 调用 `turn/start`
 - **THEN** adapter 在回合进行中持续收到并向上层输出事件
 
+### Requirement: Model and Config Read Support
+adapter SHALL 支持通过 JSON-RPC 调用 Codex 的以下方法，用于“可发现性/可配置性”：
+
+- `model/list`
+- `config/read`
+
+#### Scenario: Model list can be queried
+- **WHEN** 上层通过 adapter 调用 `model/list`
+- **THEN** adapter 返回可用模型列表（按 app-server 的实际返回字段为准）
+
+#### Scenario: Effective config can be queried
+- **WHEN** 上层通过 adapter 调用 `config/read`
+- **THEN** adapter 返回当前生效配置（按 app-server 的实际返回字段为准）
+
 ### Requirement: Task Directory Recording
 系统 SHALL 将 app-server 的交互与事件原样落盘到 Task Directory（per agent instance）：
 
-- `agents/<instance>/runtime/requests.jsonl`：client→server 的 JSON-RPC 请求（append-only）
-- `agents/<instance>/runtime/events.jsonl`：server→client 的通知/事件（append-only）
+- `agents/<instance>/runtime/requests.jsonl`：client→server 的 JSON-RPC 消息（requests / notifications / responses；append-only）
+- `agents/<instance>/runtime/events.jsonl`：server→client 的 JSON-RPC 消息（responses / notifications / requests；append-only）
 - `agents/<instance>/runtime/stderr.log`：stderr 原样追加
 - `agents/<instance>/session.json`：用于恢复/复盘的最小会话信息（至少包含 threadId、cwd、codexHome、recording paths）
 
 #### Scenario: Requests and notifications are recorded
 - **WHEN** adapter 运行并与 app-server 交互
 - **THEN** `runtime/requests.jsonl` 与 `runtime/events.jsonl` 都被持续追加写入
+
+#### Scenario: Session file stores the latest thread id
+- **GIVEN** adapter 已创建或恢复一个 thread
+- **WHEN** adapter 更新 `agents/<instance>/session.json`
+- **THEN** 文件中包含当前 `threadId`
 
 ### Requirement: Approval Requests Are Surfaced
 当 app-server 发出需要 client 响应的请求（例如 approvals）时，adapter SHALL 将该请求作为一等事件暴露给上层，并提供 `respond(requestId, result)` 将用户决策回传给 app-server。
