@@ -468,6 +468,21 @@ export function TurnBlock({
 					titlePrefix={titlePrefix}
 					titleContent={titleContent}
 					status={e.streaming ? 'Streaming…' : undefined}
+					summaryActions={
+						onForkFromTurn ? (
+							<button
+								type="button"
+								className="rounded-md p-1 text-text-menuDesc opacity-0 transition-opacity hover:bg-bg-menuItemHover hover:text-text-main group-hover:opacity-100"
+								title="Fork from this turn"
+								onClick={(ev) => {
+									ev.stopPropagation();
+									onForkFromTurn(turn.id);
+								}}
+							>
+								<GitBranch className="h-3 w-3" />
+							</button>
+						) : null
+					}
 					copyContent={e.text}
 					icon={<Brain className="h-3.5 w-3.5" />}
 					contentVariant="markdown"
