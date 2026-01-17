@@ -7,6 +7,10 @@
 >
 > 补充：在保持 “Artifacts-first” 的前提下，GUI 也可以提供一个 **Codex Chat** 视图，用 `codex app-server` 做原生对话（会话列表、流式事件、内联审批），而不是复刻 TUI。
 
+> multi/subagent 的完整闭环（Orchestrator 模型 + Controller 状态机 + Evidence-first）见：[`docs/agentmesh/multiagent.md`](./multiagent.md)。
+>
+> 术语约定：本文中的“后端编排器”更准确叫 **Controller（程序状态机）**；“Orchestrator（模型）”负责规划/分解，输出结构化 actions，由 Controller 执行。
+
 > 注：当前仓库内 `agentmesh` CLI 的实现为 MVP，先覆盖 `task create|list|show|events` 与 `--json`；
 > subagent 的 spawn/resume/cancel/join 等编排命令在后续 changes 中补齐。
 
@@ -14,7 +18,7 @@
 
 ### 组件拆分（语言无关）
 
-- **Rust Orchestrator（内置后端，可选 CLI）**
+- **Rust Controller（内置后端，可选 CLI）**
   - 形式：Rust crate（Tauri 后端内置）；也可提供 `agentmesh` 可执行文件作为可选 wrapper
   - 职责：写入任务目录 `.agentmesh/tasks/<task_id>/...`（规划：spawn/resume/cancel/join；当前 MVP：task/events）
   - 执行：并行 subagents/worker 优先用 `codex exec --json`；需要“原生对话 + 内联审批”的交互则使用 `codex app-server`
@@ -29,7 +33,7 @@
 
 以下是常见的拆分方式与可选实现（不影响“任务目录 = 最终产物”这一点）：
 
-- **后端（orchestrator）：Rust crate（Tauri 内置；可选 CLI wrapper）**
+- **后端（Controller）：Rust crate（Tauri 内置；可选 CLI wrapper）**
   - 用途：对接 `codex exec --json`（子进程 + JSONL），负责任务目录落盘与并发控制。
 - **前端（GUI）：React + Vite + TypeScript + Tailwind**
   - 用途：实现任务列表/任务详情/审批交互/事件流等信息密集型页面。
@@ -80,6 +84,7 @@ macOS-only 的 `.app` 里可以包含：
 - 工作目录（workspace root）：GUI 顶部提供主入口（Current/Recent/Open Project/New Window/About/Updates）可切换工作目录与相关操作；切换后会重启 `codex app-server` 并默认开启新会话。工作目录与最近项目（最多 5 条）都会持久化到 App Data（默认优先级低于环境变量 `AGENTMESH_WORKSPACE_ROOT`）。
 - 输入区覆盖：仅提供 `model` 与 `model_reasoning_effort` 的快捷选择（其余配置从 `~/.codex/config.toml` 读取）；`model` 选项来自 `model/list`，若存在 profiles 则合并 `profiles.*.model` 并去重，空集则回退 `gpt-5.2` / `gpt-5.2-codex`。
 - Profile 选择：当 `config.toml` 定义 `profiles` 时，底部状态栏展示 profile 下拉；切换仅影响当前 GUI 会话，会重启 app-server 并恢复当前 session（若当前 turn 进行中需确认）。
+- Fork/Rollback（增强）：在 Codex Chat 中暴露 `thread/fork` 与 `thread/rollback`，用于验证 fork 继承与“清理主线程历史”的交互边界（注意：rollback 只回滚历史，不回滚文件修改）。
 - Auto context（轻量 repo 包装）：当开启 Auto context 时，GUI 会在发送给 Codex 的文本前追加一个固定格式的 header（包含当前 repo 与最多 3 个 related repo 的绝对路径），以便模型自行按路径读取/定位相关文件；聊天区展示实际发送给 Codex 的文本；GUI 顶部 repo selector 仅显示 repo 名称，悬停显示绝对路径，related repo 悬停右侧出现红色 `-` 可移除（会话级，new session 重置）。
 - 配置入口：在 GUI 内打开一个面板，直接编辑 `~/.codex/config.toml`（路径按平台 HOME 目录解析）。
 - 审批交互：当 Codex 请求命令/文件变更审批时，不弹模态框；以**会话消息**形式渲染「批准/拒绝」按钮，点击后回传给 Codex。
@@ -97,7 +102,7 @@ macOS-only 的 `.app` 里可以包含：
 
 ## 3. GUI ↔ 任务目录：最小读接口（建议：Tauri + 文件 watcher）
 
-GUI 的核心职责是读任务目录并做到“实时刷新”；写操作可由内置 orchestrator 接口（或可选 CLI wrapper）承担。
+GUI 的核心职责是读任务目录并做到“实时刷新”；写操作可由内置 Controller 接口（或可选 CLI wrapper）承担。
 
 建议最小能力：
 

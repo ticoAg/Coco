@@ -4,6 +4,8 @@
 >
 > 不做多 TUI 控制台，不解析 ANSI 屏幕；Codex 的交互用其底层接口完成。
 
+> multi/subagent 的完整闭环（Orchestrator 模型 + Controller 状态机 + Evidence-first）见：[`docs/agentmesh/multiagent.md`](../multiagent.md)。
+
 ## 1. 接口选项：`codex app-server`
 
 Codex 提供 `codex app-server`（参见 `github:openai/codex/codex-rs/app-server/README.md`），这是 Codex 用来支撑 VS Code 等富界面的底层接口。
@@ -14,7 +16,11 @@ Codex 提供 `codex app-server`（参见 `github:openai/codex/codex-rs/app-serve
 - 传输：stdio 双向通信
 - 格式：逐行 JSON（JSONL）
 - 协议：JSON-RPC 2.0 语义，但消息里**省略** `"jsonrpc":"2.0"` 头（见 Codex 文档说明）
-- 本地状态：默认复用用户的 Codex Home（通常为 `~/.codex/`），包括 `~/.codex/sessions`（会话历史）与 `~/.codex/config.toml`（配置）
+- 本地状态：可以复用用户的 Codex Home（通常为 `~/.codex/`，包括 `~/.codex/sessions` 与 `~/.codex/config.toml`），也可以为每个 agent instance 设置独立 `CODEX_HOME` 做隔离（推荐用于 subagents / 并行任务）。
+
+> 建议：
+> - **Codex Chat（GUI 原生对话）** 可以复用用户 `~/.codex/`，获得“会话历史/配置”一致性。
+> - **AgentMesh subagents/任务执行** 建议 per-agent `CODEX_HOME = agents/<instance>/codex_home/`，避免会话与缓存互相污染，且利于任务可迁移归档。
 
 ### 1.2 核心对象映射
 
@@ -34,6 +40,8 @@ Codex 提供 `codex app-server`（参见 `github:openai/codex/codex-rs/app-serve
 3) **创建/恢复 session**
 - `thread/start`（新会话，返回 `thread.id`）
 - 或 `thread/resume`（已存在的 `threadId`）
+- （可选）`thread/fork`（从既有 thread 派生新 thread；用于 fork 继承上下文）
+- （可选）`thread/rollback`（回退最近 N 个 turns 的历史；仅回滚历史，不回滚文件）
 
 4) **启动一轮 turn**
 - `turn/start { threadId, input: [ { type:"text", text:"..." } ], ...overrides }`
@@ -53,6 +61,7 @@ Codex 提供 `codex app-server`（参见 `github:openai/codex/codex-rs/app-serve
 - `agents/<instance>/runtime/events.jsonl`：Codex 的 notifications + responses
 - `agents/<instance>/runtime/rollout.jsonl`：可选，把 Codex 的 `rolloutPath` 拷贝进任务目录（便于归档与复盘）
 - `agents/<instance>/session.json`：持久化 `threadId`、默认 cwd、approval/sandbox 策略等（便于 resume）
+- `shared/evidence/index.json`：建议由 Controller 汇总维护的 Evidence Index（报告/决策用 `evidence:<id>` 引用）
 
 > 说明：Codex 自身也会在本地保存 rollout（JSONL）。任务目录里拷贝一份的价值在于“任务闭环可复现”，不依赖用户机器上的 Codex home。
 
@@ -149,6 +158,8 @@ codex exec --json \
 
 - `start_session(agentInstance, cwd, defaults) -> sessionHandle`
 - `resume_session(sessionHandle) -> ok`
+- `fork_session(sessionHandle) -> sessionHandle`（可选；需要 vendor 支持）
+- `rollback_session(sessionHandle, numTurns) -> ok`（可选；注意不回滚文件修改）
 - `start_turn(sessionHandle, inputText, attachments, overrides) -> stream(events)`
 - `interrupt_turn(sessionHandle, turnId) -> ok`
 - `respond_approval(callId, decision) -> ok`

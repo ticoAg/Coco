@@ -4,6 +4,14 @@
 >
 > A2A / ACP / Claude Code Subagents 仅用于参考概念，不作为本项目核心依赖。
 
+> 最新版 multi/subagent 执行方案整合稿见：[`docs/agentmesh/multiagent.md`](./multiagent.md)。
+>
+> 方案推进建议以 OpenSpec changes 作为“计划与验收清单”（便于拆分 PR）：
+> - `openspec/changes/add-task-evidence-index/`
+> - `openspec/changes/add-codex-app-server-adapter/`
+> - `openspec/changes/add-orchestrator-controller-loop/`
+> - `openspec/changes/update-gui-codex-chat-fork-rollback/`
+
 ## Phase 0（现在）：设计沉淀 + 模板库
 
 **目标**
@@ -21,11 +29,13 @@
 ## Phase 1：本地编排器（产物驱动、可暂停/可恢复、可并发）
 
 **目标**
-- 实现一个最小 Orchestrator（优先内置库接口；CLI 作为可选 wrapper），只要能：
+- 实现一个最小 Controller 状态机（优先内置库接口；CLI 作为可选 wrapper），只要能：
   - 创建 task 目录
   - 执行 `fork/join`（并发跑 N 个 agent）
   - 写入结构化产物 + `events.jsonl`
   - 在 `gate.blocked` 时停下等待人工输入
+
+> 说明：这里的“Orchestrator”指 **模型规划层**（输出 actions），Controller 负责解析 actions 并执行调度/落盘。
 
 **实现方式（不绑定 vendor，示例）**
 - 先定义一个 **Adapter 接口**：
@@ -53,6 +63,7 @@
 - 再做 `codex app-server`（参考 `github:openai/codex/codex-rs/app-server/README.md`）：
   - stdio JSON-RPC，Thread/Turn/Item 模型，事件流式输出
   - 支持 approvals（server→client 请求），天然对齐 `gate.blocked` 与 GUI 的审批交互
+  - 支持 fork/rollback（用于继承上下文与控制主线程历史污染）
 - 细节：见 [`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)
 
 **交付物**
@@ -71,6 +82,7 @@
 **交付物**
 - `DiagnosticReport`/`API Contract`/`Test Report` 等模板的“填充器”（从 item 里提取并落盘）
 - `events.jsonl` 的统一事件：`agent.turn.started/completed`、`artifact.written`、`gate.blocked/approved/rejected`
+- Evidence Index（`shared/evidence/index.json`）与 `evidence:<id>` 引用约定：将“关键证据”从过程日志中抽取出来供报告引用
 
 **用户介入**
 - 对提取出的产物进行验收/驳回/补充，触发重跑或继续
@@ -85,6 +97,7 @@
 - 任务列表/任务详情/产物浏览/事件流/审批交互
 - GUI 以 **只读方式**读取任务目录（文件 watcher/轮询），不依赖常驻本地 HTTP 服务
 - （可选增强）Codex Chat：用 `codex app-server` 做原生对话（会话列表/流式 item 事件/web_search 展示），审批以内联消息「批准/拒绝」完成；仅在输入区暴露 `model` 与 `model_reasoning_effort`，其余配置通过编辑 `~/.codex/config.toml` 管理，并复用 `~/.codex/sessions` 历史。
+- （增强）在 Codex Chat 中接入 `thread/fork` 与 `thread/rollback`，用于验证 fork/rollback 的真实语义与边界（以及“只回滚历史，不回滚文件”）。
 
 细节见：[`docs/agentmesh/gui.md`](./gui.md)
 
@@ -107,4 +120,4 @@
 当需要与外部生态对接或做企业级集成时，再考虑：
 
 - A2A：把 Task/Artifact 的本地模型“对齐/映射”为 A2A 语义
-- ACP：把控制台交互抽象为 editor↔orchestrator 的标准接口
+- ACP：把控制台交互抽象为 editor↔agent 的标准接口（可作为 GUI/Controller 的可选兼容层）

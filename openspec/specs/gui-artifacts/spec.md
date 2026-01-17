@@ -1,7 +1,7 @@
 # gui-artifacts Specification
 
 ## Purpose
-TBD - created by archiving change add-07-gui-shared-artifacts. Update Purpose after archive.
+定义 GUI 的 Artifacts 视图：以只读方式从 Task Directory 的 `shared/reports|contracts|decisions` 读取共享产物，提供分类列表、预览渲染与安全的路径访问约束，确保“任务目录 = 可迁移交付物”。
 ## Requirements
 ### Requirement: Artifacts Tab with Categories
 GUI SHALL provide an Artifacts view in task detail that includes three subcategories: Reports, Contracts, and Decisions.
@@ -50,4 +50,3 @@ While the Artifacts view is active, GUI SHALL poll for updated lists and the sel
 - **GIVEN** a new artifact appears in shared/reports
 - **WHEN** the polling interval elapses while the Reports category is active
 - **THEN** the GUI refreshes the list and shows the new artifact
-

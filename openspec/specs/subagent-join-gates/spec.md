@@ -1,7 +1,7 @@
 # subagent-join-gates Specification
 
 ## Purpose
-TBD - created by archiving change add-05-subagent-join-gates. Update Purpose after archive.
+定义 subagent 的 join 汇总与 gates（input-required）机制：将多个 worker 的结构化最终输出收敛为共享报告，并在遇到阻塞/审批点时创建 `gate.blocked`、将任务置为 `input-required`，为 human-in-the-loop 提供统一锚点。
 ## Requirements
 ### Requirement: Join Worker Outputs
 系统 SHALL 支持对同一任务内多个 worker 的最终输出进行 join，并产出共享汇总报告。
@@ -20,7 +20,7 @@ join 的输出 SHALL 至少包含：
 
 #### Scenario: Joined summary is written
 - **GIVEN** 至少两个 worker 均已结束并写入 `agents/<id>/artifacts/final.json`
-- **WHEN** orchestrator 执行 join
+- **WHEN** Controller 执行 join
 - **THEN** 写入 `shared/reports/joined-summary.md`
 
 ### Requirement: Joined Summary Template
@@ -82,4 +82,3 @@ blocked gate SHALL 引用 `shared/human-notes.md` 作为人工介入入口（例
 #### Scenario: Gate points to human notes
 - **WHEN** gate 被创建为 blocked
 - **THEN** gate 的 `instructionsRef` 指向 `./shared/human-notes.md`
-

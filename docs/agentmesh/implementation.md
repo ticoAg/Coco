@@ -4,6 +4,12 @@
 >
 > 重要前提：本项目核心是**直接复用各方成熟的 code TUI/CLI 产品**（例如 codex cli 这类交互式命令行）。A2A / ACP / Claude Code Subagents 的概念只用于借鉴交互模型与术语，不作为硬依赖或必做集成。
 
+> 最新版“可信 multi/subagent 执行方案”的整合稿见：[`docs/agentmesh/multiagent.md`](./multiagent.md)。
+>
+> 术语约定（避免歧义）：
+> - **Orchestrator（模型）**：负责规划/分解/验收，输出结构化 actions。
+> - **Controller（程序）**：负责状态机执行/并发调度/落盘/证据链/权限隔离（仓库代码里通常落在 `agentmesh-orchestrator` crate）。
+
 ## 1. 设计要点回顾（从 AgentMesh 设计抽象成工程需求）
 
 从 [[AgentMesh.md]](../../AgentMesh.md) 与 [[README.md]](../../README.md) 可抽象出以下“必须能落地”的能力：
@@ -106,7 +112,7 @@ Codex 也提供 `codex exec`（参见 `github:openai/codex/codex-rs/exec/`）：
 对 AgentMesh 来说，它非常适合作为 **子代理（subagents）并发执行** 的 MVP：
 
 - 每个 subagent = 独立 `codex exec --json` 子进程（<=8）
-- Orchestrator 只需解析 stdout 的 JSONL 事件，就能驱动 GUI 的实时状态
+- Controller/GUI 只需解析 stdout 的 JSONL 事件，就能驱动实时状态
 - 配合独立 `CODEX_HOME` + git worktree，可获得“独立上下文 + 并发隔离”的体验
 
 细节见：[`docs/agentmesh/subagents.md`](./subagents.md) 与 [`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)。
@@ -119,10 +125,13 @@ Codex adapter 的具体交互与落盘细节见：[`docs/agentmesh/adapters/code
 
 ### 4.1 分层：控制面 / Adapter（Codex）/ 产物面
 
-- **控制面（Orchestrator）**
+- **控制面（Controller 状态机）**
   - 任务状态机（拓扑、里程碑、fork/join、hooks）
   - 人工介入（gates：批准/拒绝/补充）
   - 产物汇总（join：把多个 agent 的结果合并为最终报告/下一步）
+- **规划层（Orchestrator 模型）**
+  - 产出结构化 `actions`（controller 解析执行）
+  - 只吸收“结果索引（路径+摘要+evidence 引用）”，避免吞入全量过程日志
 - **Adapter（Codex-first）**
   - 启动并维护 Codex 后台进程（例如 `codex app-server`）
   - 对外提供 session/turn 抽象：`start_session` / `resume_session` / `start_turn` / `interrupt_turn` / `approve_or_deny`
@@ -149,6 +158,7 @@ Codex adapter 的具体交互与落盘细节见：[`docs/agentmesh/adapters/code
 
 - 固化 Task Directory 规范（见 [[artifacts.md]](./artifacts.md)）
 - 固化结构化报告模板（`DiagnosticReport` / Test Report / API Contract）
+- 固化 Evidence Index（`shared/evidence/index.json`）与“报告引用 token”（`evidence:<id>`），让主控不依赖对话历史也能复盘（见 `openspec/changes/add-task-evidence-index/`）
 - 固化“显式共享”流程（用 manifest 指定 attach 的文件/片段）
 - 用你现有的 `agents/*/agents.md` 作为“可复用 Agent Spec 模板库”
 

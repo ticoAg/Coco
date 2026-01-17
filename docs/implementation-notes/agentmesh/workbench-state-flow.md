@@ -427,3 +427,18 @@ graph TD
 - **用 Dynamic Goal Tracking 把“人脑中的任务规格”变成显式状态**
 - **用 Semantic GC（尾部窗口压缩替换）提高 SNR、控制上下文成本，同时复用压缩点之前的 cache**
 - **用证据约束与 anchors 防漂移，保证可继续执行与可审计性**
+
+---
+
+## Appendix A. Task Flow Notes（TODO probing / lead confirmation）
+
+以下内容原本记录在 `docs/note.md`，与 Workbench 的“状态看板 + 人工介入（gates）”结合更紧密，因此合并到此处，便于集中查找。
+
+- 为每个 task 内的 agent 分配一个 task-level workflow（例如 todo list）。
+- 当 agent 交付子任务但未主动更新 todo 时，可以对它做一次“试探提醒”，要求它更新 todo；若已更新，则提示下一步与状态转移。
+- 在任务每个节点询问：是否存在分歧需要 Lead 确认；Lead 能否确认、是否理解用户意图；如有不确定性则提供 options，把决策权交还给用户。
+- 这一机制本质上是在 subagent 执行环节引入一条“用户输入”：
+  - subagent 提问是否需要 Lead 确认
+  - Lead 给出确认/不确认与原因
+  - 用户做最终决策
+  - 若该段对话不应污染主线程上下文，可配合 fork/rollback 或 detached thread 处理

@@ -1,7 +1,7 @@
 # gui-codex-chat Specification
 
 ## Purpose
-TBD - created by archiving change add-gui-codex-chat-core. Update Purpose after archive.
+定义 GUI 内的 Codex Chat 能力：通过 `codex app-server`（stdio JSON-RPC / JSONL）提供会话列表、turn/item 流式呈现与内联 approvals，并在不复刻 TUI 的前提下补齐模型/effort 选择、config 编辑、profile 选择与 Auto context 包装等富交互能力。
 ## Requirements
 ### Requirement: Codex Session List
 GUI SHALL 读取 `~/.codex/sessions` 的会话索引（或通过 codex app-server `thread/list`）并按最近更新时间排序展示会话列表，至少显示会话 id 与最近一条摘要。
@@ -199,4 +199,3 @@ If the currently focused turn is in progress, GUI SHALL ask for confirmation bef
 - **GIVEN** the focused turn is in progress
 - **WHEN** the user selects a different profile
 - **THEN** the GUI prompts for confirmation and only switches after confirmation
-

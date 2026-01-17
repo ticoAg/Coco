@@ -26,11 +26,15 @@ AgentMesh 是一个多 `Code Agent` 编排框架，用于协调多个异构 agen
 - **Skills（机制）**：把可复用的“专家指令/脚本/资源”以 Skills 形式保存在磁盘上；每个 agent 可预装不同 skill sets 来增强特定领域能力（如何加载由各运行时/适配器决定）
 - **Task（概念）**：一次完整的 `User` - `Agents` 任务交互单元（从需求提出到交付/总结），对应一个可持久化的任务目录；任务内可按 `agent_instance` 归档产出，并通过“显式共享”把必要信息附加给其他 agent（当前仅为设计约定）
 
-详细设想见：[[AgentMesh.md]](./AgentMesh.md)
+从这里开始（项目导航页）：[`AgentMesh.md`](./AgentMesh.md)
+
+文档总索引：[`docs/README.md`](./docs/README.md)
 
 实现评估与多阶段路线图见：[`docs/agentmesh/README.md`](./docs/agentmesh/README.md)
 
 Codex adapter 说明见：[`docs/agentmesh/adapters/codex.md`](./docs/agentmesh/adapters/codex.md)
+
+multi/subagent 的完整闭环方案（Orchestrator 模型 + Controller 状态机 + Evidence-first）见：[`docs/agentmesh/multiagent.md`](./docs/agentmesh/multiagent.md)
 
 ## 目录约定（示例）
 

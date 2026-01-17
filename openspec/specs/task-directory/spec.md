@@ -1,7 +1,7 @@
 # task-directory Specification
 
 ## Purpose
-TBD - created by archiving change add-01-task-directory-artifacts. Update Purpose after archive.
+定义 AgentMesh 的 Task Directory（`.agentmesh/tasks/<task_id>/`）作为任务的唯一事实来源：承载任务状态、事件流、共享产物与人工介入入口，使任务可追踪、可复盘、可迁移，并支持 GUI 以 artifacts-first 的方式“只读”消费任务结果。
 ## Requirements
 ### Requirement: Task Directory Location
 系统 SHALL 将每个任务落盘在工作区根目录下的 `.agentmesh/tasks/<task_id>/`。
@@ -71,4 +71,3 @@ TBD - created by archiving change add-01-task-directory-artifacts. Update Purpos
 - **GIVEN** `task.yaml` 中 `state` 为 `gate.blocked`
 - **WHEN** 解析为 `TaskFile`
 - **THEN** 系统将其映射为 `input-required`
-

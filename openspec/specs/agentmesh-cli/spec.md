@@ -1,7 +1,7 @@
 # agentmesh-cli Specification
 
 ## Purpose
-TBD - created by archiving change add-02-agentmesh-cli. Update Purpose after archive.
+定义 `agentmesh` CLI 作为“短进程控制面”：对 Task Directory 进行创建/读取/编排操作，并提供稳定的 `--json` 输出以便 GUI/脚本集成；CLI 不要求常驻服务，但应与 GUI/Tauri 对工作区根目录的解析逻辑一致。
 ## Requirements
 ### Requirement: CLI Binary
 系统 SHALL 提供 `agentmesh` 命令行工具，用于对任务目录进行读取与编排操作。
@@ -84,4 +84,3 @@ CLI SHALL 支持读取任务 `events.jsonl`，并提供分页参数（例如 `--
 - **GIVEN** 任务存在且有事件
 - **WHEN** 执行 `agentmesh task events <task_id> --limit 50 --offset 0`
 - **THEN** 返回最多 50 条事件
-

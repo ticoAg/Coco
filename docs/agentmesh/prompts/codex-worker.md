@@ -3,6 +3,8 @@
 > 目的：让 AgentMesh 以“prompt + 结构化输出协议”的方式，把 `codex exec --json` 当作一个可编排的 subagent worker。
 >
 > 适用：`docs/agentmesh/subagents.md` 的并行 worker 架构。
+>
+> multi/subagent 的整体闭环与 evidence-first 约定见：[`docs/agentmesh/multiagent.md`](../multiagent.md)。
 
 ## 1. 约束：你是 subagent，不是主控
 
@@ -22,9 +24,9 @@ worker 在最后一条消息必须输出一个 JSON 对象，字段语义参考�
 
 - `schemas/worker-output.schema.json`
 
-## 3. 推荐 Prompt 模板（给 orchestrator 拼接用）
+## 3. 推荐 Prompt 模板（给 Controller 拼接用）
 
-> 注意：这不是 Codex 的系统 prompt，而是 orchestrator 传给 worker 的任务 prompt 模板（你可以在程序里做填充）。
+> 注意：这不是 Codex 的系统 prompt，而是 Controller（或上层编排器）传给 worker 的任务 prompt 模板（你可以在程序里做填充）。
 
 ```
 你是一个子代理（subagent worker）。你只负责完成下面这个子任务。
@@ -48,6 +50,12 @@ worker 在最后一条消息必须输出一个 JSON 对象，字段语义参考�
 - 成功：status=success，并给出 summary + artifacts（branch/worktreePath/touchedFiles 可选）+ nextActions
 - 阻塞：status=blocked，并给出 questions（明确问什么、为什么需要）
 - 失败：status=failed，并给出 errors（简要）+ nextActions（如何排障/重试）
+
+## 证据要求（强烈建议）
+为了让主控不必吞下大量过程日志，请在 `summary` 或 `nextActions` 中用“可复盘指针”的方式写出关键依据（Controller 可据此生成 Evidence Index）：
+
+- 代码证据：`path:line`（或 `path:startLine-endLine`）
+- 命令证据：命令本身 + 你认为关键的输出/错误摘要（必要时指出 `runtime/events.jsonl` / `stderr.log` 中可检索的关键词）
 ```
 
 ## 4. 经验规则（可选放到 prompt）
@@ -57,4 +65,3 @@ worker 在最后一条消息必须输出一个 JSON 对象，字段语义参考�
 - 优先小步提交、避免“大而全”改动
 - 改完后跑最相关的测试/构建命令，并在 `nextActions` 里写出你跑了什么、结果如何
 - 如果你需要主控再 spawn 另一个 subagent，写进 `nextActions`（例如“建议再开一个 agent 去定位 X”）
-

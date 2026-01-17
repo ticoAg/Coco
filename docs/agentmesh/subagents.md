@@ -5,6 +5,8 @@
 > 本文聚焦 **`codex-cli + prompt`** 的可行实现路径：AgentMesh 负责控制面（并发、状态、产物、人工介入）；Codex CLI 作为一个或多个“后台 coder worker”运行。
 
 > 注：这里的“agentmesh 控制面”可以内置在 GUI/Tauri 后端运行；`agentmesh` CLI 仅作为可选 wrapper，并非必须入口。
+>
+> 最新版“可信 multi/subagent 执行方案”整合稿见：[`docs/agentmesh/multiagent.md`](./multiagent.md)。本文主要聚焦 subagent worker（`codex exec --json`）这条路径如何落地。
 
 ## 1. 关键诉求与结论
 
@@ -25,7 +27,7 @@
 
 > 注：`codex app-server` 也可做（能力更强、支持 approvals 交互），但“并行 subagent + GUI 状态”这个阶段，`codex exec --json` 更轻、更快落地。
 
-## 2. 架构：GUI + Orchestrator + Workers（subagents）
+## 2. 架构：GUI + Controller + Workers（subagents）
 
 ```
 ┌──────────────────────┐
@@ -37,7 +39,7 @@
 └──────────┬───────────┘
            │ agentmesh 控制面（内置后端 / 可选 CLI）
 ┌──────────▼───────────┐
-│ agentmesh orchestrator │  spawn/resume/cancel/join/落盘（启动后台 worker 后即可退出）
+│ Controller (agentmesh-orchestrator) │  spawn/resume/cancel/join/落盘（启动后台 worker 后即可退出）
 └──────────┬───────────┘
            │ spawn N 个进程（<= 8）
 ┌──────────▼───────────┐
@@ -51,12 +53,14 @@
 
 Task Directory 是事实来源：
 
-- `agentmesh` 控制面（内置后端或可选 CLI wrapper）负责创建/更新任务目录（spawn/resume/cancel/join）
+- Controller（内置后端或可选 CLI wrapper）负责创建/更新任务目录（spawn/resume/cancel/join）
 - 每个 worker 直接把 JSONL 事件写入 `agents/<id>/runtime/events.jsonl`（stdout 重定向）
 - worker 的最终结构化输出写入 `agents/<id>/artifacts/final.json`
 - GUI 只需读取目录并渲染（不需要常驻后端服务）
 
 GUI 只是把这些事实呈现出来并提供“人工介入动作”（允许/拒绝/补充约束/重跑/合并）。
+
+> 术语提醒：Controller 是程序状态机；Orchestrator（模型）是规划层（输出结构化 actions）。两者职责分离能显著降低上下文污染并提升可复盘性。
 
 ## 3. subagent 的“独立上下文”如何实现
 
@@ -77,7 +81,7 @@ Claude subagent 有独立上下文窗口。Codex 侧可以用两层隔离实现�
 建议把“写入策略”显式建模为 `workspaceMode`（示意）：
 
 - `worktree`：每个 subagent 独立 worktree + branch，可并行写（推荐）
-- `shared`：不创建 worktree；允许多个只读 subagent 并行，但 **write-enabled subagent 必须串行**（由 orchestrator 通过 lock 保证）
+- `shared`：不创建 worktree；允许多个只读 subagent 并行，但 **write-enabled subagent 必须串行**（由 Controller 通过 lock 保证）
 
 #### 3.2.1 `worktree`（并发写：推荐）
 
@@ -93,7 +97,7 @@ Claude subagent 有独立上下文窗口。Codex 侧可以用两层隔离实现�
 在共享工作目录模式下：
 
 - 所有 worker 共享同一个 `cwd=<repo>`
-- orchestrator 维护一个 **写锁**（例如 `.agentmesh/locks/workspace-write.lock`）
+- Controller 维护一个 **写锁**（例如 `.agentmesh/locks/workspace-write.lock`）
   - 只有拿到写锁的 worker 才允许写入/修改文件
   - 其他 worker 只做“读 + 分析 + 报告”，不做文件变更
 
@@ -105,7 +109,7 @@ Claude subagent 有独立上下文窗口。Codex 侧可以用两层隔离实现�
 
 `codex exec --json` 会在 stdout 输出 JSON Lines（每行一个 event）。事件定义见 Codex 源码：
 
-- `codex-rs/exec/src/exec_events.rs`（在 codex 仓库中）
+- `github:openai/codex/codex-rs/exec/src/exec_events.rs`
 
 常用事件（示意）：
 
@@ -117,7 +121,7 @@ Claude subagent 有独立上下文窗口。Codex 侧可以用两层隔离实现�
   - `todo_list`（计划步骤与状态）
   - `agent_message` / `reasoning` / `error`
 
-### 4.2 subagent 状态机（Orchestrator 内部）
+### 4.2 subagent 状态机（Controller 内部）
 
 建议最小状态：
 
@@ -220,14 +224,17 @@ MVP 里你不必消费所有事件字段；只要能做下面这几类展示就�
 - `<task_dir>/agents/<agent_id>/runtime/stderr.log`：stderr 原样落盘
 - `<task_dir>/agents/<agent_id>/artifacts/final.json`：`--output-last-message` 的结果（结构化）
 - `<task_dir>/agents/<agent_id>/session.json`：记录
-  - `thread_id`（用于 resume）
-  - `worktree_path` / `branch`
-  - `codex_home`
+  - `threadId`（用于 resume；本质是 Codex session/thread 的 UUID 字符串）
+  - `worktreePath` / `branch`（如启用 worktree）
+  - `codexHome`
 
-最终再由 orchestrator 把多个 worker 的 `final.json` join 成：
+最终再由 Controller 把多个 worker 的 `final.json` join 成：
 
 - `<task_dir>/shared/reports/joined-summary.md`（人类入口）
 - `<task_dir>/shared/reports/joined-summary.json`（机器入口，可选）
+
+并建议同时维护 Evidence Index：
+- `<task_dir>/shared/evidence/index.json`（EvidenceEntry[]，报告中用 `evidence:<id>` 引用关键证据）
 
 ### 8.4 最小接口（给 GUI/主控用）：接口 + 文件（CLI 可选）
 
@@ -256,7 +263,9 @@ GUI 实时刷新可以用两层：
 
 当用户在 GUI 中点击 Resume（或主控需要追加问题）时：
 
-- 读取 `session.json` 里的 `thread_id`
-- 调用：`codex exec resume <thread_id> --json -C <worktree> "<PROMPT>"`
+- 读取 `session.json` 里的 `threadId`
+- 调用：`codex exec resume <threadId> --json -C <worktree> "<PROMPT>"`
+
+> 备注：`codex exec resume` 也支持不指定 id 并用 `--last` 选择最近会话；是否采用取决于你是否希望“显式可复盘”（通常建议显式记录并使用 `threadId`）。
 
 > 注意：resume 的可用性依赖 Codex 对 session 的落盘策略；因此强烈建议 per-worker 独立 `CODEX_HOME`，避免 session 文件互相覆盖或被清理。

@@ -31,6 +31,8 @@
   shared/
     context-manifest.yaml       # “显式共享”清单：哪些文件/片段作为 task context（常见）
     human-notes.md              # 人工指导/纠错入口（常见）
+    evidence/                   # 证据索引（Evidence Index）：可引用证据与指针（推荐）
+      index.json                # EvidenceEntry[]（JSON 数组；可为空）
     contracts/                  # 契约中心（API/Schema/Error model）
     decisions/                  # 决策记录（ADR/权衡/结论）
     reports/                    # 汇总报告（joined summary）
@@ -59,10 +61,10 @@
   "adapter": "codex-app-server",
   "vendorSession": {
     "tool": "codex",
-    "threadId": "thr_123",
+    "threadId": "0193c2d4-1234-4c56-8abc-9d0123456789",
     "cwd": "/path/to/repo",
     "codexHome": "./codex_home",
-    "rolloutPath": "/Users/me/.codex/rollouts/thr_123.jsonl"
+    "rolloutPath": "/Users/me/.codex/sessions/0193c2d4-1234-4c56-8abc-9d0123456789/rollout-000.jsonl"
   },
   "recording": {
     "requests": "./runtime/requests.jsonl",
@@ -80,8 +82,10 @@
 
 补充：同为 Codex 运行时也可能有两种落地方式：
 
-- `codex app-server`：`vendorSession.threadId = "thr_..."`（Thread/Turn/Item 模型）
-- `codex exec --json`：`vendorSession.threadId = "<uuid>"`（JSONL 事件以 `thread.started` 开头）
+- `codex app-server`：Thread/Turn/Item 模型（支持 approvals、fork/rollback、流式 items）
+- `codex exec --json`：一次性执行 + JSONL 事件流（适合并行 worker）
+
+> 说明：在当前 Codex 实现里，threadId 本质是 UUID 字符串。不要依赖 `thr_...` 这类前缀形式。
 
 ### 2.1 `task.yaml`（最小字段示例）
 
@@ -137,6 +141,18 @@ events.jsonl 常用 JSON Lines 记录每个关键事件，便于：
 ```
 
 > 与 A2A 的映射：A2A 的 `TaskStatusUpdateEvent` / `TaskArtifactUpdateEvent` 可以直接镜像为本地事件流；A2A 的 `input-required` 也能落到 `gate.blocked` + `human-notes.md`。
+
+### 2.3 Evidence Index（证据索引：避免“上下文倾倒”）
+
+在 multi/subagent 场景里，最容易失控的是“过程噪声”：大量读文件片段、命令输出、探索性推理会迅速淹没主控上下文。建议把“关键证据”结构化落盘，并在报告/决策中只引用它，而不是复制大段日志。
+
+推荐在每个 task 维护：`shared/evidence/index.json`（JSON 数组，元素为 `EvidenceEntry`），并在 Markdown 中用 `evidence:<id>` 引用（例如：`evidence:cmd-42`）。
+
+Evidence 的来源（source）通常指向可复盘的原始记录：
+
+- 文件锚点（path + 行号范围）
+- 命令执行（command + stdout/stderr ref）
+- runtime 事件范围（events.jsonl 的行号范围）
 
 ## 3. 产物文件规范：Markdown + YAML Front Matter
 

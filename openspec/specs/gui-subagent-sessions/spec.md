@@ -1,7 +1,7 @@
 # gui-subagent-sessions Specification
 
 ## Purpose
-TBD - created by archiving change add-06-gui-subagent-sessions. Update Purpose after archive.
+定义 GUI 的 Subagents / Sessions 视图：仅通过读取 Task Directory（`agents/<instance>/...`）来呈现每个 subagent session 的状态、最后更新时间、结构化最终输出与 runtime 事件，支持 artifacts-first 展示与“无常驻服务”的最小可用交互。
 ## Requirements
 ### Requirement: Sessions View
 GUI SHALL 在任务详情中展示该任务的 subagents/sessions 概览，并至少包含：agent instance id（目录名）、状态（按推导规则）、最后更新时间（按推导规则）。
@@ -79,4 +79,3 @@ GUI SHALL 支持查看每个 session 的 runtime 事件（来自 `agents/<instan
 - **GIVEN** `runtime/events.jsonl` 存在
 - **WHEN** 用户打开 session 详情
 - **THEN** GUI 展示最近 N 条事件
-

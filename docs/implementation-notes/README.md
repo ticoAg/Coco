@@ -4,6 +4,7 @@
 
 ## 目录索引
 
-- `codex-cli/`：Codex CLI（`codex-rs` / `tui` / `tui2`）相关实现原理
-- `codex-vscode-plugin/`：Codex VSCode 插件相关实现原理
-- `agentmesh-gui-codex-style/`：AgentMesh GUI 参考 Codex VSCode 插件的 UI/UX 样式映射与组件骨架（tokens / cards / folding）
+- [`agentmesh/`](./agentmesh/README.md)：AgentMesh 自身机制笔记（例如 Workbench State-Flow）
+- [`codex-cli/`](./codex-cli/README.md)：Codex CLI（`codex-rs` / `tui` / `tui2`）相关实现原理
+- [`codex-vscode-plugin/`](./codex-vscode-plugin/README.md)：Codex VSCode 插件相关实现原理
+- [`agentmesh-gui-codex-style/`](./agentmesh-gui-codex-style/README.md)：AgentMesh GUI 参考 Codex VSCode 插件的 UI/UX 样式映射与组件骨架（tokens / cards / folding）

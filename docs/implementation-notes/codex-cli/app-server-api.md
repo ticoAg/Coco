@@ -14,7 +14,7 @@ GUI 通过 Tauri 后端与 codex app-server 进程通信，使用 JSON-RPC 协�
 | Codex App Server 客户端 | `apps/gui/src-tauri/src/codex_app_server.rs` |
 | 前端 API 客户端 | `apps/gui/src/api/client.ts` |
 | 前端类型定义 | `apps/gui/src/types/codex.ts` |
-| Codex 协议定义 | `github:openai/codex/codex-rs/app-server-protocol/src/protocol/common.rs` |
+| Codex 协议定义 | `github:openai/codex/codex-rs/app-server-protocol/src/protocol/v2.rs`（v2）与 `.../protocol/common.rs`（共享类型/通知） |
 
 ---
 
@@ -101,24 +101,26 @@ GUI 通过 Tauri 后端与 codex app-server 进程通信，使用 JSON-RPC 协�
 
 ### 1. thread/fork
 - **描述**: 从现有会话创建一个新的分支
-- **协议定义**: `app-server-protocol/src/protocol/common.rs:112`
-- **参数**: `{ "threadId": "string" }`
+- **协议定义**: `app-server-protocol/src/protocol/v2.rs`（`ThreadForkParams`）
+- **参数（最小）**: `{ "threadId": "string" }`
+- **参数（可选）**: 支持传 model/cwd/approvalPolicy/sandbox 等 overrides（以 v2 schema 为准）
 - **用途**: 允许用户从某个对话点创建分支，尝试不同的方向
-- **建议**: 在会话列表中添加"分叉"按钮
+- **建议**: 在会话列表/会话页提供 "Fork" 按钮（计划在 OpenSpec change `update-gui-codex-chat-fork-rollback` 落地）
 
 ### 2. thread/archive
 - **描述**: 归档/删除会话
-- **协议定义**: `app-server-protocol/src/protocol/common.rs:116`
+- **协议定义**: `app-server-protocol/src/protocol/v2.rs`（`ThreadArchiveParams`）
 - **参数**: `{ "threadId": "string" }`
 - **用途**: 清理不需要的会话历史
 - **建议**: 添加"删除会话"功能
 
 ### 3. thread/rollback
-- **描述**: 将会话回滚到之前的状态
-- **协议定义**: `app-server-protocol/src/protocol/common.rs:120`
-- **参数**: `{ "threadId": "string", "turnId": "string" }`
-- **用途**: 撤销某些对话轮次，回到之前的状态
-- **建议**: 在对话历史中添加"回滚到此处"功能
+- **描述**: 回滚会话历史（回退最近 N 个 turns）
+- **协议定义**: `app-server-protocol/src/protocol/v2.rs`（`ThreadRollbackParams`）
+- **参数**: `{ "threadId": "string", "numTurns": number }`（`numTurns >= 1`）
+- **用途**: 撤销最近若干 turns 的“会话历史”，用于控制上下文污染/回到此前对话点
+- **重要语义**: rollback 只修改 thread 的历史，不会回滚本地文件修改
+- **建议**: 在会话页提供 "Rollback"（MVP: last 1 turn；计划在 OpenSpec change `update-gui-codex-chat-fork-rollback` 落地）
 
 ---
 

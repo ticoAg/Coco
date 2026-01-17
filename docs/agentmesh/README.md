@@ -2,17 +2,22 @@
 
 本目录用于把 [[AgentMesh.md]](../../AgentMesh.md) 与 [[README.md]](../../README.md) 的设计，结合 `docs/references/` 里的资料（Skills 定义；A2A/ACP/Subagents 仅作概念参考），整理为**可实施**的工程化方案。
 
-## 你会在这里找到什么
+## 推荐阅读顺序（从方案到落地）
 
-- [[implementation.md]](./implementation.md)：实现评估 + 目标架构（如何直接读取 CLI 工具的结构化输出，并落盘为可介入产物）
-- [[multiagent.md]](./multiagent.md)：multi/subagent 的完整落地方案（Orchestrator + Controller + Adapter + Task Directory + Evidence）
-- [[subagents.md]](./subagents.md)：子代理（Subagents）如何用 `codex-cli + prompt` 落地：并发执行、上下文隔离、状态感知、可恢复
-- [[artifacts.md]](./artifacts.md)：产物（Artifacts）形态规范：任务目录、结构化报告、显式共享、人工介入点
-- [[roadmap.md]](./roadmap.md)：多阶段实施路线图（Codex-first：session 驱动 + 事件流提取）
-- [[gui.md]](./gui.md)：GUI 形态（Artifacts-first 的任务页面）
-- [[release.md]](./release.md)：CI / 发版流程（GitHub Actions + macOS DMG + Ubuntu DEB）
-- `adapters/`：运行时适配说明（首个：[`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)）
-- `prompts/`：可复用 prompt 模板（首个：[`docs/agentmesh/prompts/codex-worker.md`](./prompts/codex-worker.md)）
+1) [`docs/agentmesh/multiagent.md`](./multiagent.md)：multi/subagent 闭环（Orchestrator + Controller + Adapter + Task Directory + Evidence）
+2) [`docs/agentmesh/artifacts.md`](./artifacts.md)：任务目录与产物规范（Artifacts-first / human-in-the-loop）
+3) [`docs/agentmesh/subagents.md`](./subagents.md)：subagent（workers）如何用 `codex exec --json` 落地并发执行
+4) [`docs/agentmesh/adapters/codex.md`](./adapters/codex.md)：Codex adapter（exec / app-server）接入要点与落盘映射
+5) [`docs/agentmesh/gui.md`](./gui.md)：GUI（Artifacts-first + Codex Chat）信息架构与交互
+6) [`docs/agentmesh/implementation.md`](./implementation.md)：实现评估 + 目标架构（Controller/Adapter/Artifacts 的分层）
+7) [`docs/agentmesh/roadmap.md`](./roadmap.md)：多阶段实施路线图（按 OpenSpec changes 推进）
+8) [`docs/agentmesh/release.md`](./release.md)：CI / 发版流程
+
+## 目录结构
+
+- [`adapters/`](./adapters/README.md)：运行时适配说明（以 Codex 为首个接入目标）
+- [`prompts/`](./prompts/README.md)：可复用 prompt 模板（例如 `codex-worker.md`）
+- [`legacy/`](./legacy/README.md)：历史文档归档（避免与当前事实混淆）
 
 ## 核心原则（先定产物，再写引擎）
 

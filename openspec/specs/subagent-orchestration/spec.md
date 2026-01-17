@@ -1,7 +1,7 @@
 # subagent-orchestration Specification
 
 ## Purpose
-TBD - created by archiving change add-04-subagent-orchestration-lifecycle. Update Purpose after archive.
+定义 Controller 在单个任务内对多个 subagent（workers）的编排与生命周期管理能力：并发上限、状态推导、wait-any、取消策略，以及将关键生命周期事件以 append-only 形式写入任务级 `events.jsonl`，并与 Task Directory 的落盘结构对齐。
 ## Requirements
 ### Requirement: Spawn Multiple Subagents
 系统 SHALL 支持在单个任务内启动多个 subagent（workers），并遵守 `task.yaml.config.maxConcurrentAgents` 的并发上限。
@@ -66,4 +66,3 @@ subagent 的最小落盘形态 SHOULD 对齐 Task Directory：
 #### Scenario: Agent started event is written
 - **WHEN** subagent 启动成功
 - **THEN** `events.jsonl` 中追加一条 `type` 以 `agent.` 开头的事件（例如 `agent.started`）
-

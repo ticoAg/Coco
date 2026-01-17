@@ -1,7 +1,7 @@
 # codex-exec-adapter Specification
 
 ## Purpose
-TBD - created by archiving change add-03-codex-exec-adapter. Update Purpose after archive.
+定义基于 `codex exec --json` 的最小 Codex adapter：将 Codex 作为外部 worker 子进程运行，消费其 stdout JSONL 事件流，并把 runtime 记录与结构化最终输出落盘到 Task Directory，以支持 subagent 并发执行与可复盘的 artifacts-first 工作流。
 ## Requirements
 ### Requirement: External `codex` Dependency
 系统 SHALL 将 `codex` 视为外部可执行依赖（通过 PATH 发现），并在缺失时给出可理解的错误信息。
@@ -9,7 +9,7 @@ TBD - created by archiving change add-03-codex-exec-adapter. Update Purpose afte
 #### Scenario: Codex not installed
 - **GIVEN** PATH 中不存在 `codex`
 - **WHEN** 启动一个 codex worker
-- **THEN** worker 进入失败状态并记录错误原因（不导致 orchestrator 崩溃）
+- **THEN** worker 进入失败状态并记录错误原因（不导致 Controller 崩溃）
 
 ### Requirement: Spawn Worker via `codex exec --json`
 系统 SHALL 通过子进程调用 `codex exec --json` 启动 worker，并将 stdout 视为 JSONL 事件流；同时将 stdout/stderr 与最终输出落盘到 Task Directory：
@@ -73,7 +73,7 @@ codex exec --json \
 #### Scenario: Blocked worker maps to blocked outcome
 - **GIVEN** `artifacts/final.json.status == "blocked"`
 - **WHEN** worker 退出
-- **THEN** orchestrator/GUI 将该 worker 视为 `blocked`
+- **THEN** Controller/GUI 将该 worker 视为 `blocked`
 
 ### Requirement: Stderr Recording
 系统 SHALL 将 worker stderr 原样落盘（例如 `agents/<instance>/runtime/stderr.log`），用于排障与审计。
@@ -81,4 +81,3 @@ codex exec --json \
 #### Scenario: Capture stderr logs
 - **WHEN** worker 执行外部命令或发生错误
 - **THEN** stderr 信息可在 `runtime/stderr.log` 中找到
-
