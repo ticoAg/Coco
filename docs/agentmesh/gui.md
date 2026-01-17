@@ -81,6 +81,7 @@ macOS-only 的 `.app` 里可以包含：
 
 - 进程/协议：由 Tauri Rust 侧直接启动系统 PATH 中的 `codex app-server`，通过 stdio JSON-RPC 进行双向通信。
 - 会话历史：复用 `~/.codex/sessions`（对应 app-server 的 `thread/list`），按最近更新时间排序，显示 `threadId` + `preview` 摘要。
+- 会话树交互轮数：左侧会话树的 task/orchestrator/worker 节点用“用户输入 + AI 输出”累计轮数替代图标显示（每个 user message +1，AI 每轮 +1）。
 - 工作目录（workspace root）：GUI 顶部提供主入口（Current/Recent/Open Project/New Window/About/Updates）可切换工作目录与相关操作；切换后会重启 `codex app-server` 并默认开启新会话。工作目录与最近项目（最多 5 条）都会持久化到 App Data（默认优先级低于环境变量 `AGENTMESH_WORKSPACE_ROOT`）。
 - 输入区覆盖：仅提供 `model` 与 `model_reasoning_effort` 的快捷选择（其余配置从 `~/.codex/config.toml` 读取）；`model` 选项来自 `model/list`，若存在 profiles 则合并 `profiles.*.model` 并去重，空集则回退 `gpt-5.2` / `gpt-5.2-codex`。
 - Profile 选择：当 `config.toml` 定义 `profiles` 时，底部状态栏展示 profile 下拉；切换仅影响当前 GUI 会话，会重启 app-server 并恢复当前 session（若当前 turn 进行中需确认）。

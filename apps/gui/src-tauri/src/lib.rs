@@ -79,6 +79,7 @@ struct CodexThreadSummary {
     model_provider: String,
     created_at: i64,
     updated_at_ms: Option<u64>,
+    interaction_count: Option<u32>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -319,6 +320,74 @@ fn modified_ms(path: &std::path::Path) -> Option<u64> {
         .ok()
         .and_then(|m| m.modified().ok())
         .and_then(to_epoch_ms)
+}
+
+fn interaction_count_from_rollout(path: &std::path::Path) -> Option<u32> {
+    use std::io::BufRead;
+
+    let file = std::fs::File::open(path).ok()?;
+    let reader = std::io::BufReader::new(file);
+
+    let mut user_count: u32 = 0;
+    let mut ai_count: u32 = 0;
+    let mut ai_pending = false;
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(line) => line,
+            Err(_) => continue,
+        };
+        if !line.contains(r#""event_msg""#) && !line.contains(r#""response_item""#) {
+            continue;
+        }
+        let value: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let line_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        match line_type {
+            "event_msg" => {
+                let payload = match value.get("payload") {
+                    Some(payload) => payload,
+                    None => continue,
+                };
+                let event_type = payload.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+                match event_type {
+                    "user_message" => {
+                        if ai_pending {
+                            ai_count = ai_count.saturating_add(1);
+                        }
+                        user_count = user_count.saturating_add(1);
+                        ai_pending = true;
+                    }
+                    "turn_complete" | "task_complete" | "turn_aborted" | "error" => {
+                        if ai_pending {
+                            ai_count = ai_count.saturating_add(1);
+                            ai_pending = false;
+                        }
+                    }
+                    _ => {
+                        if event_type.starts_with("agent_") {
+                            if ai_pending {
+                                ai_count = ai_count.saturating_add(1);
+                                ai_pending = false;
+                            }
+                        }
+                    }
+                }
+            }
+            "response_item" => {
+                if ai_pending {
+                    ai_count = ai_count.saturating_add(1);
+                    ai_pending = false;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Some(user_count.saturating_add(ai_count))
 }
 
 fn read_optional_string(path: &std::path::Path) -> Result<Option<String>, String> {
@@ -1226,12 +1295,14 @@ async fn codex_thread_list(
             .unwrap_or("")
             .to_string();
         let created_at = entry.get("createdAt").and_then(|v| v.as_i64()).unwrap_or(0);
-        let updated_at_ms = entry
+        let thread_path = entry
             .get("path")
             .and_then(|v| v.as_str())
-            .map(std::path::PathBuf::from)
+            .map(std::path::PathBuf::from);
+        let updated_at_ms = thread_path.as_deref().and_then(modified_ms);
+        let interaction_count = thread_path
             .as_deref()
-            .and_then(modified_ms);
+            .and_then(interaction_count_from_rollout);
 
         threads.push(CodexThreadSummary {
             id: id.to_string(),
@@ -1239,6 +1310,7 @@ async fn codex_thread_list(
             model_provider,
             created_at,
             updated_at_ms,
+            interaction_count,
         });
     }
 

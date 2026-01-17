@@ -34,6 +34,9 @@ export function TreeNode({
 		onToggleExpand(node.id);
 	};
 
+	const showInteractionCount =
+		node.interactionCount != null && (node.type === 'task' || node.type === 'orchestrator' || node.type === 'worker');
+
 	return (
 		<div>
 			<div
@@ -57,11 +60,22 @@ export function TreeNode({
 				</button>
 
 				{/* Icon */}
-				<SessionTreeIcon
-					type={node.type}
-					isExpanded={isExpanded}
-					className={getStatusColor(node.status)}
-				/>
+				{showInteractionCount ? (
+					<div
+						className={[
+							'flex h-4 min-w-[14px] items-center justify-center rounded-full bg-white/10 px-1 text-[9px] font-semibold',
+							getStatusColor(node.status),
+						].join(' ')}
+					>
+						{node.interactionCount}
+					</div>
+				) : (
+					<SessionTreeIcon
+						type={node.type}
+						isExpanded={isExpanded}
+						className={getStatusColor(node.status)}
+					/>
+				)}
 
 				{/* Running indicator */}
 				{node.isActive ? <SessionRunningIndicator /> : null}

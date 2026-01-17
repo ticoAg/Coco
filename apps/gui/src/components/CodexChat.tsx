@@ -1516,6 +1516,8 @@ export function CodexChat() {
 			nodeById[node.id] = node;
 		};
 
+		const interactionCountFor = (threadId: string) => threadSummaryById.get(threadId)?.interactionCount ?? null;
+
 		const buildFileNodes = (threadId: string, idPrefix: string, relativePath: string): TreeNodeData[] => {
 			const entries = workspaceDirEntriesByPath[relativePath];
 			if (!entries) return [];
@@ -1592,6 +1594,7 @@ export function CodexChat() {
 							id: workerNodeId,
 							type: 'worker',
 							label: labelForThread(threadSummaryById.get(workerId), workerId),
+							interactionCount: interactionCountFor(workerId),
 							isActive: workerRunning,
 							status: workerRunning ? 'running' : undefined,
 							metadata: { threadId: workerId },
@@ -1608,6 +1611,7 @@ export function CodexChat() {
 						id: orchestratorNodeId,
 						type: 'orchestrator',
 						label: labelForThread(threadSummaryById.get(orchestratorId), orchestratorId),
+						interactionCount: interactionCountFor(orchestratorId),
 						isActive: orchestratorRunning,
 						status: orchestratorRunning ? 'running' : undefined,
 						metadata: { threadId: orchestratorId },
@@ -1621,6 +1625,7 @@ export function CodexChat() {
 					id: taskNodeId,
 					type: 'task',
 					label: labelForThread(session, session.id),
+					interactionCount: session.interactionCount ?? null,
 					isActive: taskIsActive,
 					status: taskIsActive ? 'running' : undefined,
 					metadata: { threadId: session.id },

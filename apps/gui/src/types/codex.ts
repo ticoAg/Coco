@@ -12,6 +12,7 @@ export interface CodexThreadSummary {
 	modelProvider: string;
 	createdAt: number;
 	updatedAtMs: number | null;
+	interactionCount?: number | null;
 }
 
 export interface CodexThreadListResponse {

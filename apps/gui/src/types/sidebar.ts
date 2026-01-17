@@ -8,6 +8,7 @@ export interface TreeNodeData {
 	id: string;
 	type: TreeNodeType;
 	label: string;
+	interactionCount?: number | null;
 	children?: TreeNodeData[];
 	isExpanded?: boolean;
 	isSelected?: boolean;
