@@ -111,6 +111,7 @@ pub fn run() {
             tail_subagent_stderr,
             task_read_text_file,
             task_list_directory,
+            workspace_list_directory,
             list_shared_artifacts,
             read_shared_artifact,
             workspace_root_get,
@@ -811,6 +812,85 @@ fn task_list_directory(
     let canonical_target = std::fs::canonicalize(&target_dir).map_err(|e| e.to_string())?;
     if !canonical_target.starts_with(&canonical_base) {
         return Err("path escapes task directory".to_string());
+    }
+
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(&canonical_target).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let entry_path = entry.path();
+        let canonical_entry = match std::fs::canonicalize(&entry_path) {
+            Ok(path) => path,
+            Err(_) => continue,
+        };
+        if !canonical_entry.starts_with(&canonical_base) {
+            continue;
+        }
+        let metadata = entry.metadata().ok();
+        let is_directory = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        let size_bytes = if is_directory {
+            None
+        } else {
+            metadata.as_ref().map(|m| m.len())
+        };
+        let updated_at_ms = metadata
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(to_epoch_ms);
+        let entry_rel_path = if rel_path.as_os_str().is_empty() {
+            entry.file_name().to_string_lossy().to_string()
+        } else {
+            format!("{}/{}", relative_path, entry.file_name().to_string_lossy())
+        };
+
+        entries.push(TaskDirectoryEntry {
+            name: entry.file_name().to_string_lossy().to_string(),
+            path: entry_rel_path,
+            is_directory,
+            size_bytes,
+            updated_at_ms,
+        });
+    }
+
+    // Sort: directories first, then by name
+    entries.sort_by(|a, b| match (a.is_directory, b.is_directory) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
+
+    Ok(entries)
+}
+
+#[tauri::command]
+fn workspace_list_directory(cwd: String, relative_path: String) -> Result<Vec<TaskDirectoryEntry>, String> {
+    if cwd.trim().is_empty() {
+        return Err("cwd cannot be empty".to_string());
+    }
+    let base_dir = std::path::PathBuf::from(&cwd);
+    if !base_dir.exists() || !base_dir.is_dir() {
+        return Err("cwd is not a directory".to_string());
+    }
+
+    let rel_path = if relative_path.trim().is_empty() {
+        std::path::PathBuf::new()
+    } else {
+        validate_task_rel_path(&relative_path)?
+    };
+
+    let target_dir = if rel_path.as_os_str().is_empty() {
+        base_dir.clone()
+    } else {
+        base_dir.join(&rel_path)
+    };
+
+    if !target_dir.exists() || !target_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let canonical_base = std::fs::canonicalize(&base_dir).map_err(|e| e.to_string())?;
+    let canonical_target = std::fs::canonicalize(&target_dir).map_err(|e| e.to_string())?;
+    if !canonical_target.starts_with(&canonical_base) {
+        return Err("path escapes workspace root".to_string());
     }
 
     let mut entries = Vec::new();

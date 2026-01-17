@@ -107,6 +107,13 @@ export async function taskListDirectory(taskId: string, relativePath: string): P
 	});
 }
 
+export async function workspaceListDirectory(cwd: string, relativePath: string): Promise<TaskDirectoryEntry[]> {
+	return invoke<TaskDirectoryEntry[]>('workspace_list_directory', {
+		cwd,
+		relative_path: relativePath,
+	});
+}
+
 export async function listSharedArtifacts(taskId: string, category: SharedArtifactCategory): Promise<SharedArtifactSummary[]> {
 	return invoke<SharedArtifactSummary[]>('list_shared_artifacts', {
 		task_id: taskId,
@@ -327,6 +334,7 @@ export const apiClient = {
 	tailSubagentStderr,
 	taskReadTextFile,
 	taskListDirectory,
+	workspaceListDirectory,
 	listSharedArtifacts,
 	readSharedArtifact,
 	codexAppServerEnsure,

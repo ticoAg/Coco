@@ -2,7 +2,8 @@ import { getVersion } from '@tauri-apps/api/app';
 import { listen } from '@tauri-apps/api/event';
 import { message as dialogMessage, open as openDialog } from '@tauri-apps/plugin-dialog';
 import { ArrowUp, Box, ChevronDown, ChevronRight, File, FileText, Folder, Image, Info, Plus, RotateCw, Settings, Slash, X, Zap } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { apiClient } from '../api/client';
 import { parseCodeReviewStructuredOutputFromMessage, shouldHideAssistantMessageContent } from './codex/assistantMessage';
 import type {
@@ -48,7 +49,7 @@ import type {
 	ReasoningEffort,
 	SkillMetadata,
 } from '../types/codex';
-import type { TreeNodeData } from '../types/sidebar';
+import type { TaskDirectoryEntry, TreeNodeData } from '../types/sidebar';
 
 const SETTINGS_STORAGE_KEY = 'agentmesh.codexChat.settings.v2';
 
@@ -801,10 +802,48 @@ function labelForThread(summary?: CodexThreadSummary, fallback?: string): string
 	return preview ? preview : summary.id;
 }
 
+const MAIN_TAB_CHAT_ID = 'chat';
+
+const isMarkdownFile = (path?: string | null) => Boolean(path && path.toLowerCase().endsWith('.md'));
+const isHtmlFile = (path?: string | null) => {
+	if (!path) return false;
+	const lower = path.toLowerCase();
+	return lower.endsWith('.html') || lower.endsWith('.htm');
+};
+
+function renderTextPreview(content: string, path: string): ReactNode {
+	if (isMarkdownFile(path)) {
+		return (
+			<div className="space-y-3 text-sm text-text-main">
+				<ReactMarkdown>{content}</ReactMarkdown>
+			</div>
+		);
+	}
+	if (isHtmlFile(path)) {
+		return <iframe title="HTML preview" sandbox="" className="h-[560px] w-full rounded-md border border-white/10 bg-black/20" srcDoc={content} />;
+	}
+	return <pre className="max-h-[560px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">{content}</pre>;
+}
+
+function baseName(path: string): string {
+	const normalized = path.replace(/\\/g, '/');
+	const parts = normalized.split('/').filter(Boolean);
+	return parts[parts.length - 1] ?? path;
+}
+
 type FilteredSlashCommand = {
 	cmd: SlashCommand;
 	indices: number[] | null;
 	score: number;
+};
+
+type FilePreviewTab = {
+	id: string;
+	path: string;
+	title: string;
+	content: string | null;
+	loading: boolean;
+	error: string | null;
 };
 
 export function CodexChat() {
@@ -815,6 +854,16 @@ export function CodexChat() {
 	const [runningThreadIds, setRunningThreadIds] = useState<Record<string, boolean>>({});
 	const [isSessionTreeExpanded, setIsSessionTreeExpanded] = useState(true);
 	const [sessionTreeExpandedNodes, setSessionTreeExpandedNodes] = useState<Set<string>>(new Set());
+	const [selectedSessionTreeNodeOverride, setSelectedSessionTreeNodeOverride] = useState<string | null>(null);
+
+	const [fileTabs, setFileTabs] = useState<FilePreviewTab[]>([]);
+	const [activeMainTabId, setActiveMainTabId] = useState<string>(MAIN_TAB_CHAT_ID);
+	const fileTabsRef = useRef<FilePreviewTab[]>([]);
+
+	const [workspaceDirEntriesByPath, setWorkspaceDirEntriesByPath] = useState<Record<string, TaskDirectoryEntry[]>>({});
+	const [workspaceDirLoadingByPath, setWorkspaceDirLoadingByPath] = useState<Record<string, boolean>>({});
+	const [workspaceDirErrorByPath, setWorkspaceDirErrorByPath] = useState<Record<string, string | null>>({});
+	const sessionTreeExpandedNodesRef = useRef<Set<string>>(new Set());
 
 	// Collab/workbench state (Codex thread graph derived from CollabAgentToolCall items).
 	const [isWorkbenchEnabled, setIsWorkbenchEnabled] = useState(false);
@@ -901,6 +950,15 @@ export function CodexChat() {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const menuListRef = useRef<HTMLDivElement>(null);
+	const workspaceBasePath = activeThread?.cwd ?? workspaceRoot ?? null;
+
+	useEffect(() => {
+		fileTabsRef.current = fileTabs;
+	}, [fileTabs]);
+
+	useEffect(() => {
+		sessionTreeExpandedNodesRef.current = sessionTreeExpandedNodes;
+	}, [sessionTreeExpandedNodes]);
 
 	// Load skills on mount
 	const loadSkills = useCallback(async () => {
@@ -922,9 +980,51 @@ export function CodexChat() {
 		}
 	}, []);
 
+	const loadWorkspaceDirectory = useCallback(
+		async (relativePath: string) => {
+			if (!workspaceBasePath) return;
+			setWorkspaceDirLoadingByPath((prev) => ({ ...prev, [relativePath]: true }));
+			setWorkspaceDirErrorByPath((prev) => ({ ...prev, [relativePath]: null }));
+			try {
+				const entries = await apiClient.workspaceListDirectory(workspaceBasePath, relativePath);
+				setWorkspaceDirEntriesByPath((prev) => ({ ...prev, [relativePath]: entries }));
+			} catch (err) {
+				const message = err instanceof Error ? err.message : 'Failed to list directory';
+				setWorkspaceDirEntriesByPath((prev) => ({ ...prev, [relativePath]: [] }));
+				setWorkspaceDirErrorByPath((prev) => ({ ...prev, [relativePath]: message }));
+			} finally {
+				setWorkspaceDirLoadingByPath((prev) => ({ ...prev, [relativePath]: false }));
+			}
+		},
+		[workspaceBasePath]
+	);
+
+	const ensureWorkspaceDirectoryLoaded = useCallback(
+		(relativePath: string) => {
+			if (!workspaceBasePath) return;
+			if (workspaceDirEntriesByPath[relativePath] || workspaceDirLoadingByPath[relativePath]) return;
+			void loadWorkspaceDirectory(relativePath);
+		},
+		[loadWorkspaceDirectory, workspaceBasePath, workspaceDirEntriesByPath, workspaceDirLoadingByPath]
+	);
+
 	useEffect(() => {
 		persistCodexChatSettings(settings);
 	}, [settings]);
+
+	useEffect(() => {
+		setWorkspaceDirEntriesByPath({});
+		setWorkspaceDirLoadingByPath({});
+		setWorkspaceDirErrorByPath({});
+		if (!workspaceBasePath) return;
+		void loadWorkspaceDirectory('');
+	}, [workspaceBasePath, loadWorkspaceDirectory]);
+
+	useEffect(() => {
+		if (activeMainTabId === MAIN_TAB_CHAT_ID) return;
+		if (fileTabs.some((tab) => tab.id === activeMainTabId)) return;
+		setActiveMainTabId(MAIN_TAB_CHAT_ID);
+	}, [activeMainTabId, fileTabs]);
 
 	useEffect(() => {
 		if (!selectedThreadId) {
@@ -1410,6 +1510,32 @@ export function CodexChat() {
 		const nodeIdByThreadId: Record<string, string> = {};
 		const workerNodeIdByThreadId: Record<string, string> = {};
 		const workerFilesNodeIdByThreadId: Record<string, string> = {};
+		const nodeById: Record<string, TreeNodeData> = {};
+
+		const registerNode = (node: TreeNodeData) => {
+			nodeById[node.id] = node;
+		};
+
+		const buildFileNodes = (threadId: string, idPrefix: string, relativePath: string): TreeNodeData[] => {
+			const entries = workspaceDirEntriesByPath[relativePath];
+			if (!entries) return [];
+			return entries.map((entry) => {
+				const nodeId = `${idPrefix}:${entry.path}`;
+				const node: TreeNodeData = {
+					id: nodeId,
+					type: entry.isDirectory ? 'folder' : 'file',
+					label: entry.name,
+					metadata: { threadId, path: entry.path },
+				};
+				registerNode(node);
+				if (entry.isDirectory) {
+					const hasLoadedChildren = Object.prototype.hasOwnProperty.call(workspaceDirEntriesByPath, entry.path);
+					const childNodes = hasLoadedChildren ? buildFileNodes(threadId, idPrefix, entry.path) : [];
+					node.children = hasLoadedChildren ? (childNodes.length > 0 ? childNodes : undefined) : [];
+				}
+				return node;
+			});
+		};
 
 		const collectSpawnChildren = (fromId: string): string[] => {
 			const ordered = spawnEdges
@@ -1451,15 +1577,18 @@ export function CodexChat() {
 						const workerRunning = Boolean(runningThreadIds[workerId]);
 						taskIsActive = taskIsActive || workerRunning;
 
+						const fileChildren = buildFileNodes(workerId, filesNodeId, '');
+						const rootLoaded = Object.prototype.hasOwnProperty.call(workspaceDirEntriesByPath, '');
 						const filesNode: TreeNodeData = {
 							id: filesNodeId,
 							type: 'folder',
 							label: 'files',
 							metadata: { threadId: workerId, path: '' },
-							children: [],
+							children: rootLoaded ? (fileChildren.length > 0 ? fileChildren : undefined) : [],
 						};
+						registerNode(filesNode);
 
-						return {
+						const workerNode: TreeNodeData = {
 							id: workerNodeId,
 							type: 'worker',
 							label: labelForThread(threadSummaryById.get(workerId), workerId),
@@ -1468,12 +1597,14 @@ export function CodexChat() {
 							metadata: { threadId: workerId },
 							children: [filesNode],
 						};
+						registerNode(workerNode);
+						return workerNode;
 					});
 
 					const orchestratorRunning = Boolean(runningThreadIds[orchestratorId]) || workerNodes.some((node) => node.isActive);
 					taskIsActive = taskIsActive || orchestratorRunning;
 
-					children.push({
+					const orchestratorNode: TreeNodeData = {
 						id: orchestratorNodeId,
 						type: 'orchestrator',
 						label: labelForThread(threadSummaryById.get(orchestratorId), orchestratorId),
@@ -1481,10 +1612,12 @@ export function CodexChat() {
 						status: orchestratorRunning ? 'running' : undefined,
 						metadata: { threadId: orchestratorId },
 						children: workerNodes,
-					});
+					};
+					registerNode(orchestratorNode);
+					children.push(orchestratorNode);
 				}
 
-				return {
+				const taskNode: TreeNodeData = {
 					id: taskNodeId,
 					type: 'task',
 					label: labelForThread(session, session.id),
@@ -1493,16 +1626,18 @@ export function CodexChat() {
 					metadata: { threadId: session.id },
 					children: children.length > 0 ? children : undefined,
 				};
+				registerNode(taskNode);
+				return taskNode;
 			});
 
-		const treeData: TreeNodeData[] = [
-			{
-				id: rootId,
-				type: 'repo',
-				label: rootLabel,
-				children: taskNodes,
-			},
-		];
+		const rootNode: TreeNodeData = {
+			id: rootId,
+			type: 'repo',
+			label: rootLabel,
+			children: taskNodes,
+		};
+		registerNode(rootNode);
+		const treeData: TreeNodeData[] = [rootNode];
 
 		return {
 			rootId,
@@ -1511,8 +1646,9 @@ export function CodexChat() {
 			nodeIdByThreadId,
 			workerNodeIdByThreadId,
 			workerFilesNodeIdByThreadId,
+			nodeById,
 		};
-	}, [sessions, runningThreadIds, activeThread?.cwd, workspaceRoot, workbenchGraph.edges]);
+	}, [sessions, runningThreadIds, activeThread?.cwd, workspaceRoot, workbenchGraph.edges, workspaceDirEntriesByPath]);
 
 	useEffect(() => {
 		setSessionTreeExpandedNodes((prev) => {
@@ -1524,6 +1660,14 @@ export function CodexChat() {
 	}, [sessionTree.rootId]);
 
 	const toggleSessionTreeNode = useCallback((nodeId: string) => {
+		const isExpanded = sessionTreeExpandedNodesRef.current.has(nodeId);
+		if (!isExpanded) {
+			const node = sessionTree.nodeById[nodeId];
+			if (node?.type === 'folder') {
+				const path = node.metadata?.path ?? '';
+				ensureWorkspaceDirectoryLoaded(path);
+			}
+		}
 		setSessionTreeExpandedNodes((prev) => {
 			const next = new Set(prev);
 			if (next.has(nodeId)) {
@@ -1533,7 +1677,7 @@ export function CodexChat() {
 			}
 			return next;
 		});
-	}, []);
+	}, [ensureWorkspaceDirectoryLoaded, sessionTree.nodeById]);
 
 	const expandSessionTreeNodes = useCallback((nodeIds: string[]) => {
 		if (nodeIds.length === 0) return;
@@ -1547,14 +1691,121 @@ export function CodexChat() {
 	}, []);
 
 	const selectedSessionTreeNodeId = useMemo(() => {
+		if (selectedSessionTreeNodeOverride) return selectedSessionTreeNodeOverride;
 		if (!selectedThreadId) return null;
 		return sessionTree.nodeIdByThreadId[selectedThreadId] ?? null;
-	}, [selectedThreadId, sessionTree.nodeIdByThreadId]);
+	}, [selectedSessionTreeNodeOverride, selectedThreadId, sessionTree.nodeIdByThreadId]);
+
+	const openFilePreview = useCallback(
+		(path: string) => {
+			const normalizedPath = path.replace(/\\/g, '/');
+			const tabId = `file:${normalizedPath}`;
+			const existing = fileTabsRef.current.find((tab) => tab.id === tabId);
+			setActiveMainTabId(tabId);
+
+			if (!workspaceBasePath) {
+				if (!existing) {
+					setFileTabs((prev) => [
+						...prev,
+						{
+							id: tabId,
+							path: normalizedPath,
+							title: baseName(normalizedPath),
+							content: null,
+							loading: false,
+							error: 'Workspace root not set.',
+						},
+					]);
+				}
+				return;
+			}
+
+			if (existing && existing.content && !existing.error) return;
+			if (existing?.loading) return;
+
+			if (!existing) {
+				setFileTabs((prev) => [
+					...prev,
+					{
+						id: tabId,
+						path: normalizedPath,
+						title: baseName(normalizedPath),
+						content: null,
+						loading: true,
+						error: null,
+					},
+				]);
+			} else {
+				setFileTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, loading: true, error: null } : tab)));
+			}
+
+			void (async () => {
+				try {
+					const fullPath = normalizedPath.startsWith('/') ? normalizedPath : `${workspaceBasePath}/${normalizedPath}`;
+					const content = await apiClient.readFileContent(fullPath);
+					setFileTabs((prev) =>
+						prev.map((tab) =>
+							tab.id === tabId
+								? {
+										...tab,
+										content,
+										loading: false,
+										error: null,
+								  }
+								: tab
+						)
+					);
+				} catch (err) {
+					const message = err instanceof Error ? err.message : 'Failed to load file';
+					setFileTabs((prev) =>
+						prev.map((tab) => (tab.id === tabId ? { ...tab, loading: false, error: message } : tab))
+					);
+				}
+			})();
+		},
+		[workspaceBasePath]
+	);
+
+	const closeFileTab = useCallback(
+		(tabId: string) => {
+			setFileTabs((prev) => {
+				const idx = prev.findIndex((tab) => tab.id === tabId);
+				if (idx === -1) return prev;
+				const next = prev.filter((tab) => tab.id !== tabId);
+				if (activeMainTabId === tabId) {
+					const fallback = next[idx - 1] ?? next[idx] ?? null;
+					setActiveMainTabId(fallback?.id ?? MAIN_TAB_CHAT_ID);
+				}
+				return next;
+			});
+		},
+		[activeMainTabId]
+	);
 
 	const handleSessionTreeSelect = useCallback(
 		(node: TreeNodeData) => {
+			if (node.type === 'file') {
+				setSelectedSessionTreeNodeOverride(node.id);
+				setIsWorkbenchEnabled(false);
+				const path = node.metadata?.path;
+				if (path) {
+					void openFilePreview(path);
+				}
+				return;
+			}
+
+			if (node.type === 'folder') {
+				setSelectedSessionTreeNodeOverride(node.id);
+				const path = node.metadata?.path ?? '';
+				ensureWorkspaceDirectoryLoaded(path);
+				return;
+			}
+
 			const threadId = node.metadata?.threadId;
 			if (!threadId) return;
+			setSelectedSessionTreeNodeOverride(null);
+			setIsWorkbenchEnabled(false);
+			setActiveMainTabId(MAIN_TAB_CHAT_ID);
 
 			if (node.type === 'task') {
 				void selectSession(threadId, { setAsWorkbenchRoot: true });
@@ -1567,6 +1818,7 @@ export function CodexChat() {
 				const filesNodeId = sessionTree.workerFilesNodeIdByThreadId[threadId];
 				const expandIds = [workerNodeId, filesNodeId].filter((id): id is string => Boolean(id));
 				expandSessionTreeNodes(expandIds);
+				ensureWorkspaceDirectoryLoaded('');
 				return;
 			}
 
@@ -1576,9 +1828,13 @@ export function CodexChat() {
 		},
 		[
 			expandSessionTreeNodes,
+			ensureWorkspaceDirectoryLoaded,
+			openFilePreview,
 			selectSession,
+			setIsWorkbenchEnabled,
 			sessionTree.workerFilesNodeIdByThreadId,
 			sessionTree.workerNodeIdByThreadId,
+			setActiveMainTabId,
 		]
 	);
 
@@ -2988,6 +3244,18 @@ export function CodexChat() {
 		return selectedModelInfo?.supportedReasoningEfforts ?? [];
 	}, [selectedModelInfo]);
 
+	const mainTabs = useMemo(() => {
+		return [
+			{ id: MAIN_TAB_CHAT_ID, title: '对话', kind: 'chat' as const },
+			...fileTabs.map((tab) => ({ id: tab.id, title: tab.title, kind: 'file' as const })),
+		];
+	}, [fileTabs]);
+
+	const activeFileTab = useMemo(() => {
+		if (activeMainTabId === MAIN_TAB_CHAT_ID) return null;
+		return fileTabs.find((tab) => tab.id === activeMainTabId) ?? null;
+	}, [activeMainTabId, fileTabs]);
+
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const turnBlocks = useMemo(() => {
 		const out: TurnBlockData[] = [];
@@ -3203,28 +3471,6 @@ export function CodexChat() {
 				<div className="relative mr-3 flex shrink-0 items-center gap-1.5">
 					<button
 						type="button"
-						className={[
-							'flex h-8 w-8 items-center justify-center rounded-lg border border-border-menuDivider bg-bg-panel/40 text-text-main transition-colors',
-							workbenchGraph.hasSpawnEdges || isWorkbenchEnabled ? 'hover:bg-bg-panelHover' : 'opacity-40 pointer-events-none',
-							isWorkbenchEnabled ? 'border-primary/40 bg-primary/10' : '',
-						].join(' ')}
-						onClick={() => {
-							setIsSettingsMenuOpen(false);
-							setIsWorkbenchEnabled((v) => {
-								const next = !v;
-								if (next && selectedThreadId) {
-									setWorkbenchRootThreadId(selectedThreadId);
-								}
-								return next;
-							});
-						}}
-						title={workbenchGraph.hasSpawnEdges || isWorkbenchEnabled ? 'Collab Workbench' : 'Collab Workbench (waiting for collab items)'}
-					>
-						<Box className="h-5 w-5" />
-					</button>
-
-					<button
-						type="button"
 						className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-menuDivider bg-bg-panel/40 text-text-main hover:bg-bg-panelHover transition-colors"
 						onClick={() => setIsSettingsMenuOpen((v) => !v)}
 						title="Menu"
@@ -3325,8 +3571,45 @@ export function CodexChat() {
 				/>
 
 				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-8 pt-6 pb-0.5">
-					<div className="relative flex items-center justify-between gap-4">
-						<div className="min-w-0 flex-1">{workspaceRootError ? <div className="mt-2 text-xs text-status-warning">{workspaceRootError}</div> : null}</div>
+					<div className="flex items-center justify-between gap-4 border-b border-white/10 pb-2">
+						<div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+							{mainTabs.map((tab) => {
+								const active = tab.id === activeMainTabId;
+								return (
+									<div
+										key={tab.id}
+										className={[
+											'group inline-flex max-w-[180px] items-center gap-2 rounded-t-md border px-3 py-1 text-xs transition-colors',
+											active ? 'border-white/10 bg-bg-panelHover text-text-main -mb-px' : 'border-transparent text-text-muted hover:bg-white/5',
+										].join(' ')}
+										onClick={() => setActiveMainTabId(tab.id)}
+										role="button"
+										tabIndex={0}
+										onKeyDown={(e) => {
+											if (e.key === 'Enter' || e.key === ' ') {
+												e.preventDefault();
+												setActiveMainTabId(tab.id);
+											}
+										}}
+									>
+										<span className="truncate">{tab.title}</span>
+										{tab.kind === 'file' ? (
+											<button
+												type="button"
+												className="rounded p-0.5 text-text-muted hover:text-text-main"
+												onClick={(e) => {
+													e.stopPropagation();
+													closeFileTab(tab.id);
+												}}
+												aria-label={`Close ${tab.title}`}
+											>
+												<X className="h-3 w-3" />
+											</button>
+										) : null}
+									</div>
+								);
+							})}
+						</div>
 
 						<div className="relative flex shrink-0 items-center">
 							<button
@@ -3343,7 +3626,12 @@ export function CodexChat() {
 						</div>
 					</div>
 
-					<div className="mt-4 min-h-0 flex-1 overflow-hidden flex gap-4">
+					{workspaceRootError ? <div className="mt-2 text-xs text-status-warning">{workspaceRootError}</div> : null}
+					{workspaceDirErrorByPath[''] ? <div className="mt-1 text-xs text-status-warning">{workspaceDirErrorByPath['']}</div> : null}
+
+					{activeMainTabId === MAIN_TAB_CHAT_ID ? (
+						<>
+							<div className="mt-3 min-h-0 flex-1 overflow-hidden flex gap-4">
 						{isWorkbenchEnabled ? (
 							<div className="w-[280px] shrink-0 min-h-0 overflow-hidden rounded-xl border border-white/10 bg-bg-panelHover/40">
 								<div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
@@ -3862,6 +4150,36 @@ export function CodexChat() {
 						applyProfile={applyProfile}
 						applyReasoningEffort={applyReasoningEffort}
 					/>
+						</>
+					) : (
+						<div className="mt-3 min-h-0 flex-1 overflow-hidden">
+							<div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-white/10 bg-bg-panelHover/40 p-4">
+								{!activeFileTab ? (
+									<div className="text-sm text-text-muted">Select a file to preview.</div>
+								) : (
+									<>
+										<div className="mb-3 flex items-center justify-between gap-3">
+											<div className="min-w-0">
+												<div className="truncate text-sm font-semibold">{activeFileTab.path}</div>
+												<div className="mt-1 text-xs text-text-muted">
+													{activeFileTab.loading ? 'Loading…' : activeFileTab.error ? 'Failed to load file' : ''}
+												</div>
+											</div>
+										</div>
+										{activeFileTab.error ? (
+											<div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{activeFileTab.error}</div>
+										) : activeFileTab.loading ? (
+											<div className="text-sm text-text-muted">Loading…</div>
+										) : activeFileTab.content ? (
+											renderTextPreview(activeFileTab.content, activeFileTab.path)
+										) : (
+											<div className="text-sm text-text-muted">No content.</div>
+										)}
+									</>
+								)}
+							</div>
+						</div>
+					)}
 
 					{isConfigOpen ? (
 						<div className="fixed inset-0 z-50 flex">
