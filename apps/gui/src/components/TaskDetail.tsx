@@ -546,6 +546,7 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 								};
 
 								const sharedFiles: Array<Extract<WorkbenchNode, { kind: 'sharedFile' }>> = [
+									{ kind: 'sharedFile', path: 'shared/state-board.md', label: 'state-board.md' },
 									{ kind: 'sharedFile', path: 'shared/human-notes.md', label: 'human-notes.md' },
 									{ kind: 'sharedFile', path: 'shared/context-manifest.yaml', label: 'context-manifest.yaml' },
 									{ kind: 'sharedFile', path: 'shared/evidence/index.json', label: 'evidence/index.json' },
