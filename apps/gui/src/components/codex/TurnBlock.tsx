@@ -127,23 +127,41 @@ export function TurnBlock({
 	approve,
 	onForkFromTurn,
 }: TurnBlockProps) {
-	const [didCopyTurn, setDidCopyTurn] = useState(false);
+	const [didCopyUser, setDidCopyUser] = useState(false);
+	const [didCopyAssistant, setDidCopyAssistant] = useState(false);
 
 	useEffect(() => {
-		if (!didCopyTurn) return;
-		const timer = window.setTimeout(() => setDidCopyTurn(false), 1200);
+		if (!didCopyUser) return;
+		const timer = window.setTimeout(() => setDidCopyUser(false), 1200);
 		return () => window.clearTimeout(timer);
-	}, [didCopyTurn]);
+	}, [didCopyUser]);
+
+	useEffect(() => {
+		if (!didCopyAssistant) return;
+		const timer = window.setTimeout(() => setDidCopyAssistant(false), 1200);
+		return () => window.clearTimeout(timer);
+	}, [didCopyAssistant]);
+
+	const userText = useMemo(() => {
+		const parts = turn.userEntries.map((e) => e.text).filter(Boolean);
+		return parts.join('\n\n');
+	}, [turn.userEntries]);
 
 	const finalAssistantText = useMemo(() => {
 		const parts = turn.assistantMessageEntries.map((e) => e.text).filter(Boolean);
 		return parts.join('\n\n');
 	}, [turn.assistantMessageEntries]);
 
+	const copyUserText = () => {
+		if (!userText) return;
+		void navigator.clipboard.writeText(userText);
+		setDidCopyUser(true);
+	};
+
 	const copyFinalAssistantText = () => {
 		if (!finalAssistantText) return;
 		void navigator.clipboard.writeText(finalAssistantText);
-		setDidCopyTurn(true);
+		setDidCopyAssistant(true);
 	};
 
 	const renderWorkingItem = (item: WorkingItem): JSX.Element | null => {
@@ -546,20 +564,20 @@ export function TurnBlock({
 						<button
 							type="button"
 							className={[
-							'rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main',
-							finalAssistantText ? '' : 'pointer-events-none opacity-40',
-						].join(' ')}
-						title="Copy final reply"
-						onClick={(ev) => {
-							ev.stopPropagation();
-							copyFinalAssistantText();
-						}}
-					>
-						{didCopyTurn ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-					</button>
-					{onForkFromTurn ? (
-						<button
-							type="button"
+								'rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main',
+								userText ? '' : 'pointer-events-none opacity-40',
+							].join(' ')}
+							title="Copy user message"
+							onClick={(ev) => {
+								ev.stopPropagation();
+								copyUserText();
+							}}
+						>
+							{didCopyUser ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+						</button>
+						{onForkFromTurn ? (
+							<button
+								type="button"
 							className="rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main"
 							title="Fork from this turn"
 							onClick={(ev) => {
@@ -684,7 +702,7 @@ export function TurnBlock({
 										copyFinalAssistantText();
 									}}
 								>
-									{didCopyTurn ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+									{didCopyAssistant ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
 								</button>
 								{onForkFromTurn ? (
 									<button
