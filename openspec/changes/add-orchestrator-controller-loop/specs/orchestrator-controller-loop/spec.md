@@ -7,10 +7,17 @@
 - `sessionGoal`: string
 - `tasks`: array（每个 task 至少包含 `taskId/title/agent/adapter/prompt`）
 
+系统 SHALL 提供 `schemas/orchestrator-actions.schema.json` 作为最小 JSON Schema，并要求 Orchestrator 输出与该 schema 兼容。
+
 #### Scenario: Parse actions from orchestrator
 - **GIVEN** Orchestrator 输出一个包含 `sessionGoal` 与 `tasks[]` 的 JSON
 - **WHEN** Controller 接收该输出
 - **THEN** Controller 能解析并得到至少一个待执行的 task
+
+#### Scenario: Actions output validates against schema
+- **GIVEN** 一个 actions JSON 文件
+- **WHEN** 使用 `schemas/orchestrator-actions.schema.json` 校验该 JSON
+- **THEN** 校验通过
 
 ### Requirement: Controller State Machine
 系统 SHALL 以程序状态机的方式执行 `actions`，并在 Task Directory 中落盘关键状态与中间产物。
@@ -26,6 +33,17 @@
 - **WHEN** Controller 从 dispatching 进入 monitoring
 - **THEN** `events.jsonl` 追加一条反映状态变化的事件（例如 `controller.state.changed`）
 
+### Requirement: StateBoard Artifact
+系统 SHALL 在任务目录维护一个高信噪比的状态看板文件：`shared/state-board.md`，用于：
+
+- 汇总当前 session goal / 关键约束
+- 汇总 subtasks 的状态（running/completed/blocked/failed）
+- 指向关键产物与介入点（joined summary / evidence index / human-notes）
+
+#### Scenario: StateBoard exists after dispatch
+- **WHEN** Controller dispatch subtasks
+- **THEN** `shared/state-board.md` 存在且包含 `sessionGoal`
+
 ### Requirement: Task Workspace Per Subtask
 系统 SHALL 为每个 subtask 维护独立的 task workspace（目录 + 运行记录 + 产物），并将其挂载为 task roster 中的一个 `agent instance`。
 
@@ -40,7 +58,7 @@
 - `spawn`：启动新的 vendor session（最小上下文）
 - `fork`：从一个 parent session 派生（继承上下文）
 
-当 task 指定 `mode=fork` 时，Controller SHALL 记录 fork 关系（例如写入 `agents/<instance>/session.json` 的 `forkedFrom` 字段）。
+当 task 指定 `mode=fork` 时，Controller SHALL 记录 fork 关系（例如写入 `agents/<instance>/session.json` 的 `vendorSession.forkedFromThreadId` 字段）。
 
 #### Scenario: Fork mode records parent
 - **GIVEN** 一个 task 指定 `mode=fork`

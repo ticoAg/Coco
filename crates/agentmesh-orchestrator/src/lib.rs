@@ -27,8 +27,15 @@ use std::time::Duration;
 use std::time::Instant;
 
 mod codex_app_server_adapter;
+mod controller_loop;
 
 pub use codex_app_server_adapter::CodexAppServerAdapter;
+pub use controller_loop::ControllerOptions;
+pub use controller_loop::ControllerOutcome;
+pub use controller_loop::ControllerRunResult;
+pub use controller_loop::ControllerState;
+pub use controller_loop::OrchestratorActions;
+pub use controller_loop::OrchestratorSubtask;
 
 #[derive(Debug, Clone)]
 pub struct Orchestrator {
