@@ -5,6 +5,7 @@
 ## 你会在这里找到什么
 
 - [[implementation.md]](./implementation.md)：实现评估 + 目标架构（如何直接读取 CLI 工具的结构化输出，并落盘为可介入产物）
+- [[multiagent.md]](./multiagent.md)：multi/subagent 的完整落地方案（Orchestrator + Controller + Adapter + Task Directory + Evidence）
 - [[subagents.md]](./subagents.md)：子代理（Subagents）如何用 `codex-cli + prompt` 落地：并发执行、上下文隔离、状态感知、可恢复
 - [[artifacts.md]](./artifacts.md)：产物（Artifacts）形态规范：任务目录、结构化报告、显式共享、人工介入点
 - [[roadmap.md]](./roadmap.md)：多阶段实施路线图（Codex-first：session 驱动 + 事件流提取）
