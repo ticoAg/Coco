@@ -8,6 +8,7 @@ import type {
 	SharedArtifactSummary,
 	SubagentFinalOutput,
 	SubagentSessionSummary,
+	TaskTextFileContent,
 	Task,
 	TaskEvent,
 } from '../types/task';
@@ -79,6 +80,22 @@ export async function tailSubagentEvents(taskId: string, agentInstance: string, 
 		task_id: taskId,
 		agent_instance: agentInstance,
 		limit,
+	});
+}
+
+export async function tailSubagentStderr(taskId: string, agentInstance: string, limit: number): Promise<string[]> {
+	return invoke<string[]>('tail_subagent_stderr', {
+		task_id: taskId,
+		agent_instance: agentInstance,
+		limit,
+	});
+}
+
+export async function taskReadTextFile(taskId: string, path: string, maxBytes?: number | null): Promise<TaskTextFileContent> {
+	return invoke<TaskTextFileContent>('task_read_text_file', {
+		task_id: taskId,
+		path,
+		max_bytes: maxBytes ?? null,
 	});
 }
 
@@ -299,6 +316,8 @@ export const apiClient = {
 	listSubagentSessions,
 	getSubagentFinalOutput,
 	tailSubagentEvents,
+	tailSubagentStderr,
+	taskReadTextFile,
 	listSharedArtifacts,
 	readSharedArtifact,
 	codexAppServerEnsure,

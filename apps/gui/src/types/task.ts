@@ -110,6 +110,15 @@ export interface SubagentFinalOutput {
 	parseError: string | null;
 }
 
+export interface TaskTextFileContent {
+	path: string;
+	exists: boolean;
+	content: string | null;
+	updatedAtMs: number | null;
+	sizeBytes: number | null;
+	truncated: boolean;
+}
+
 // ============ Shared Artifacts (GUI only) ============
 
 export type SharedArtifactCategory = 'reports' | 'contracts' | 'decisions';

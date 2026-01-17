@@ -52,6 +52,17 @@ struct SharedArtifactContent {
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct TaskTextFileContent {
+    path: String,
+    exists: bool,
+    content: Option<String>,
+    updated_at_ms: Option<u64>,
+    size_bytes: Option<u64>,
+    truncated: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct CodexThreadSummary {
     id: String,
     preview: String,
@@ -87,6 +98,8 @@ pub fn run() {
             list_subagent_sessions,
             get_subagent_final_output,
             tail_subagent_events,
+            tail_subagent_stderr,
+            task_read_text_file,
             list_shared_artifacts,
             read_shared_artifact,
             workspace_root_get,
@@ -312,6 +325,10 @@ fn task_agents_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path
         .join("agents")
 }
 
+fn task_root_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path::PathBuf {
+    workspace_root.join(".agentmesh").join("tasks").join(task_id)
+}
+
 fn task_shared_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path::PathBuf {
     workspace_root
         .join(".agentmesh")
@@ -338,6 +355,27 @@ fn shared_category_dir(
 fn validate_artifact_rel_path(value: &str) -> Result<std::path::PathBuf, String> {
     if value.trim().is_empty() {
         return Err("artifact path cannot be empty".to_string());
+    }
+    let path = std::path::PathBuf::from(value);
+    if path.is_absolute() {
+        return Err("absolute paths are not allowed".to_string());
+    }
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir
+            | std::path::Component::RootDir
+            | std::path::Component::Prefix(_) => {
+                return Err("path traversal is not allowed".to_string())
+            }
+            _ => {}
+        }
+    }
+    Ok(path)
+}
+
+fn validate_task_rel_path(value: &str) -> Result<std::path::PathBuf, String> {
+    if value.trim().is_empty() {
+        return Err("path cannot be empty".to_string());
     }
     let path = std::path::PathBuf::from(value);
     if path.is_absolute() {
@@ -635,6 +673,97 @@ fn tail_subagent_events(
     let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
     let start = lines.len().saturating_sub(limit);
     Ok(lines[start..].to_vec())
+}
+
+#[tauri::command]
+fn tail_subagent_stderr(
+    state: tauri::State<'_, AppState>,
+    task_id: String,
+    agent_instance: String,
+    limit: usize,
+) -> Result<Vec<String>, String> {
+    validate_id(&task_id, "task_id")?;
+    validate_id(&agent_instance, "agent_instance")?;
+
+    let workspace_root = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
+    let agents_dir = task_agents_dir(&workspace_root, &task_id);
+    let stderr_path = agents_dir
+        .join(&agent_instance)
+        .join("runtime")
+        .join("stderr.log");
+
+    let content = match read_optional_string(&stderr_path)? {
+        Some(content) => content,
+        None => return Ok(Vec::new()),
+    };
+
+    let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    let start = lines.len().saturating_sub(limit);
+    Ok(lines[start..].to_vec())
+}
+
+#[tauri::command]
+fn task_read_text_file(
+    state: tauri::State<'_, AppState>,
+    task_id: String,
+    path: String,
+    max_bytes: Option<usize>,
+) -> Result<TaskTextFileContent, String> {
+    validate_id(&task_id, "task_id")?;
+    let rel_path = validate_task_rel_path(&path)?;
+
+    let workspace_root = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
+    let base_dir = task_root_dir(&workspace_root, &task_id);
+    let full_path = base_dir.join(&rel_path);
+
+    if !full_path.exists() {
+        return Ok(TaskTextFileContent {
+            path,
+            exists: false,
+            content: None,
+            updated_at_ms: None,
+            size_bytes: None,
+            truncated: false,
+        });
+    }
+
+    let canonical_base = std::fs::canonicalize(&base_dir).map_err(|e| e.to_string())?;
+    let canonical_file = std::fs::canonicalize(&full_path).map_err(|e| e.to_string())?;
+    if !canonical_file.starts_with(&canonical_base) {
+        return Err("path escapes task directory".to_string());
+    }
+
+    let meta = std::fs::metadata(&canonical_file).ok();
+    let updated_at_ms = modified_ms(&canonical_file);
+    let size_bytes = meta.as_ref().map(|m| m.len());
+
+    let raw = std::fs::read_to_string(&canonical_file).map_err(|e| e.to_string())?;
+    let limit = max_bytes.unwrap_or(1024 * 1024);
+    let truncated = raw.len() > limit;
+    let content = if truncated {
+        raw.get(0..limit).unwrap_or("").to_string()
+    } else {
+        raw
+    };
+
+    Ok(TaskTextFileContent {
+        path,
+        exists: true,
+        content: Some(content),
+        updated_at_ms,
+        size_bytes,
+        truncated,
+    })
 }
 
 #[tauri::command]

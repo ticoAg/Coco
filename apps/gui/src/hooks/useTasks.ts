@@ -204,6 +204,7 @@ interface UseSubagentSessionsState {
 	selectedAgentInstance: string | null;
 	finalOutput: SubagentFinalOutput | null;
 	runtimeEvents: string[];
+	runtimeStderr: string[];
 	loading: boolean;
 	error: string | null;
 }
@@ -219,17 +220,20 @@ export function useSubagentSessions(
 		enabled?: boolean;
 		pollIntervalMs?: number;
 		eventsTailLimit?: number;
+		autoFollow?: boolean;
 	}
 ): UseSubagentSessionsReturn {
 	const enabled = options?.enabled ?? true;
 	const pollIntervalMs = options?.pollIntervalMs ?? 2000;
 	const eventsTailLimit = options?.eventsTailLimit ?? 200;
+	const autoFollow = options?.autoFollow ?? false;
 
 	const [state, setState] = useState<UseSubagentSessionsState>({
 		sessions: [],
 		selectedAgentInstance: null,
 		finalOutput: null,
 		runtimeEvents: [],
+		runtimeStderr: [],
 		loading: true,
 		error: null,
 	});
@@ -238,15 +242,17 @@ export function useSubagentSessions(
 		async (agentInstance: string) => {
 			if (!taskId) return;
 
-			const [finalOutput, runtimeEvents] = await Promise.all([
+			const [finalOutput, runtimeEvents, runtimeStderr] = await Promise.all([
 				apiClient.getSubagentFinalOutput(taskId, agentInstance),
 				apiClient.tailSubagentEvents(taskId, agentInstance, eventsTailLimit),
+				apiClient.tailSubagentStderr(taskId, agentInstance, eventsTailLimit),
 			]);
 
 			setState((prev) => ({
 				...prev,
 				finalOutput,
 				runtimeEvents,
+				runtimeStderr,
 				error: null,
 			}));
 		},
@@ -265,7 +271,13 @@ export function useSubagentSessions(
 				const sessions = await apiClient.listSubagentSessions(taskId);
 				const selectedStillValid = state.selectedAgentInstance && sessions.some((s) => s.agentInstance === state.selectedAgentInstance);
 
-				const selectedAgentInstance = selectedStillValid ? state.selectedAgentInstance : (sessions[0]?.agentInstance ?? null);
+				const running = sessions.filter((s) => s.status === 'running');
+				const bestRunning = running.sort((a, b) => (b.lastUpdatedAtMs ?? 0) - (a.lastUpdatedAtMs ?? 0))[0]?.agentInstance ?? null;
+				const selectedAgentInstance = autoFollow
+					? bestRunning ?? (selectedStillValid ? state.selectedAgentInstance : (sessions[0]?.agentInstance ?? null))
+					: selectedStillValid
+						? state.selectedAgentInstance
+						: (sessions[0]?.agentInstance ?? null);
 
 				setState((prev) => ({
 					...prev,
@@ -280,6 +292,7 @@ export function useSubagentSessions(
 						...prev,
 						finalOutput: null,
 						runtimeEvents: [],
+						runtimeStderr: [],
 					}));
 					return;
 				}
@@ -293,7 +306,7 @@ export function useSubagentSessions(
 				}));
 			}
 		},
-		[enabled, taskId, state.selectedAgentInstance, fetchDetails]
+		[enabled, taskId, state.selectedAgentInstance, autoFollow, fetchDetails]
 	);
 
 	const selectAgentInstance = useCallback(
@@ -303,6 +316,7 @@ export function useSubagentSessions(
 				selectedAgentInstance: agentInstance,
 				finalOutput: null,
 				runtimeEvents: [],
+				runtimeStderr: [],
 			}));
 
 			fetchDetails(agentInstance).catch(() => {
@@ -319,6 +333,7 @@ export function useSubagentSessions(
 				selectedAgentInstance: null,
 				finalOutput: null,
 				runtimeEvents: [],
+				runtimeStderr: [],
 				loading: false,
 				error: null,
 			});

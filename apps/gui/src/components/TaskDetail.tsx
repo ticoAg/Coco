@@ -1,17 +1,45 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { AgentInstance, Gate, Milestone, SharedArtifactCategory, Task, TaskEvent } from '../types/task';
+import { apiClient } from '../api/client';
+import type {
+	AgentInstance,
+	Gate,
+	Milestone,
+	SharedArtifactCategory,
+	SharedArtifactContent,
+	SharedArtifactSummary,
+	Task,
+	TaskEvent,
+	TaskTextFileContent,
+} from '../types/task';
 import { useSharedArtifacts, useSubagentSessions } from '../hooks/useTasks';
 import { StatusBadge } from './TaskList';
 
-type TabId = 'overview' | 'events' | 'artifacts' | 'sessions';
+type TabId = 'overview' | 'workbench' | 'events' | 'artifacts' | 'sessions';
 const TABS: Array<{ id: TabId; label: string }> = [
 	{ id: 'overview', label: 'Overview' },
+	{ id: 'workbench', label: 'Workbench' },
 	{ id: 'events', label: 'Events' },
 	{ id: 'artifacts', label: 'Artifacts' },
 	{ id: 'sessions', label: 'Sessions' },
 ];
 const ARTIFACT_CATEGORIES: SharedArtifactCategory[] = ['reports', 'contracts', 'decisions'];
+
+type WorkbenchNode =
+	| { kind: 'sharedFile'; path: string; label: string }
+	| { kind: 'sharedArtifact'; category: SharedArtifactCategory; path: string; label: string }
+	| { kind: 'agent'; agentInstance: string; section: 'session' | 'final' | 'events' | 'stderr' };
+
+function workbenchNodeKey(node: WorkbenchNode): string {
+	switch (node.kind) {
+		case 'sharedFile':
+			return `sharedFile:${node.path}`;
+		case 'sharedArtifact':
+			return `sharedArtifact:${node.category}:${node.path}`;
+		case 'agent':
+			return `agent:${node.agentInstance}:${node.section}`;
+	}
+}
 
 function formatDate(dateString: string): string {
 	const date = new Date(dateString);
@@ -135,14 +163,36 @@ interface TaskDetailProps {
 export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoadMoreEvents, onClose }: TaskDetailProps) {
 	const [tab, setTab] = useState<TabId>('overview');
 	const [artifactCategory, setArtifactCategory] = useState<SharedArtifactCategory>('reports');
+	const [sessionAutoFollow, setSessionAutoFollow] = useState(true);
+	const [workbenchSelected, setWorkbenchSelected] = useState<WorkbenchNode | null>(null);
+	const [workbenchExpandedByKey, setWorkbenchExpandedByKey] = useState<Record<string, boolean>>({
+		shared: true,
+		agents: true,
+		reports: true,
+		contracts: false,
+		decisions: false,
+	});
+	const [workbenchArtifactsByCategory, setWorkbenchArtifactsByCategory] = useState<Record<SharedArtifactCategory, SharedArtifactSummary[]>>({
+		reports: [],
+		contracts: [],
+		decisions: [],
+	});
+	const [workbenchArtifactsLoading, setWorkbenchArtifactsLoading] = useState(false);
+	const [workbenchArtifactsError, setWorkbenchArtifactsError] = useState<string | null>(null);
+	const [workbenchTextFile, setWorkbenchTextFile] = useState<TaskTextFileContent | null>(null);
+	const [workbenchArtifactContent, setWorkbenchArtifactContent] = useState<SharedArtifactContent | null>(null);
+	const [workbenchPreviewLoading, setWorkbenchPreviewLoading] = useState(false);
+	const [workbenchPreviewError, setWorkbenchPreviewError] = useState<string | null>(null);
+	const [runtimeSearch, setRuntimeSearch] = useState('');
 
 	const detailReady = Boolean(task) && !loading && !error;
-	const sessionsEnabled = tab === 'sessions' && detailReady;
+	const sessionsEnabled = (tab === 'sessions' || tab === 'workbench') && detailReady;
 	const {
 		sessions,
 		selectedAgentInstance,
 		finalOutput,
 		runtimeEvents,
+		runtimeStderr,
 		loading: sessionsLoading,
 		error: sessionsError,
 		refresh: refreshSessions,
@@ -151,6 +201,7 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 		enabled: sessionsEnabled,
 		pollIntervalMs: 2000,
 		eventsTailLimit: 200,
+		autoFollow: sessionAutoFollow,
 	});
 
 	const artifactsEnabled = tab === 'artifacts' && detailReady;
@@ -179,8 +230,128 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 		};
 	}, [finalOutput]);
 
+	const runtimeQuery = runtimeSearch.trim().toLowerCase();
+	const filteredRuntimeEvents = useMemo(() => {
+		if (!runtimeQuery) return runtimeEvents;
+		return runtimeEvents.filter((line) => line.toLowerCase().includes(runtimeQuery));
+	}, [runtimeEvents, runtimeQuery]);
+
+	const filteredRuntimeStderr = useMemo(() => {
+		if (!runtimeQuery) return runtimeStderr;
+		return runtimeStderr.filter((line) => line.toLowerCase().includes(runtimeQuery));
+	}, [runtimeStderr, runtimeQuery]);
+
 	const selectedArtifact = useMemo(() => artifacts.find((item) => item.path === selectedArtifactPath) ?? null, [artifacts, selectedArtifactPath]);
 	const isMarkdown = useMemo(() => selectedArtifact?.path?.toLowerCase().endsWith('.md') ?? false, [selectedArtifact]);
+	const workbenchEnabled = tab === 'workbench' && detailReady;
+	const workbenchSelectionKey = useMemo(() => (workbenchSelected ? workbenchNodeKey(workbenchSelected) : null), [workbenchSelected]);
+
+	const refreshWorkbenchArtifacts = useCallback(async () => {
+		if (!task) return;
+		setWorkbenchArtifactsLoading(true);
+		try {
+			const [reports, contracts, decisions] = await Promise.all([
+				apiClient.listSharedArtifacts(task.id, 'reports'),
+				apiClient.listSharedArtifacts(task.id, 'contracts'),
+				apiClient.listSharedArtifacts(task.id, 'decisions'),
+			]);
+			setWorkbenchArtifactsByCategory({ reports, contracts, decisions });
+			setWorkbenchArtifactsError(null);
+		} catch (err) {
+			setWorkbenchArtifactsError(err instanceof Error ? err.message : 'Failed to load artifacts');
+		} finally {
+			setWorkbenchArtifactsLoading(false);
+		}
+	}, [task]);
+
+	const refreshWorkbenchPreview = useCallback(async () => {
+		if (!task || !workbenchSelected) return;
+		setWorkbenchPreviewLoading(true);
+		setWorkbenchPreviewError(null);
+		setWorkbenchTextFile(null);
+		setWorkbenchArtifactContent(null);
+
+		try {
+			if (workbenchSelected.kind === 'sharedFile') {
+				const res = await apiClient.taskReadTextFile(task.id, workbenchSelected.path, 1024 * 1024);
+				setWorkbenchTextFile(res);
+				return;
+			}
+
+			if (workbenchSelected.kind === 'sharedArtifact') {
+				const res = await apiClient.readSharedArtifact(task.id, workbenchSelected.category, workbenchSelected.path);
+				setWorkbenchArtifactContent(res);
+				return;
+			}
+
+			if (workbenchSelected.kind === 'agent' && workbenchSelected.section === 'session') {
+				const res = await apiClient.taskReadTextFile(task.id, `agents/${workbenchSelected.agentInstance}/session.json`, 1024 * 1024);
+				setWorkbenchTextFile(res);
+				return;
+			}
+		} catch (err) {
+			setWorkbenchPreviewError(err instanceof Error ? err.message : 'Failed to load preview');
+		} finally {
+			setWorkbenchPreviewLoading(false);
+		}
+	}, [task, workbenchSelected]);
+
+	useEffect(() => {
+		if (!workbenchEnabled) return;
+		refreshWorkbenchArtifacts().catch(() => {
+			// ignore polling errors; keep last successful state
+		});
+
+		const timer = setInterval(() => {
+			refreshWorkbenchArtifacts().catch(() => {
+				// ignore polling errors; keep last successful state
+			});
+		}, 2000);
+
+		return () => clearInterval(timer);
+	}, [workbenchEnabled, refreshWorkbenchArtifacts]);
+
+	useEffect(() => {
+		if (!workbenchEnabled) return;
+		if (!workbenchSelected) {
+			if (selectedAgentInstance) {
+				setWorkbenchSelected({ kind: 'agent', agentInstance: selectedAgentInstance, section: 'events' });
+			} else {
+				setWorkbenchSelected({ kind: 'sharedFile', path: 'shared/human-notes.md', label: 'human-notes.md' });
+			}
+		}
+	}, [workbenchEnabled, workbenchSelected, selectedAgentInstance]);
+
+	useEffect(() => {
+		if (!workbenchEnabled || !sessionAutoFollow) return;
+		if (!selectedAgentInstance) return;
+		setWorkbenchSelected((prev) => {
+			if (!prev) return { kind: 'agent', agentInstance: selectedAgentInstance, section: 'events' };
+			if (prev.kind !== 'agent') return prev;
+			if (prev.agentInstance === selectedAgentInstance) return prev;
+			return { ...prev, agentInstance: selectedAgentInstance };
+		});
+	}, [workbenchEnabled, sessionAutoFollow, selectedAgentInstance]);
+
+	useEffect(() => {
+		if (!workbenchEnabled) return;
+		if (!workbenchSelected) return;
+		if (workbenchSelected.kind === 'agent') {
+			selectAgentInstance(workbenchSelected.agentInstance);
+		}
+		const needsFilePreview =
+			workbenchSelected.kind === 'sharedFile' || workbenchSelected.kind === 'sharedArtifact' || (workbenchSelected.kind === 'agent' && workbenchSelected.section === 'session');
+		if (needsFilePreview) {
+			refreshWorkbenchPreview().catch(() => {
+				// ignore preview refresh errors; surface via state
+			});
+		} else {
+			setWorkbenchTextFile(null);
+			setWorkbenchArtifactContent(null);
+			setWorkbenchPreviewError(null);
+			setWorkbenchPreviewLoading(false);
+		}
+	}, [workbenchEnabled, workbenchSelectionKey, workbenchSelected, selectAgentInstance, refreshWorkbenchPreview]);
 
 	if (loading) {
 		return (
@@ -298,6 +469,382 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 							</div>
 						</div>
 					) : null}
+				</div>
+			)}
+
+			{tab === 'workbench' && (
+				<div className="space-y-4">
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<div className="text-sm font-semibold">Task Workbench</div>
+						<div className="flex items-center gap-3">
+							<label className="flex items-center gap-2 text-xs text-text-muted">
+								<input type="checkbox" checked={sessionAutoFollow} onChange={(e) => setSessionAutoFollow(e.target.checked)} />
+								<span>Auto-follow</span>
+							</label>
+							<button
+								type="button"
+								className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-sm hover:border-white/20"
+								onClick={() => {
+									void refreshSessions();
+									void refreshWorkbenchArtifacts();
+									void refreshWorkbenchPreview();
+								}}
+							>
+								Refresh
+							</button>
+						</div>
+					</div>
+
+					{workbenchArtifactsError ? (
+						<div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{workbenchArtifactsError}</div>
+					) : null}
+
+					<div className="grid grid-cols-[320px_1fr] gap-4">
+						<div className="min-h-0 space-y-2 overflow-auto rounded-lg border border-white/10 bg-bg-panelHover p-2">
+							{(() => {
+								const expanded = (key: string) => Boolean(workbenchExpandedByKey[key]);
+								const toggleExpanded = (key: string) =>
+									setWorkbenchExpandedByKey((prev) => ({
+										...prev,
+										[key]: !prev[key],
+									}));
+
+								const isSelected = (node: WorkbenchNode) => (workbenchSelectionKey ? workbenchNodeKey(node) === workbenchSelectionKey : false);
+								const indentPx = (depth: number) => 8 + depth * 14;
+
+								const TreeButton = ({
+									node,
+									label,
+									depth,
+									meta,
+								}: {
+									node: WorkbenchNode;
+									label: string;
+									depth: number;
+									meta?: ReactNode;
+								}) => {
+									const selected = isSelected(node);
+									return (
+										<button
+											type="button"
+											className={[
+												'w-full rounded-md border px-2 py-1 text-left',
+												selected ? 'border-primary/40 bg-primary/10' : 'border-transparent hover:border-white/10 hover:bg-white/5',
+											].join(' ')}
+											style={{ paddingLeft: indentPx(depth) }}
+											onClick={() => setWorkbenchSelected(node)}
+											title={label}
+										>
+											<div className="flex items-start justify-between gap-2">
+												<div className="min-w-0">
+													<div className="truncate text-[12px] text-text-main">{label}</div>
+													{meta ? <div className="mt-0.5 truncate text-[10px] text-text-dim">{meta}</div> : null}
+												</div>
+											</div>
+										</button>
+									);
+								};
+
+								const sharedFiles: Array<Extract<WorkbenchNode, { kind: 'sharedFile' }>> = [
+									{ kind: 'sharedFile', path: 'shared/human-notes.md', label: 'human-notes.md' },
+									{ kind: 'sharedFile', path: 'shared/context-manifest.yaml', label: 'context-manifest.yaml' },
+									{ kind: 'sharedFile', path: 'shared/evidence/index.json', label: 'evidence/index.json' },
+								];
+
+								return (
+									<div className="space-y-2">
+										<button
+											type="button"
+											className="w-full rounded-md px-2 py-1 text-left text-xs font-semibold text-text-muted hover:bg-white/5"
+											onClick={() => toggleExpanded('shared')}
+										>
+											{expanded('shared') ? 'v' : '>'} shared/
+											{workbenchArtifactsLoading ? <span className="ml-2 text-[10px] text-text-dim">loading…</span> : null}
+										</button>
+
+										{expanded('shared') ? (
+											<div className="space-y-1">
+												{sharedFiles.map((n) => (
+													<TreeButton key={workbenchNodeKey(n)} node={n} label={n.label} depth={1} />
+												))}
+
+												{ARTIFACT_CATEGORIES.map((category) => (
+													<div key={`cat-${category}`} className="space-y-1">
+														<button
+															type="button"
+															className="w-full rounded-md px-2 py-1 text-left text-[11px] font-semibold text-text-muted hover:bg-white/5"
+															style={{ paddingLeft: indentPx(1) }}
+															onClick={() => toggleExpanded(category)}
+														>
+															{expanded(category) ? 'v' : '>'} {category}/
+														</button>
+														{expanded(category) ? (
+															<div className="space-y-1">
+																{workbenchArtifactsByCategory[category].length === 0 ? (
+																	<div className="px-2 py-1 text-[11px] text-text-dim" style={{ paddingLeft: indentPx(2) }}>
+																		(empty)
+																	</div>
+																) : (
+																	workbenchArtifactsByCategory[category].map((item) => {
+																		const node: WorkbenchNode = {
+																			kind: 'sharedArtifact',
+																			category,
+																			path: item.path,
+																			label: item.filename,
+																		};
+																		return (
+																			<TreeButton
+																				key={`${category}:${item.path}`}
+																				node={node}
+																				label={item.filename}
+																				depth={2}
+																				meta={item.path !== item.filename ? item.path : undefined}
+																			/>
+																		);
+																	})
+																)}
+															</div>
+														) : null}
+													</div>
+												))}
+											</div>
+										) : null}
+
+										<button
+											type="button"
+											className="w-full rounded-md px-2 py-1 text-left text-xs font-semibold text-text-muted hover:bg-white/5"
+											onClick={() => toggleExpanded('agents')}
+										>
+											{expanded('agents') ? 'v' : '>'} agents/
+											{sessionsLoading ? <span className="ml-2 text-[10px] text-text-dim">loading…</span> : null}
+										</button>
+
+										{expanded('agents') ? (
+											<div className="space-y-1">
+												{sessions.length === 0 ? (
+													<div className="px-2 py-1 text-[11px] text-text-dim" style={{ paddingLeft: indentPx(1) }}>
+														(no sessions)
+													</div>
+												) : (
+													sessions.map((s) => {
+														const agentKey = `agent:${s.agentInstance}`;
+														const badge = {
+															running: 'bg-status-info/15 text-status-info',
+															completed: 'bg-status-success/15 text-status-success',
+															failed: 'bg-status-error/15 text-status-error',
+															blocked: 'bg-status-warning/15 text-status-warning',
+															unknown: 'bg-white/10 text-text-muted',
+														}[s.status];
+
+														return (
+															<div key={agentKey} className="space-y-1">
+																<button
+																	type="button"
+																	className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-white/5"
+																	style={{ paddingLeft: indentPx(1) }}
+																	onClick={() => toggleExpanded(agentKey)}
+																>
+																	<div className="min-w-0">
+																		<div className="truncate text-[12px] font-semibold text-text-main">{s.agentInstance}</div>
+																		<div className="mt-0.5 text-[10px] text-text-dim">updated: {formatEpochMs(s.lastUpdatedAtMs)}</div>
+																	</div>
+																	<span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge}`}>{s.status}</span>
+																</button>
+
+																{expanded(agentKey) ? (
+																	<div className="space-y-1">
+																		{(
+																			[
+																				{ section: 'session', label: 'session.json' },
+																				{ section: 'final', label: 'artifacts/final.json' },
+																				{ section: 'events', label: 'runtime/events.jsonl' },
+																				{ section: 'stderr', label: 'runtime/stderr.log' },
+																			] as const
+																		).map((leaf) => {
+																			const node: WorkbenchNode = {
+																				kind: 'agent',
+																				agentInstance: s.agentInstance,
+																				section: leaf.section,
+																			};
+																			return <TreeButton key={`${agentKey}:${leaf.section}`} node={node} label={leaf.label} depth={2} />;
+																		})}
+																	</div>
+																) : null}
+															</div>
+														);
+													})
+												)}
+											</div>
+										) : null}
+									</div>
+								);
+							})()}
+						</div>
+
+						<div className="min-w-0 space-y-4">
+							{workbenchPreviewError ? (
+								<div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{workbenchPreviewError}</div>
+							) : null}
+
+							{(() => {
+								if (!workbenchSelected) {
+									return (
+										<div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">
+											Select a node to preview.
+										</div>
+									);
+								}
+
+								if (workbenchSelected.kind === 'agent') {
+									const title = `${workbenchSelected.agentInstance} • ${workbenchSelected.section}`;
+									if (workbenchSelected.section === 'final') {
+										return (
+											<div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
+												<div className="flex items-center justify-between gap-2">
+													<div className="truncate text-sm font-semibold">{title}</div>
+													<div className="text-xs text-text-muted">auto-refresh: 2s</div>
+												</div>
+												<div className="mt-3">
+													{!finalOutput ? (
+														<div className="text-sm text-text-muted">Loading…</div>
+													) : !finalOutput.exists ? (
+														<div className="text-sm text-text-muted">`artifacts/final.json` not found yet.</div>
+													) : finalOutput.parseError ? (
+														<div className="text-sm text-status-warning">{finalOutput.parseError}</div>
+													) : finalOutput.json ? (
+														<pre className="max-h-[520px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">
+															{JSON.stringify(finalOutput.json, null, 2)}
+														</pre>
+													) : (
+														<div className="text-sm text-text-muted">No structured output.</div>
+													)}
+												</div>
+												{finalStatus ? (
+													<div className="mt-3 text-xs text-text-muted">
+														final.status: <span className="font-mono">{finalStatus}</span>
+													</div>
+												) : null}
+												{finalSummary ? <div className="mt-2 text-sm text-text-muted">{finalSummary}</div> : null}
+											</div>
+										);
+									}
+
+									if (workbenchSelected.section === 'events' || workbenchSelected.section === 'stderr') {
+										const lines = workbenchSelected.section === 'events' ? filteredRuntimeEvents : filteredRuntimeStderr;
+										return (
+											<div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
+												<div className="flex flex-wrap items-center justify-between gap-3">
+													<div className="truncate text-sm font-semibold">{title}</div>
+													<input
+														type="text"
+														value={runtimeSearch}
+														onChange={(e) => setRuntimeSearch(e.target.value)}
+														placeholder="Search…"
+														className="w-[220px] rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-text-main placeholder:text-text-dim"
+													/>
+												</div>
+												<div className="mt-3">
+													{lines.length === 0 ? (
+														<div className="text-sm text-text-muted">(empty)</div>
+													) : (
+														<pre className="max-h-[560px] overflow-auto rounded-md bg-black/20 p-3 text-[11px] text-text-muted">{lines.join('\n')}</pre>
+													)}
+												</div>
+											</div>
+										);
+									}
+
+									// session.json (text preview)
+									const isMd = false;
+									const content = workbenchTextFile?.content ?? null;
+									return (
+										<div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
+											<div className="flex items-center justify-between gap-2">
+												<div className="truncate text-sm font-semibold">{title}</div>
+												<div className="text-xs text-text-muted">{workbenchPreviewLoading ? 'Loading…' : ''}</div>
+											</div>
+											<div className="mt-3">
+												{!workbenchTextFile ? (
+													<div className="text-sm text-text-muted">Loading…</div>
+												) : !workbenchTextFile.exists ? (
+													<div className="text-sm text-text-muted">File not found yet.</div>
+												) : !content ? (
+													<div className="text-sm text-text-muted">(empty)</div>
+												) : isMd ? (
+													<div className="space-y-3 text-sm text-text-main">
+														<ReactMarkdown>{content}</ReactMarkdown>
+													</div>
+												) : (
+													<pre className="max-h-[560px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">{content}</pre>
+												)}
+											</div>
+											{workbenchTextFile?.updatedAtMs ? (
+												<div className="mt-2 text-xs text-text-muted">updated: {formatEpochMs(workbenchTextFile.updatedAtMs)}</div>
+											) : null}
+											{workbenchTextFile?.truncated ? <div className="mt-2 text-xs text-status-warning">truncated</div> : null}
+										</div>
+									);
+								}
+
+								if (workbenchSelected.kind === 'sharedArtifact') {
+									const isMd = workbenchSelected.path.toLowerCase().endsWith('.md');
+									return (
+										<div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
+											<div className="flex items-center justify-between gap-2">
+												<div className="truncate text-sm font-semibold">{`${workbenchSelected.category}/${workbenchSelected.path}`}</div>
+												<div className="text-xs text-text-muted">{workbenchPreviewLoading ? 'Loading…' : ''}</div>
+											</div>
+											<div className="mt-3">
+												{!workbenchArtifactContent ? (
+													<div className="text-sm text-text-muted">Loading…</div>
+												) : isMd ? (
+													<div className="space-y-3 text-sm text-text-main">
+														<ReactMarkdown>{workbenchArtifactContent.content}</ReactMarkdown>
+													</div>
+												) : (
+													<pre className="max-h-[560px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">{workbenchArtifactContent.content}</pre>
+												)}
+											</div>
+											{workbenchArtifactContent?.updatedAtMs ? (
+												<div className="mt-2 text-xs text-text-muted">updated: {formatEpochMs(workbenchArtifactContent.updatedAtMs)}</div>
+											) : null}
+										</div>
+									);
+								}
+
+								// shared file (text preview)
+								const isMd = workbenchSelected.path.toLowerCase().endsWith('.md');
+								const content = workbenchTextFile?.content ?? null;
+								return (
+									<div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
+										<div className="flex items-center justify-between gap-2">
+											<div className="truncate text-sm font-semibold">{workbenchSelected.path}</div>
+											<div className="text-xs text-text-muted">{workbenchPreviewLoading ? 'Loading…' : ''}</div>
+										</div>
+										<div className="mt-3">
+											{!workbenchTextFile ? (
+												<div className="text-sm text-text-muted">Loading…</div>
+											) : !workbenchTextFile.exists ? (
+												<div className="text-sm text-text-muted">File not found yet.</div>
+											) : !content ? (
+												<div className="text-sm text-text-muted">(empty)</div>
+											) : isMd ? (
+												<div className="space-y-3 text-sm text-text-main">
+													<ReactMarkdown>{content}</ReactMarkdown>
+												</div>
+											) : (
+												<pre className="max-h-[560px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">{content}</pre>
+											)}
+										</div>
+										{workbenchTextFile?.updatedAtMs ? (
+											<div className="mt-2 text-xs text-text-muted">updated: {formatEpochMs(workbenchTextFile.updatedAtMs)}</div>
+										) : null}
+										{workbenchTextFile?.truncated ? <div className="mt-2 text-xs text-status-warning">truncated</div> : null}
+									</div>
+								);
+							})()}
+						</div>
+					</div>
 				</div>
 			)}
 
@@ -423,15 +970,21 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 
 			{tab === 'sessions' && (
 				<div className="space-y-4">
-					<div className="flex items-center justify-between gap-3">
+					<div className="flex flex-wrap items-center justify-between gap-3">
 						<div className="text-sm font-semibold">Subagents / Sessions</div>
-						<button
-							type="button"
-							className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-sm hover:border-white/20"
-							onClick={() => void refreshSessions()}
-						>
-							Refresh
-						</button>
+						<div className="flex items-center gap-3">
+							<label className="flex items-center gap-2 text-xs text-text-muted">
+								<input type="checkbox" checked={sessionAutoFollow} onChange={(e) => setSessionAutoFollow(e.target.checked)} />
+								<span>Auto-follow</span>
+							</label>
+							<button
+								type="button"
+								className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-sm hover:border-white/20"
+								onClick={() => void refreshSessions()}
+							>
+								Refresh
+							</button>
+						</div>
 					</div>
 
 					{sessionsError ? (
@@ -510,12 +1063,36 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 										</div>
 
 										<div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
-											<div className="mb-2 text-sm font-semibold">Runtime Events (tail)</div>
-											{runtimeEvents.length === 0 ? (
-												<div className="text-sm text-text-muted">No runtime events yet.</div>
-											) : (
-												<pre className="max-h-[260px] overflow-auto rounded-md bg-black/20 p-3 text-[11px] text-text-muted">{runtimeEvents.join('\n')}</pre>
-											)}
+											<div className="flex flex-wrap items-center justify-between gap-3">
+												<div className="text-sm font-semibold">Runtime Logs (tail)</div>
+												<input
+													type="text"
+													value={runtimeSearch}
+													onChange={(e) => setRuntimeSearch(e.target.value)}
+													placeholder="Search…"
+													className="w-[220px] rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-text-main placeholder:text-text-dim"
+												/>
+											</div>
+
+											<div className="mt-3 space-y-3">
+												<div>
+													<div className="mb-2 text-xs font-semibold text-text-muted">events.jsonl</div>
+													{filteredRuntimeEvents.length === 0 ? (
+														<div className="text-sm text-text-muted">No runtime events yet.</div>
+													) : (
+														<pre className="max-h-[200px] overflow-auto rounded-md bg-black/20 p-3 text-[11px] text-text-muted">{filteredRuntimeEvents.join('\n')}</pre>
+													)}
+												</div>
+
+												<div>
+													<div className="mb-2 text-xs font-semibold text-text-muted">stderr.log</div>
+													{filteredRuntimeStderr.length === 0 ? (
+														<div className="text-sm text-text-muted">No stderr output yet.</div>
+													) : (
+														<pre className="max-h-[200px] overflow-auto rounded-md bg-black/20 p-3 text-[11px] text-text-muted">{filteredRuntimeStderr.join('\n')}</pre>
+													)}
+												</div>
+											</div>
 										</div>
 									</>
 								) : (
