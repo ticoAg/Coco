@@ -3575,8 +3575,8 @@ export function CodexChat() {
 					error={sessionsError}
 				/>
 
-				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-8 pt-6 pb-0.5">
-					<div className="flex items-center justify-between gap-4 border-b border-white/10 pb-2">
+				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col pb-0.5">
+					<div className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-2">
 						<div className="flex min-w-0 items-center gap-1 overflow-x-auto">
 							{mainTabs.map((tab) => {
 								const active = tab.id === activeMainTabId;
@@ -3619,18 +3619,19 @@ export function CodexChat() {
 						<div className="relative flex shrink-0 items-center">
 							<button
 								type="button"
-								className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#057812] text-white hover:bg-[#068414]"
+								className="am-icon-button h-8 w-8 text-text-muted hover:text-text-main"
 								onClick={() => {
 									setIsSettingsMenuOpen(false);
 									void createNewSession();
 								}}
 								title="New session"
 							>
-								<Plus className="h-5 w-5" />
+								<Plus className="h-4 w-4" />
 							</button>
 						</div>
 					</div>
 
+					<div className="flex min-h-0 flex-1 flex-col px-8 pt-6">
 					{workspaceRootError ? <div className="mt-2 text-xs text-status-warning">{workspaceRootError}</div> : null}
 					{workspaceDirErrorByPath[''] ? <div className="mt-1 text-xs text-status-warning">{workspaceDirErrorByPath['']}</div> : null}
 
@@ -4340,6 +4341,7 @@ export function CodexChat() {
 							</div>
 						</div>
 					) : null}
+				</div>
 				</div>
 			</div>
 		</div>
