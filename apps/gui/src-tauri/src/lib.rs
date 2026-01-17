@@ -63,12 +63,12 @@ struct TaskTextFileContent {
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TaskDirEntry {
-    path: String,
+struct TaskDirectoryEntry {
     name: String,
-    kind: String,
-    updated_at_ms: Option<u64>,
+    path: String,
+    is_directory: bool,
     size_bytes: Option<u64>,
+    updated_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -110,7 +110,7 @@ pub fn run() {
             tail_subagent_events,
             tail_subagent_stderr,
             task_read_text_file,
-            task_list_dir,
+            task_list_directory,
             list_shared_artifacts,
             read_shared_artifact,
             workspace_root_get,
@@ -778,13 +778,17 @@ fn task_read_text_file(
 }
 
 #[tauri::command]
-fn task_list_dir(
+fn task_list_directory(
     state: tauri::State<'_, AppState>,
     task_id: String,
-    path: String,
-) -> Result<Vec<TaskDirEntry>, String> {
+    relative_path: String,
+) -> Result<Vec<TaskDirectoryEntry>, String> {
     validate_id(&task_id, "task_id")?;
-    let rel_path = validate_task_rel_path(&path)?;
+    let rel_path = if relative_path.trim().is_empty() {
+        std::path::PathBuf::new()
+    } else {
+        validate_task_rel_path(&relative_path)?
+    };
 
     let workspace_root = state
         .orchestrator
@@ -793,21 +797,24 @@ fn task_list_dir(
         .workspace_root()
         .to_path_buf();
     let base_dir = task_root_dir(&workspace_root, &task_id);
-    let dir_path = base_dir.join(&rel_path);
+    let target_dir = if rel_path.as_os_str().is_empty() {
+        base_dir.clone()
+    } else {
+        base_dir.join(&rel_path)
+    };
 
-    if !dir_path.exists() || !dir_path.is_dir() {
+    if !target_dir.exists() || !target_dir.is_dir() {
         return Ok(Vec::new());
     }
 
     let canonical_base = std::fs::canonicalize(&base_dir).map_err(|e| e.to_string())?;
-    let canonical_dir = std::fs::canonicalize(&dir_path).map_err(|e| e.to_string())?;
-    if !canonical_dir.starts_with(&canonical_base) {
+    let canonical_target = std::fs::canonicalize(&target_dir).map_err(|e| e.to_string())?;
+    if !canonical_target.starts_with(&canonical_base) {
         return Err("path escapes task directory".to_string());
     }
 
-    let read_dir = std::fs::read_dir(&canonical_dir).map_err(|e| e.to_string())?;
     let mut entries = Vec::new();
-    for entry in read_dir {
+    for entry in std::fs::read_dir(&canonical_target).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let entry_path = entry.path();
         let canonical_entry = match std::fs::canonicalize(&entry_path) {
@@ -817,39 +824,37 @@ fn task_list_dir(
         if !canonical_entry.starts_with(&canonical_base) {
             continue;
         }
-        let rel_entry = canonical_entry
-            .strip_prefix(&canonical_base)
-            .map_err(|e| e.to_string())?;
-        let rel_str = rel_entry.to_string_lossy().replace('\\', "/");
-        let name = entry
-            .file_name()
-            .to_string_lossy()
-            .to_string();
-        let meta = entry.metadata().ok();
-        let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-        let updated_at_ms = meta
+        let metadata = entry.metadata().ok();
+        let is_directory = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        let size_bytes = if is_directory {
+            None
+        } else {
+            metadata.as_ref().map(|m| m.len())
+        };
+        let updated_at_ms = metadata
             .as_ref()
             .and_then(|m| m.modified().ok())
             .and_then(to_epoch_ms);
-        let size_bytes = if is_dir {
-            None
+        let entry_rel_path = if rel_path.as_os_str().is_empty() {
+            entry.file_name().to_string_lossy().to_string()
         } else {
-            meta.as_ref().map(|m| m.len())
+            format!("{}/{}", relative_path, entry.file_name().to_string_lossy())
         };
 
-        entries.push(TaskDirEntry {
-            path: rel_str,
-            name,
-            kind: if is_dir { "dir".to_string() } else { "file".to_string() },
-            updated_at_ms,
+        entries.push(TaskDirectoryEntry {
+            name: entry.file_name().to_string_lossy().to_string(),
+            path: entry_rel_path,
+            is_directory,
             size_bytes,
+            updated_at_ms,
         });
     }
 
-    entries.sort_by(|a, b| match (a.kind.as_str(), b.kind.as_str()) {
-        ("dir", "file") => std::cmp::Ordering::Less,
-        ("file", "dir") => std::cmp::Ordering::Greater,
-        _ => a.name.cmp(&b.name),
+    // Sort: directories first, then by name
+    entries.sort_by(|a, b| match (a.is_directory, b.is_directory) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
     });
 
     Ok(entries)

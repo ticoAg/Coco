@@ -1,7 +1,7 @@
 import { getVersion } from '@tauri-apps/api/app';
 import { listen } from '@tauri-apps/api/event';
 import { message as dialogMessage, open as openDialog } from '@tauri-apps/plugin-dialog';
-import { ArrowUp, Box, ChevronDown, ChevronRight, File, FileText, Folder, Image, Info, Menu, Plus, RotateCw, Settings, Slash, X, Zap } from 'lucide-react';
+import { ArrowUp, Box, ChevronDown, ChevronRight, File, FileText, Folder, Image, Info, Plus, RotateCw, Settings, Slash, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../api/client';
 import { parseCodeReviewStructuredOutputFromMessage, shouldHideAssistantMessageContent } from './codex/assistantMessage';
@@ -26,12 +26,12 @@ import {
 	resolveParsedCmd,
 	safeString,
 } from './codex/utils';
-import { MENU_STYLES, SIDEBAR_WIDTH_PX, SIDEBAR_ICON_BUTTON_PX } from './codex/styles/menu-styles';
+import { MENU_STYLES } from './codex/styles/menu-styles';
 import { SlashCommandMenu } from './codex/SlashCommandMenu';
 import { SkillMenu } from './codex/SkillMenu';
 import { StatusBar, type StatusPopover } from './codex/StatusBar';
 import { SessionRunningIndicator } from './codex/SessionRunningIndicator';
-import { SessionSidebar } from './codex/SessionSidebar';
+import { SessionTreeSidebar } from './codex/sidebar';
 import { SLASH_COMMANDS, type SlashCommand } from './codex/slash-commands';
 import { TurnBlock, type TurnBlockView } from './codex/TurnBlock';
 import type {
@@ -48,6 +48,7 @@ import type {
 	ReasoningEffort,
 	SkillMetadata,
 } from '../types/codex';
+import type { TreeNodeData } from '../types/sidebar';
 
 const SETTINGS_STORAGE_KEY = 'agentmesh.codexChat.settings.v2';
 
@@ -794,6 +795,12 @@ function parseTurnStatus(value: unknown): TurnBlockStatus {
 	return 'unknown';
 }
 
+function labelForThread(summary?: CodexThreadSummary, fallback?: string): string {
+	if (!summary) return fallback ?? 'unknown';
+	const preview = summary.preview?.trim();
+	return preview ? preview : summary.id;
+}
+
 type FilteredSlashCommand = {
 	cmd: SlashCommand;
 	indices: number[] | null;
@@ -805,8 +812,9 @@ export function CodexChat() {
 	const [sessions, setSessions] = useState<CodexThreadSummary[]>([]);
 	const [sessionsLoading, setSessionsLoading] = useState(true);
 	const [sessionsError, setSessionsError] = useState<string | null>(null);
-	const [isSessionsOpen, setIsSessionsOpen] = useState(false);
 	const [runningThreadIds, setRunningThreadIds] = useState<Record<string, boolean>>({});
+	const [isSessionTreeExpanded, setIsSessionTreeExpanded] = useState(true);
+	const [sessionTreeExpandedNodes, setSessionTreeExpandedNodes] = useState<Set<string>>(new Set());
 
 	// Collab/workbench state (Codex thread graph derived from CollabAgentToolCall items).
 	const [isWorkbenchEnabled, setIsWorkbenchEnabled] = useState(false);
@@ -1187,7 +1195,6 @@ export function CodexChat() {
 			if (options?.setAsWorkbenchRoot) {
 				setWorkbenchRootThreadId(threadId);
 			}
-			setIsSessionsOpen(false);
 
 			try {
 				const res = await apiClient.codexThreadResume(threadId);
@@ -1389,6 +1396,191 @@ export function CodexChat() {
 			hasSpawnEdges: edges.some((e) => e.kind === 'spawn'),
 		};
 	}, [collabItemsByThreadId, collabSeqByItemId, forkParentByThreadId, selectedThreadId, workbenchRootThreadId]);
+
+	const sessionTree = useMemo(() => {
+		const spawnEdges = workbenchGraph.edges.filter((edge) => edge.kind === 'spawn');
+		const incomingCount: Record<string, number> = {};
+		for (const edge of spawnEdges) {
+			incomingCount[edge.to] = (incomingCount[edge.to] ?? 0) + 1;
+		}
+
+		const threadSummaryById = new Map(sessions.map((session) => [session.id, session]));
+		const rootLabel = repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? '') || 'Workspace';
+		const rootId = 'repo-root';
+		const nodeIdByThreadId: Record<string, string> = {};
+		const workerNodeIdByThreadId: Record<string, string> = {};
+		const workerFilesNodeIdByThreadId: Record<string, string> = {};
+
+		const collectSpawnChildren = (fromId: string): string[] => {
+			const ordered = spawnEdges
+				.filter((edge) => edge.from === fromId)
+				.sort((a, b) => a.seq - b.seq);
+			const out: string[] = [];
+			const seen = new Set<string>();
+			for (const edge of ordered) {
+				if (!edge.to || seen.has(edge.to)) continue;
+				seen.add(edge.to);
+				out.push(edge.to);
+			}
+			return out;
+		};
+
+		const taskNodes: TreeNodeData[] = sessions
+			.filter((session) => (incomingCount[session.id] ?? 0) === 0)
+			.map((session): TreeNodeData => {
+				const taskNodeId = `task-${session.id}`;
+				nodeIdByThreadId[session.id] = taskNodeId;
+
+				const children: TreeNodeData[] = [];
+				const orchestratorId = collectSpawnChildren(session.id)[0] ?? null;
+				const runningRoot = Boolean(runningThreadIds[session.id]);
+				let taskIsActive = runningRoot;
+
+				if (orchestratorId) {
+					const orchestratorNodeId = `orchestrator-${orchestratorId}`;
+					nodeIdByThreadId[orchestratorId] = orchestratorNodeId;
+
+					const workerIds = collectSpawnChildren(orchestratorId);
+					const workerNodes: TreeNodeData[] = workerIds.map((workerId): TreeNodeData => {
+						const workerNodeId = `worker-${workerId}`;
+						const filesNodeId = `worker-${workerId}-files`;
+						nodeIdByThreadId[workerId] = workerNodeId;
+						workerNodeIdByThreadId[workerId] = workerNodeId;
+						workerFilesNodeIdByThreadId[workerId] = filesNodeId;
+
+						const workerRunning = Boolean(runningThreadIds[workerId]);
+						taskIsActive = taskIsActive || workerRunning;
+
+						const filesNode: TreeNodeData = {
+							id: filesNodeId,
+							type: 'folder',
+							label: 'files',
+							metadata: { threadId: workerId, path: '' },
+							children: [],
+						};
+
+						return {
+							id: workerNodeId,
+							type: 'worker',
+							label: labelForThread(threadSummaryById.get(workerId), workerId),
+							isActive: workerRunning,
+							status: workerRunning ? 'running' : undefined,
+							metadata: { threadId: workerId },
+							children: [filesNode],
+						};
+					});
+
+					const orchestratorRunning = Boolean(runningThreadIds[orchestratorId]) || workerNodes.some((node) => node.isActive);
+					taskIsActive = taskIsActive || orchestratorRunning;
+
+					children.push({
+						id: orchestratorNodeId,
+						type: 'orchestrator',
+						label: labelForThread(threadSummaryById.get(orchestratorId), orchestratorId),
+						isActive: orchestratorRunning,
+						status: orchestratorRunning ? 'running' : undefined,
+						metadata: { threadId: orchestratorId },
+						children: workerNodes,
+					});
+				}
+
+				return {
+					id: taskNodeId,
+					type: 'task',
+					label: labelForThread(session, session.id),
+					isActive: taskIsActive,
+					status: taskIsActive ? 'running' : undefined,
+					metadata: { threadId: session.id },
+					children: children.length > 0 ? children : undefined,
+				};
+			});
+
+		const treeData: TreeNodeData[] = [
+			{
+				id: rootId,
+				type: 'repo',
+				label: rootLabel,
+				children: taskNodes,
+			},
+		];
+
+		return {
+			rootId,
+			rootLabel,
+			treeData,
+			nodeIdByThreadId,
+			workerNodeIdByThreadId,
+			workerFilesNodeIdByThreadId,
+		};
+	}, [sessions, runningThreadIds, activeThread?.cwd, workspaceRoot, workbenchGraph.edges]);
+
+	useEffect(() => {
+		setSessionTreeExpandedNodes((prev) => {
+			if (prev.has(sessionTree.rootId)) return prev;
+			const next = new Set(prev);
+			next.add(sessionTree.rootId);
+			return next;
+		});
+	}, [sessionTree.rootId]);
+
+	const toggleSessionTreeNode = useCallback((nodeId: string) => {
+		setSessionTreeExpandedNodes((prev) => {
+			const next = new Set(prev);
+			if (next.has(nodeId)) {
+				next.delete(nodeId);
+			} else {
+				next.add(nodeId);
+			}
+			return next;
+		});
+	}, []);
+
+	const expandSessionTreeNodes = useCallback((nodeIds: string[]) => {
+		if (nodeIds.length === 0) return;
+		setSessionTreeExpandedNodes((prev) => {
+			const next = new Set(prev);
+			for (const nodeId of nodeIds) {
+				next.add(nodeId);
+			}
+			return next;
+		});
+	}, []);
+
+	const selectedSessionTreeNodeId = useMemo(() => {
+		if (!selectedThreadId) return null;
+		return sessionTree.nodeIdByThreadId[selectedThreadId] ?? null;
+	}, [selectedThreadId, sessionTree.nodeIdByThreadId]);
+
+	const handleSessionTreeSelect = useCallback(
+		(node: TreeNodeData) => {
+			const threadId = node.metadata?.threadId;
+			if (!threadId) return;
+
+			if (node.type === 'task') {
+				void selectSession(threadId, { setAsWorkbenchRoot: true });
+				return;
+			}
+
+			if (node.type === 'worker') {
+				void selectSession(threadId);
+				const workerNodeId = sessionTree.workerNodeIdByThreadId[threadId];
+				const filesNodeId = sessionTree.workerFilesNodeIdByThreadId[threadId];
+				const expandIds = [workerNodeId, filesNodeId].filter((id): id is string => Boolean(id));
+				expandSessionTreeNodes(expandIds);
+				return;
+			}
+
+			if (node.type === 'orchestrator') {
+				void selectSession(threadId);
+			}
+		},
+		[
+			expandSessionTreeNodes,
+			selectSession,
+			sessionTree.workerFilesNodeIdByThreadId,
+			sessionTree.workerNodeIdByThreadId,
+		]
+	);
 
 	const collabAgentStateByThreadId = useMemo(() => {
 		type State = { status: string; message: string | null; seq: number };
@@ -2180,7 +2372,7 @@ export function CodexChat() {
 					void createNewSession();
 					break;
 				case 'resume':
-					setIsSessionsOpen(true);
+					setIsSessionTreeExpanded(true);
 					break;
 				case 'init':
 					setInput('/init');
@@ -2862,8 +3054,6 @@ export function CodexChat() {
 		el.scrollTop = el.scrollHeight;
 	}, [renderCount]);
 
-	const sidebarIconButtonPx = Math.round(SIDEBAR_ICON_BUTTON_PX);
-	const sidebarIconSizePx = Math.max(10, Math.round(sidebarIconButtonPx * 0.62));
 
 	return (
 		<div className="flex h-full min-w-0 flex-col overflow-x-hidden">
@@ -3036,18 +3226,6 @@ export function CodexChat() {
 					<button
 						type="button"
 						className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-menuDivider bg-bg-panel/40 text-text-main hover:bg-bg-panelHover transition-colors"
-						onClick={() => {
-							setIsSettingsMenuOpen(false);
-							setIsSessionsOpen(true);
-						}}
-						title="Sessions"
-					>
-						<Menu className="h-5 w-5" />
-					</button>
-
-					<button
-						type="button"
-						className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-menuDivider bg-bg-panel/40 text-text-main hover:bg-bg-panelHover transition-colors"
 						onClick={() => setIsSettingsMenuOpen((v) => !v)}
 						title="Menu"
 					>
@@ -3131,30 +3309,20 @@ export function CodexChat() {
 
 			{/* 主内容区域 */}
 			<div className="flex min-h-0 min-w-0 flex-1">
-				<div className="relative shrink-0" style={{ width: SIDEBAR_WIDTH_PX }}>
-					<aside className="flex h-full w-full flex-col items-center gap-4 border-r border-white/10 bg-bg-panel/40 pt-6 pb-0.5">
-						<button
-							type="button"
-							className="flex items-center justify-center rounded-lg border border-primary/40 bg-primary/10 text-text-main"
-							title="Codex"
-							style={{ width: sidebarIconButtonPx, height: sidebarIconButtonPx }}
-						>
-							<span style={{ fontSize: sidebarIconSizePx, lineHeight: 1 }}>✷</span>
-						</button>
-
-						<div className="flex flex-col items-center gap-3">
-							<button
-								type="button"
-								className="flex items-center justify-center rounded-lg border border-white/10 bg-bg-panelHover text-text-main hover:border-white/20"
-								onClick={() => void createNewSession()}
-								title="New session"
-								style={{ width: sidebarIconButtonPx, height: sidebarIconButtonPx }}
-							>
-								<Plus size={sidebarIconSizePx} />
-							</button>
-						</div>
-					</aside>
-				</div>
+				<SessionTreeSidebar
+					isExpanded={isSessionTreeExpanded}
+					onExpandedChange={setIsSessionTreeExpanded}
+					workspaceLabel={sessionTree.rootLabel}
+					treeData={sessionTree.treeData}
+					expandedNodes={sessionTreeExpandedNodes}
+					selectedNodeId={selectedSessionTreeNodeId}
+					onToggleExpand={toggleSessionTreeNode}
+					onSelectNode={handleSessionTreeSelect}
+					onCreateNewSession={() => void createNewSession()}
+					onRefresh={listSessions}
+					loading={sessionsLoading}
+					error={sessionsError}
+				/>
 
 				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-8 pt-6 pb-0.5">
 					<div className="relative flex items-center justify-between gap-4">
@@ -3744,18 +3912,6 @@ export function CodexChat() {
 							</div>
 						</div>
 					) : null}
-
-					<SessionSidebar
-						isOpen={isSessionsOpen}
-						sessions={sessions}
-						loading={sessionsLoading}
-						error={sessionsError}
-						selectedThreadId={selectedThreadId}
-						runningThreadIds={runningThreadIds}
-						onRefresh={listSessions}
-						onClose={() => setIsSessionsOpen(false)}
-						onSelect={selectSession}
-					/>
 
 					{isSettingsOpen ? (
 						<div className="fixed inset-0 z-50 flex">

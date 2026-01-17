@@ -8,11 +8,11 @@ import type {
 	SharedArtifactSummary,
 	SubagentFinalOutput,
 	SubagentSessionSummary,
-	TaskDirEntry,
 	TaskTextFileContent,
 	Task,
 	TaskEvent,
 } from '../types/task';
+import type { TaskDirectoryEntry } from '../types/sidebar';
 import type {
 	AutoContextInfo,
 	CodexModelListResponse,
@@ -100,10 +100,10 @@ export async function taskReadTextFile(taskId: string, path: string, maxBytes?: 
 	});
 }
 
-export async function taskListDir(taskId: string, path: string): Promise<TaskDirEntry[]> {
-	return invoke<TaskDirEntry[]>('task_list_dir', {
+export async function taskListDirectory(taskId: string, relativePath: string): Promise<TaskDirectoryEntry[]> {
+	return invoke<TaskDirectoryEntry[]>('task_list_directory', {
 		task_id: taskId,
-		path,
+		relative_path: relativePath,
 	});
 }
 
@@ -326,7 +326,7 @@ export const apiClient = {
 	tailSubagentEvents,
 	tailSubagentStderr,
 	taskReadTextFile,
-	taskListDir,
+	taskListDirectory,
 	listSharedArtifacts,
 	readSharedArtifact,
 	codexAppServerEnsure,

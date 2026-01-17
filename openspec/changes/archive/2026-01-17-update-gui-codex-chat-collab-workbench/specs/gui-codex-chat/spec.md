@@ -30,6 +30,17 @@ When collab tool calls are present, GUI SHALL provide a workbench mode that:
 - **WHEN** those calls complete with new `receiverThreadIds` values
 - **THEN** the GUI lists those threads as worker nodes under the orchestrator node
 
+### Requirement: Session Tree Sidebar
+GUI SHALL provide a left sidebar session tree in Codex Chat that:
+- groups sessions under the current workspace/repo,
+- represents collab hierarchy as task/root thread → orchestrator → worker nodes, and
+- includes a files node under each worker (placeholder until file rendering is implemented).
+
+#### Scenario: Selecting a worker focuses its thread
+- **GIVEN** a worker thread exists under a root session
+- **WHEN** the user selects the worker node in the session tree
+- **THEN** the GUI focuses that worker thread in the main panel and expands the worker’s files node
+
 ### Requirement: Auto-Focus Active Agent Panel
 GUI SHALL provide an Auto-focus toggle. When enabled, GUI SHALL automatically focus the panel for the agent/thread that is currently running (best-effort), based on:
 - collab agent states, and/or

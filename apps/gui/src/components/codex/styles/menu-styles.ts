@@ -22,4 +22,5 @@ export const MENU_STYLES = {
 } as const;
 
 export const SIDEBAR_WIDTH_PX = 48 * 0.7;
+export const SIDEBAR_EXPANDED_WIDTH_PX = 260;
 export const SIDEBAR_ICON_BUTTON_PX = SIDEBAR_WIDTH_PX * 0.7;
