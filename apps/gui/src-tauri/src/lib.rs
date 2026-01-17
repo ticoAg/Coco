@@ -63,6 +63,16 @@ struct TaskTextFileContent {
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct TaskDirEntry {
+    path: String,
+    name: String,
+    kind: String,
+    updated_at_ms: Option<u64>,
+    size_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct CodexThreadSummary {
     id: String,
     preview: String,
@@ -100,6 +110,7 @@ pub fn run() {
             tail_subagent_events,
             tail_subagent_stderr,
             task_read_text_file,
+            task_list_dir,
             list_shared_artifacts,
             read_shared_artifact,
             workspace_root_get,
@@ -764,6 +775,84 @@ fn task_read_text_file(
         size_bytes,
         truncated,
     })
+}
+
+#[tauri::command]
+fn task_list_dir(
+    state: tauri::State<'_, AppState>,
+    task_id: String,
+    path: String,
+) -> Result<Vec<TaskDirEntry>, String> {
+    validate_id(&task_id, "task_id")?;
+    let rel_path = validate_task_rel_path(&path)?;
+
+    let workspace_root = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
+    let base_dir = task_root_dir(&workspace_root, &task_id);
+    let dir_path = base_dir.join(&rel_path);
+
+    if !dir_path.exists() || !dir_path.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let canonical_base = std::fs::canonicalize(&base_dir).map_err(|e| e.to_string())?;
+    let canonical_dir = std::fs::canonicalize(&dir_path).map_err(|e| e.to_string())?;
+    if !canonical_dir.starts_with(&canonical_base) {
+        return Err("path escapes task directory".to_string());
+    }
+
+    let read_dir = std::fs::read_dir(&canonical_dir).map_err(|e| e.to_string())?;
+    let mut entries = Vec::new();
+    for entry in read_dir {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let entry_path = entry.path();
+        let canonical_entry = match std::fs::canonicalize(&entry_path) {
+            Ok(path) => path,
+            Err(_) => continue,
+        };
+        if !canonical_entry.starts_with(&canonical_base) {
+            continue;
+        }
+        let rel_entry = canonical_entry
+            .strip_prefix(&canonical_base)
+            .map_err(|e| e.to_string())?;
+        let rel_str = rel_entry.to_string_lossy().replace('\\', "/");
+        let name = entry
+            .file_name()
+            .to_string_lossy()
+            .to_string();
+        let meta = entry.metadata().ok();
+        let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        let updated_at_ms = meta
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(to_epoch_ms);
+        let size_bytes = if is_dir {
+            None
+        } else {
+            meta.as_ref().map(|m| m.len())
+        };
+
+        entries.push(TaskDirEntry {
+            path: rel_str,
+            name,
+            kind: if is_dir { "dir".to_string() } else { "file".to_string() },
+            updated_at_ms,
+            size_bytes,
+        });
+    }
+
+    entries.sort_by(|a, b| match (a.kind.as_str(), b.kind.as_str()) {
+        ("dir", "file") => std::cmp::Ordering::Less,
+        ("file", "dir") => std::cmp::Ordering::Greater,
+        _ => a.name.cmp(&b.name),
+    });
+
+    Ok(entries)
 }
 
 #[tauri::command]

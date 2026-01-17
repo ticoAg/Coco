@@ -10,6 +10,7 @@ import type {
 	SharedArtifactSummary,
 	Task,
 	TaskEvent,
+	TaskDirEntry,
 	TaskTextFileContent,
 } from '../types/task';
 import { useSharedArtifacts, useSubagentSessions } from '../hooks/useTasks';
@@ -39,6 +40,27 @@ function workbenchNodeKey(node: WorkbenchNode): string {
 		case 'agent':
 			return `agent:${node.agentInstance}:${node.section}`;
 	}
+}
+
+const isMarkdownFile = (path?: string | null) => Boolean(path && path.toLowerCase().endsWith('.md'));
+const isHtmlFile = (path?: string | null) => {
+	if (!path) return false;
+	const lower = path.toLowerCase();
+	return lower.endsWith('.html') || lower.endsWith('.htm');
+};
+
+function renderTextPreview(content: string, path: string): ReactNode {
+	if (isMarkdownFile(path)) {
+		return (
+			<div className="space-y-3 text-sm text-text-main">
+				<ReactMarkdown>{content}</ReactMarkdown>
+			</div>
+		);
+	}
+	if (isHtmlFile(path)) {
+		return <iframe title="HTML preview" sandbox="" className="h-[560px] w-full rounded-md border border-white/10 bg-black/20" srcDoc={content} />;
+	}
+	return <pre className="max-h-[560px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">{content}</pre>;
 }
 
 function formatDate(dateString: string): string {
@@ -169,6 +191,7 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 		shared: true,
 		agents: true,
 		reports: true,
+		evidence: false,
 		contracts: false,
 		decisions: false,
 	});
@@ -179,6 +202,9 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 	});
 	const [workbenchArtifactsLoading, setWorkbenchArtifactsLoading] = useState(false);
 	const [workbenchArtifactsError, setWorkbenchArtifactsError] = useState<string | null>(null);
+	const [workbenchEvidenceEntries, setWorkbenchEvidenceEntries] = useState<TaskDirEntry[]>([]);
+	const [workbenchEvidenceLoading, setWorkbenchEvidenceLoading] = useState(false);
+	const [workbenchEvidenceError, setWorkbenchEvidenceError] = useState<string | null>(null);
 	const [workbenchTextFile, setWorkbenchTextFile] = useState<TaskTextFileContent | null>(null);
 	const [workbenchArtifactContent, setWorkbenchArtifactContent] = useState<SharedArtifactContent | null>(null);
 	const [workbenchPreviewLoading, setWorkbenchPreviewLoading] = useState(false);
@@ -242,7 +268,7 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 	}, [runtimeStderr, runtimeQuery]);
 
 	const selectedArtifact = useMemo(() => artifacts.find((item) => item.path === selectedArtifactPath) ?? null, [artifacts, selectedArtifactPath]);
-	const isMarkdown = useMemo(() => selectedArtifact?.path?.toLowerCase().endsWith('.md') ?? false, [selectedArtifact]);
+	const isMarkdown = useMemo(() => isMarkdownFile(selectedArtifact?.path), [selectedArtifact]);
 	const workbenchEnabled = tab === 'workbench' && detailReady;
 	const workbenchSelectionKey = useMemo(() => (workbenchSelected ? workbenchNodeKey(workbenchSelected) : null), [workbenchSelected]);
 
@@ -261,6 +287,20 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 			setWorkbenchArtifactsError(err instanceof Error ? err.message : 'Failed to load artifacts');
 		} finally {
 			setWorkbenchArtifactsLoading(false);
+		}
+	}, [task]);
+
+	const refreshWorkbenchEvidence = useCallback(async () => {
+		if (!task) return;
+		setWorkbenchEvidenceLoading(true);
+		try {
+			const entries = await apiClient.taskListDir(task.id, 'shared/evidence');
+			setWorkbenchEvidenceEntries(entries);
+			setWorkbenchEvidenceError(null);
+		} catch (err) {
+			setWorkbenchEvidenceError(err instanceof Error ? err.message : 'Failed to load evidence');
+		} finally {
+			setWorkbenchEvidenceLoading(false);
 		}
 	}, [task]);
 
@@ -301,15 +341,21 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 		refreshWorkbenchArtifacts().catch(() => {
 			// ignore polling errors; keep last successful state
 		});
+		refreshWorkbenchEvidence().catch(() => {
+			// ignore polling errors; keep last successful state
+		});
 
 		const timer = setInterval(() => {
 			refreshWorkbenchArtifacts().catch(() => {
 				// ignore polling errors; keep last successful state
 			});
+			refreshWorkbenchEvidence().catch(() => {
+				// ignore polling errors; keep last successful state
+			});
 		}, 2000);
 
 		return () => clearInterval(timer);
-	}, [workbenchEnabled, refreshWorkbenchArtifacts]);
+	}, [workbenchEnabled, refreshWorkbenchArtifacts, refreshWorkbenchEvidence]);
 
 	useEffect(() => {
 		if (!workbenchEnabled) return;
@@ -487,6 +533,7 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 								onClick={() => {
 									void refreshSessions();
 									void refreshWorkbenchArtifacts();
+									void refreshWorkbenchEvidence();
 									void refreshWorkbenchPreview();
 								}}
 							>
@@ -497,6 +544,9 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 
 					{workbenchArtifactsError ? (
 						<div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{workbenchArtifactsError}</div>
+					) : null}
+					{workbenchEvidenceError ? (
+						<div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{workbenchEvidenceError}</div>
 					) : null}
 
 					<div className="grid grid-cols-[320px_1fr] gap-4">
@@ -549,7 +599,6 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 									{ kind: 'sharedFile', path: 'shared/state-board.md', label: 'state-board.md' },
 									{ kind: 'sharedFile', path: 'shared/human-notes.md', label: 'human-notes.md' },
 									{ kind: 'sharedFile', path: 'shared/context-manifest.yaml', label: 'context-manifest.yaml' },
-									{ kind: 'sharedFile', path: 'shared/evidence/index.json', label: 'evidence/index.json' },
 								];
 
 								return (
@@ -560,7 +609,9 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 											onClick={() => toggleExpanded('shared')}
 										>
 											{expanded('shared') ? 'v' : '>'} shared/
-											{workbenchArtifactsLoading ? <span className="ml-2 text-[10px] text-text-dim">loading…</span> : null}
+											{workbenchArtifactsLoading || workbenchEvidenceLoading ? (
+												<span className="ml-2 text-[10px] text-text-dim">loading…</span>
+											) : null}
 										</button>
 
 										{expanded('shared') ? (
@@ -608,6 +659,47 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 														) : null}
 													</div>
 												))}
+
+												<div className="space-y-1">
+													<button
+														type="button"
+														className="w-full rounded-md px-2 py-1 text-left text-[11px] font-semibold text-text-muted hover:bg-white/5"
+														style={{ paddingLeft: indentPx(1) }}
+														onClick={() => toggleExpanded('evidence')}
+													>
+														{expanded('evidence') ? 'v' : '>'} evidence/
+														{workbenchEvidenceLoading ? <span className="ml-2 text-[10px] text-text-dim">loading…</span> : null}
+													</button>
+													{expanded('evidence') ? (
+														<div className="space-y-1">
+															{workbenchEvidenceEntries.filter((entry) => entry.kind === 'file').length === 0 ? (
+																<div className="px-2 py-1 text-[11px] text-text-dim" style={{ paddingLeft: indentPx(2) }}>
+																	(empty)
+																</div>
+															) : (
+																workbenchEvidenceEntries
+																	.filter((entry) => entry.kind === 'file')
+																	.map((entry) => {
+																		const label = entry.path.replace(/^shared\/evidence\//, '');
+																		const node: WorkbenchNode = {
+																			kind: 'sharedFile',
+																			path: entry.path,
+																			label: label || entry.name,
+																		};
+																		return (
+																			<TreeButton
+																				key={`evidence:${entry.path}`}
+																				node={node}
+																				label={label || entry.name}
+																				depth={2}
+																				meta={entry.path !== label ? entry.path : undefined}
+																			/>
+																		);
+																	})
+															)}
+														</div>
+													) : null}
+												</div>
 											</div>
 										) : null}
 
@@ -654,21 +746,40 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 
 																{expanded(agentKey) ? (
 																	<div className="space-y-1">
-																		{(
-																			[
-																				{ section: 'session', label: 'session.json' },
-																				{ section: 'final', label: 'artifacts/final.json' },
-																				{ section: 'events', label: 'runtime/events.jsonl' },
-																				{ section: 'stderr', label: 'runtime/stderr.log' },
-																			] as const
-																		).map((leaf) => {
-																			const node: WorkbenchNode = {
-																				kind: 'agent',
-																				agentInstance: s.agentInstance,
-																				section: leaf.section,
-																			};
-																			return <TreeButton key={`${agentKey}:${leaf.section}`} node={node} label={leaf.label} depth={2} />;
-																		})}
+																		<TreeButton
+																			node={{ kind: 'agent', agentInstance: s.agentInstance, section: 'session' }}
+																			label="session.json"
+																			depth={2}
+																		/>
+
+																		<div
+																			className="w-full rounded-md px-2 py-1 text-left text-[11px] font-semibold text-text-muted"
+																			style={{ paddingLeft: indentPx(2) }}
+																		>
+																			runtime/
+																		</div>
+																		<TreeButton
+																			node={{ kind: 'agent', agentInstance: s.agentInstance, section: 'events' }}
+																			label="events.jsonl"
+																			depth={3}
+																		/>
+																		<TreeButton
+																			node={{ kind: 'agent', agentInstance: s.agentInstance, section: 'stderr' }}
+																			label="stderr.log"
+																			depth={3}
+																		/>
+
+																		<div
+																			className="w-full rounded-md px-2 py-1 text-left text-[11px] font-semibold text-text-muted"
+																			style={{ paddingLeft: indentPx(2) }}
+																		>
+																			artifacts/
+																		</div>
+																		<TreeButton
+																			node={{ kind: 'agent', agentInstance: s.agentInstance, section: 'final' }}
+																			label="final.json"
+																			depth={3}
+																		/>
 																	</div>
 																) : null}
 															</div>
@@ -756,7 +867,6 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 									}
 
 									// session.json (text preview)
-									const isMd = false;
 									const content = workbenchTextFile?.content ?? null;
 									return (
 										<div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
@@ -771,12 +881,8 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 													<div className="text-sm text-text-muted">File not found yet.</div>
 												) : !content ? (
 													<div className="text-sm text-text-muted">(empty)</div>
-												) : isMd ? (
-													<div className="space-y-3 text-sm text-text-main">
-														<ReactMarkdown>{content}</ReactMarkdown>
-													</div>
 												) : (
-													<pre className="max-h-[560px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">{content}</pre>
+													renderTextPreview(content, workbenchTextFile?.path ?? 'session.json')
 												)}
 											</div>
 											{workbenchTextFile?.updatedAtMs ? (
@@ -788,7 +894,7 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 								}
 
 								if (workbenchSelected.kind === 'sharedArtifact') {
-									const isMd = workbenchSelected.path.toLowerCase().endsWith('.md');
+									const previewPath = workbenchSelected.path;
 									return (
 										<div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
 											<div className="flex items-center justify-between gap-2">
@@ -798,12 +904,8 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 											<div className="mt-3">
 												{!workbenchArtifactContent ? (
 													<div className="text-sm text-text-muted">Loading…</div>
-												) : isMd ? (
-													<div className="space-y-3 text-sm text-text-main">
-														<ReactMarkdown>{workbenchArtifactContent.content}</ReactMarkdown>
-													</div>
 												) : (
-													<pre className="max-h-[560px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">{workbenchArtifactContent.content}</pre>
+													renderTextPreview(workbenchArtifactContent.content, previewPath)
 												)}
 											</div>
 											{workbenchArtifactContent?.updatedAtMs ? (
@@ -814,7 +916,6 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 								}
 
 								// shared file (text preview)
-								const isMd = workbenchSelected.path.toLowerCase().endsWith('.md');
 								const content = workbenchTextFile?.content ?? null;
 								return (
 									<div className="rounded-lg border border-white/10 bg-bg-panelHover px-4 py-3">
@@ -829,12 +930,8 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 												<div className="text-sm text-text-muted">File not found yet.</div>
 											) : !content ? (
 												<div className="text-sm text-text-muted">(empty)</div>
-											) : isMd ? (
-												<div className="space-y-3 text-sm text-text-main">
-													<ReactMarkdown>{content}</ReactMarkdown>
-												</div>
 											) : (
-												<pre className="max-h-[560px] overflow-auto rounded-md bg-black/20 p-3 text-xs text-text-muted">{content}</pre>
+												renderTextPreview(content, workbenchSelected.path)
 											)}
 										</div>
 										{workbenchTextFile?.updatedAtMs ? (

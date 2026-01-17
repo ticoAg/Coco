@@ -14,6 +14,62 @@ import type {
 
 const getErrorMessage = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
+const parseTimestampMs = (value: unknown): number | null => {
+	if (typeof value === 'number' && Number.isFinite(value)) {
+		if (value > 1_000_000_000_000) return value;
+		if (value > 1_000_000_000) return value * 1000;
+		return null;
+	}
+	if (typeof value === 'string') {
+		const trimmed = value.trim();
+		if (!trimmed) return null;
+		const asNumber = Number(trimmed);
+		if (!Number.isNaN(asNumber)) {
+			return parseTimestampMs(asNumber);
+		}
+		const parsed = Date.parse(trimmed);
+		return Number.isNaN(parsed) ? null : parsed;
+	}
+	return null;
+};
+
+const parseEventTimestampMs = (line: string): number | null => {
+	const trimmed = line.trim();
+	if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
+	try {
+		const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+		if (!parsed || typeof parsed !== 'object') return null;
+		const candidates = ['ts', 'timestamp', 'time', 'createdAt', 'updatedAt'];
+		for (const key of candidates) {
+			if (!(key in parsed)) continue;
+			const value = parseTimestampMs(parsed[key]);
+			if (value != null) return value;
+		}
+	} catch {
+		return null;
+	}
+	return null;
+};
+
+const sortRuntimeEvents = (lines: string[]): string[] => {
+	const enriched = lines.map((line, index) => ({
+		line,
+		index,
+		ts: parseEventTimestampMs(line),
+	}));
+	const hasAnyTs = enriched.some((item) => item.ts != null);
+	if (!hasAnyTs) return lines;
+	return enriched
+		.slice()
+		.sort((a, b) => {
+			const aKey = a.ts ?? Number.MAX_SAFE_INTEGER;
+			const bKey = b.ts ?? Number.MAX_SAFE_INTEGER;
+			if (aKey === bKey) return a.index - b.index;
+			return aKey - bKey;
+		})
+		.map((item) => item.line);
+};
+
 // ============ useTasks ============
 
 interface UseTasksState {
@@ -248,10 +304,12 @@ export function useSubagentSessions(
 				apiClient.tailSubagentStderr(taskId, agentInstance, eventsTailLimit),
 			]);
 
+			const orderedRuntimeEvents = sortRuntimeEvents(runtimeEvents);
+
 			setState((prev) => ({
 				...prev,
 				finalOutput,
-				runtimeEvents,
+				runtimeEvents: orderedRuntimeEvents,
 				runtimeStderr,
 				error: null,
 			}));

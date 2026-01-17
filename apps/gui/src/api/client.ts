@@ -8,6 +8,7 @@ import type {
 	SharedArtifactSummary,
 	SubagentFinalOutput,
 	SubagentSessionSummary,
+	TaskDirEntry,
 	TaskTextFileContent,
 	Task,
 	TaskEvent,
@@ -96,6 +97,13 @@ export async function taskReadTextFile(taskId: string, path: string, maxBytes?: 
 		task_id: taskId,
 		path,
 		max_bytes: maxBytes ?? null,
+	});
+}
+
+export async function taskListDir(taskId: string, path: string): Promise<TaskDirEntry[]> {
+	return invoke<TaskDirEntry[]>('task_list_dir', {
+		task_id: taskId,
+		path,
 	});
 }
 
@@ -318,6 +326,7 @@ export const apiClient = {
 	tailSubagentEvents,
 	tailSubagentStderr,
 	taskReadTextFile,
+	taskListDir,
 	listSharedArtifacts,
 	readSharedArtifact,
 	codexAppServerEnsure,

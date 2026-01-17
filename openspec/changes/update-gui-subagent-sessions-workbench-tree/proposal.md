@@ -4,7 +4,8 @@
 把任务详情页的 “Subagents / Sessions” 从列表升级为更适合 multi-agent 的 **Workbench**：
 
 - 提供类似文件管理器的树状结构（Task Directory tree：shared + agents + runtime + artifacts）
-- 提供 subagent 运行时过程查看窗体（runtime viewer：events.jsonl/stderr/final.json）
+- 提供 subagent 会话流历史查看窗体（基于 `runtime/events.jsonl`：按时间排序 + 可过滤；并可查看 stderr/final）
+- 提供 file 节点的只读查看 + 预览（支持 Markdown / HTML 预览）
 - 提供 Auto-follow（自动聚焦当前活跃/运行中的 subagent session）开关
 - （可选增强）对拥有 `session.json.vendorSession.threadId` 的 session：支持 “Open in Codex Workbench”（依赖 app-server pool）
 
@@ -17,13 +18,15 @@
 ## What Changes
 - 扩展 `gui-subagent-sessions`：
   - Workbench tree：把 `shared/` 与 `agents/<instance>/` 的关键文件映射为节点
-  - Runtime viewer：支持查看/过滤/搜索 runtime/events.jsonl（MVP：tail + refresh；增强：按 JSON 字段过滤）
+  - Runtime viewer：支持查看 subagent 会话流历史（MVP：events.jsonl tail + refresh + 按时间排序 + 过滤；增强：按 JSON 字段过滤）
+  - File preview：file 节点支持 Markdown / HTML 预览（只读）
   - Auto-follow：当存在 running session 时，自动选中最近活跃的 session（可关闭）
 - 为后续与 Codex Chat/Collab Workbench 打通预留入口：
   - 如果 `agents/<instance>/session.json` 含 `vendorSession.threadId` + `codexHome`，GUI 可通过 app-server pool 打开该 thread 进行 fork/resume（本 change 可只做 UI 入口/不实现底层）
 
 ## Non-Goals
 - 不在本 change 中实现 Controller GUI（spawn/cancel/join 的按钮体系仍保持最小只读）。
+- 不在 MVP 中支持文件编辑（仅查看/预览）。
 - 不在本 change 中解析/重建所有 vendor 事件为统一 schema（MVP 先做到“可读/可定位/可刷新”）。
 
 ## Impact
@@ -39,4 +42,3 @@
     - `apps/gui/src/components/*`（新增 WorkbenchTree / RuntimeViewer 组件）
   - Backend:
     - `apps/gui/src-tauri/src/lib.rs`（新增 task-dir tree/list/read 命令或复用现有接口）
-

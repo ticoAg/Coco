@@ -119,6 +119,16 @@ export interface TaskTextFileContent {
 	truncated: boolean;
 }
 
+export type TaskDirEntryKind = 'file' | 'dir';
+
+export interface TaskDirEntry {
+	path: string;
+	name: string;
+	kind: TaskDirEntryKind;
+	updatedAtMs: number | null;
+	sizeBytes: number | null;
+}
+
 // ============ Shared Artifacts (GUI only) ============
 
 export type SharedArtifactCategory = 'reports' | 'contracts' | 'decisions';
