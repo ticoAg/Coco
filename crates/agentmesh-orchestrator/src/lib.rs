@@ -107,6 +107,8 @@ pub struct SubagentWaitAnyResult {
 const TASK_AGENTS_DIR_NAME: &str = "agents";
 const TASK_SHARED_DIR_NAME: &str = "shared";
 const TASK_SHARED_REPORTS_DIR_NAME: &str = "reports";
+const TASK_SHARED_EVIDENCE_DIR_NAME: &str = "evidence";
+const TASK_SHARED_EVIDENCE_INDEX_FILE_NAME: &str = "index.json";
 const RUNTIME_DIR_NAME: &str = "runtime";
 const ARTIFACTS_DIR_NAME: &str = "artifacts";
 const CODEX_HOME_DIR_NAME: &str = "codex_home";
@@ -127,6 +129,46 @@ const CANCEL_TERMINATE_PERIOD: Duration = Duration::from_secs(2);
 pub struct JoinTaskResponse {
     pub joined_summary_md: PathBuf,
     pub joined_summary_json: PathBuf,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct EvidenceEntry {
+    id: String,
+    kind: String,
+    title: String,
+    summary: String,
+    created_at: String,
+    sources: Vec<EvidenceSource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    artifact_refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+enum EvidenceSource {
+    FileAnchor {
+        path: String,
+        start_line: u32,
+        end_line: u32,
+    },
+    CommandExecution {
+        command: String,
+        cwd: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        stdout_ref: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        stderr_ref: Option<String>,
+    },
+    RuntimeEventRange {
+        events_ref: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        start_line: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        end_line: Option<u32>,
+    },
 }
 
 impl Orchestrator {
@@ -394,6 +436,12 @@ impl Orchestrator {
             .join(TASK_SHARED_REPORTS_DIR_NAME);
         fs::create_dir_all(&reports_dir)?;
 
+        let evidence_dir = task_dir
+            .join(TASK_SHARED_DIR_NAME)
+            .join(TASK_SHARED_EVIDENCE_DIR_NAME);
+        fs::create_dir_all(&evidence_dir)?;
+        let evidence_index_path = evidence_dir.join(TASK_SHARED_EVIDENCE_INDEX_FILE_NAME);
+
         let mut workers = Vec::new();
         for agent in &task.roster {
             let final_path = agent_dir(&task_dir, &agent.instance)
@@ -411,6 +459,50 @@ impl Orchestrator {
         }
 
         let generated_at = Utc::now();
+
+        // Evidence Index: keep the evidence entries small and reference the raw recordings/artifacts.
+        // For now, join produces a minimal per-worker evidence entry so reports can cite it.
+        let evidence_entries = workers
+            .iter()
+            .map(|w| {
+                let evidence_id = evidence_id_for_agent_instance(&w.agent_instance);
+                EvidenceEntry {
+                    id: evidence_id.clone(),
+                    kind: "runtime-event-range".to_string(),
+                    title: format!("Worker {} runtime", w.agent_instance),
+                    summary: format!(
+                        "[{}] {}",
+                        w.status,
+                        w.summary.trim().to_string()
+                    )
+                    .trim()
+                    .to_string(),
+                    created_at: generated_at.to_rfc3339(),
+                    sources: vec![EvidenceSource::RuntimeEventRange {
+                        events_ref: format!(
+                            "./agents/{}/runtime/{}",
+                            w.agent_instance, RUNTIME_EVENTS_FILE_NAME
+                        ),
+                        start_line: None,
+                        end_line: None,
+                    }],
+                    artifact_refs: vec![
+                        format!(
+                            "./agents/{}/artifacts/{}",
+                            w.agent_instance, FINAL_OUTPUT_FILE_NAME
+                        ),
+                        format!(
+                            "./agents/{}/runtime/{}",
+                            w.agent_instance, RUNTIME_EVENTS_FILE_NAME
+                        ),
+                    ],
+                }
+            })
+            .collect::<Vec<_>>();
+        fs::write(
+            &evidence_index_path,
+            serde_json::to_string_pretty(&evidence_entries)?,
+        )?;
 
         let markdown = render_joined_summary_markdown(&task, generated_at, &workers);
         let md_path = reports_dir.join(JOINED_SUMMARY_MD_FILE_NAME);
@@ -949,6 +1041,10 @@ fn render_joined_summary_markdown(
     for w in workers {
         out.push_str(&format!("### {} ({})\n\n", w.agent_instance, w.agent));
         out.push_str(&format!("- status: `{}`\n", w.status));
+        out.push_str(&format!(
+            "- evidence: evidence:{}\n",
+            evidence_id_for_agent_instance(&w.agent_instance)
+        ));
         if !w.summary.trim().is_empty() {
             out.push_str(&format!("- summary: {}\n", w.summary.trim()));
         }
@@ -971,6 +1067,11 @@ fn render_joined_summary_markdown(
     }
 
     out
+}
+
+fn evidence_id_for_agent_instance(agent_instance: &str) -> String {
+    let normalized = agent_instance.replace('_', "-");
+    format!("worker-{normalized}")
 }
 
 fn escape_yaml_string(value: &str) -> String {
@@ -1458,6 +1559,8 @@ mod tests {
         assert!(md.contains("summary-two"));
         assert!(md.contains("question-two"));
         assert!(md.contains("action-two"));
+        assert!(md.contains("evidence:worker-w1"));
+        assert!(md.contains("evidence:worker-w2"));
 
         let json_content = fs::read_to_string(resp.joined_summary_json).unwrap();
         assert!(json_content.contains("summary-one"));
@@ -1466,6 +1569,30 @@ mod tests {
         assert!(json_content.contains("summary-two"));
         assert!(json_content.contains("question-two"));
         assert!(json_content.contains("action-two"));
+
+        let evidence_index_path = task_dir
+            .join("shared")
+            .join("evidence")
+            .join("index.json");
+        let evidence_index: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(evidence_index_path).unwrap()).unwrap();
+        let evidence_entries = evidence_index.as_array().unwrap();
+        assert_eq!(evidence_entries.len(), 2);
+
+        let w1 = evidence_entries
+            .iter()
+            .find(|v| v.get("id").and_then(|s| s.as_str()) == Some("worker-w1"))
+            .unwrap();
+        assert_eq!(w1.get("kind").and_then(|s| s.as_str()), Some("runtime-event-range"));
+        let w1_sources = w1.get("sources").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(
+            w1_sources[0].get("type").and_then(|s| s.as_str()),
+            Some("runtimeEventRange")
+        );
+        assert_eq!(
+            w1_sources[0].get("eventsRef").and_then(|s| s.as_str()),
+            Some("./agents/w1/runtime/events.jsonl")
+        );
     }
 
     fn write_worker_final_json(task_dir: &Path, agent_instance: &str, value: serde_json::Value) {

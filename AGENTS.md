@@ -24,7 +24,9 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 <!-- OPENSPEC:END -->
 
 # AI Agent 开发原则与协作规范
-
+> 本项目作为 openai/codex 的下游应用存在，可以视其为基建，原子组件，独立工具，依赖其支持的功能
+> openai/codex repo 已拉下来，位于 ~/Documents/myws/ags/codex，需要适配对接时优先从对应repo中查找源码，但不允许修改repo 源码
+> 存在不支持的功能可在本项目中构建对应模块 adaptor 实现
 ## 一、 核心交互流程（最高优先级）
 
 ### 1. 方案先行，思维对齐 (Proposal & Alignment)

@@ -66,6 +66,7 @@ dependencies = [
  "agentmesh-core",
  "chrono",
  "libc",
+ "serde",
  "serde_json",
  "thiserror 2.0.17",
  "tokio",

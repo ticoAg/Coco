@@ -196,6 +196,15 @@ impl TaskStore {
             fs::write(context_manifest_path, "attachments: []\n")?;
         }
 
+        // Evidence Index (artifacts-first): keep an append-only-friendly "index of pointers"
+        // so reports can cite evidence without dumping raw logs into the main context.
+        let evidence_dir = shared_dir.join("evidence");
+        fs::create_dir_all(&evidence_dir)?;
+        let evidence_index_path = evidence_dir.join("index.json");
+        if !evidence_index_path.exists() {
+            fs::write(evidence_index_path, "[]\n")?;
+        }
+
         let readme_path = self.task_dir(&task_id).join("README.md");
         if !readme_path.exists() {
             let topology = match task.topology {
@@ -263,7 +272,7 @@ mod tests {
     use crate::task::TaskTopology;
 
     #[test]
-    fn create_task_scaffolds_human_notes_and_context_manifest() {
+    fn create_task_scaffolds_human_notes_context_manifest_and_evidence_index() {
         let workspace_root = std::env::temp_dir().join(format!(
             "agentmesh-core-test-{}",
             uuid::Uuid::new_v4().simple()
@@ -286,6 +295,11 @@ mod tests {
             .join("shared")
             .join("context-manifest.yaml")
             .exists());
+        let evidence_index_path = task_dir.join("shared").join("evidence").join("index.json");
+        assert!(evidence_index_path.exists());
+        let evidence_index: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&evidence_index_path).unwrap()).unwrap();
+        assert!(evidence_index.is_array());
 
         fs::remove_dir_all(workspace_root).unwrap();
     }
