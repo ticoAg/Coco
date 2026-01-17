@@ -119,6 +119,17 @@ export async function codexThreadResume(threadId: string): Promise<unknown> {
 	return invoke<unknown>('codex_thread_resume', { threadId });
 }
 
+export async function codexThreadFork(threadId: string): Promise<unknown> {
+	return invoke<unknown>('codex_thread_fork', { threadId });
+}
+
+export async function codexThreadRollback(threadId: string, numTurns?: number | null): Promise<unknown> {
+	return invoke<unknown>('codex_thread_rollback', {
+		threadId,
+		numTurns: numTurns ?? null,
+	});
+}
+
 export async function codexTurnStart(
 	threadId: string,
 	input: CodexUserInput[],
@@ -268,6 +279,8 @@ export const apiClient = {
 	codexThreadList,
 	codexThreadStart,
 	codexThreadResume,
+	codexThreadFork,
+	codexThreadRollback,
 	codexTurnStart,
 	codexTurnInterrupt,
 	codexRespondApproval,

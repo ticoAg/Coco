@@ -93,6 +93,8 @@ pub fn run() {
             codex_thread_loaded_list,
             codex_thread_start,
             codex_thread_resume,
+            codex_thread_fork,
+            codex_thread_rollback,
             codex_turn_start,
             codex_turn_interrupt,
             codex_respond_approval,
@@ -957,6 +959,68 @@ async fn codex_thread_resume(
     let params = serde_json::json!({ "threadId": thread_id });
     let res = codex.request("thread/resume", Some(params)).await?;
     codex_rollout_restore::augment_thread_resume_response(res, &thread_id).await
+}
+
+#[tauri::command]
+async fn codex_thread_fork(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    thread_id: String,
+) -> Result<serde_json::Value, String> {
+    let codex = get_or_start_codex(&state, app).await?;
+
+    let cwd = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_string_lossy()
+        .to_string();
+
+    let params = serde_json::json!({ "threadId": thread_id, "cwd": cwd });
+    let res = codex.request("thread/fork", Some(params)).await?;
+    let new_thread_id = res
+        .get("thread")
+        .and_then(|t| t.get("id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if new_thread_id.is_empty() {
+        return Err("invalid thread/fork response: thread.id".to_string());
+    }
+
+    codex_rollout_restore::augment_thread_resume_response(res, &new_thread_id).await
+}
+
+#[tauri::command]
+async fn codex_thread_rollback(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    thread_id: String,
+    num_turns: Option<u32>,
+) -> Result<serde_json::Value, String> {
+    let codex = get_or_start_codex(&state, app).await?;
+
+    let num_turns = num_turns.unwrap_or(1);
+    if num_turns < 1 {
+        return Err("numTurns must be >= 1".to_string());
+    }
+
+    let params = serde_json::json!({ "threadId": thread_id, "numTurns": num_turns });
+    let res = codex.request("thread/rollback", Some(params)).await?;
+    let resolved_thread_id = res
+        .get("thread")
+        .and_then(|t| t.get("id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if resolved_thread_id.is_empty() {
+        return Err("invalid thread/rollback response: thread.id".to_string());
+    }
+
+    codex_rollout_restore::augment_thread_resume_response(res, &resolved_thread_id).await
 }
 
 #[tauri::command]

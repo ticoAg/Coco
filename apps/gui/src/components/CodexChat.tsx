@@ -1307,6 +1307,78 @@ export function CodexChat() {
 		}
 	}, [listSessions, selectedModel]);
 
+	const forkSession = useCallback(async () => {
+		if (!selectedThreadId) return;
+
+		const isRunning = Boolean(runningThreadIds[selectedThreadId]);
+		if (isRunning) {
+			const confirmed = window.confirm('A turn is currently running. Forking now will interrupt the running turn. Continue?');
+			if (!confirmed) return;
+			if (activeTurnId) {
+				try {
+					await apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId);
+				} catch {
+					// Best-effort; even if interrupt fails, the fork request might still succeed.
+				}
+			}
+		}
+
+		setIsSettingsMenuOpen(false);
+
+		try {
+			const res = await apiClient.codexThreadFork(selectedThreadId);
+			const thread = normalizeThreadFromResponse(res);
+			if (!thread?.id) throw new Error('Failed to parse thread/fork response');
+			await selectSession(thread.id);
+			await listSessions();
+		} catch (err) {
+			try {
+				await dialogMessage(errorMessage(err, 'Failed to fork session'), {
+					title: 'Fork session',
+					kind: 'error',
+				});
+			} catch {
+				// ignore
+			}
+		}
+	}, [activeTurnId, listSessions, runningThreadIds, selectSession, selectedThreadId]);
+
+	const rollbackSession = useCallback(async () => {
+		if (!selectedThreadId) return;
+
+		const isRunning = Boolean(runningThreadIds[selectedThreadId]);
+		const warning = isRunning
+			? 'A turn is currently running. Rolling back will interrupt the running turn and only affects session history (it does not revert file changes). Continue?'
+			: 'Rollback only affects session history (it does not revert file changes). Continue?';
+		const confirmed = window.confirm(warning);
+		if (!confirmed) return;
+
+		if (isRunning && activeTurnId) {
+			try {
+				await apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId);
+			} catch {
+				// Best-effort; continue to attempt rollback.
+			}
+		}
+
+		setIsSettingsMenuOpen(false);
+
+		try {
+			await apiClient.codexThreadRollback(selectedThreadId, 1);
+			await selectSession(selectedThreadId);
+			await listSessions();
+		} catch (err) {
+			try {
+				await dialogMessage(errorMessage(err, 'Failed to rollback session'), {
+					title: 'Rollback session',
+					kind: 'error',
+				});
+			} catch {
+				// ignore
+			}
+		}
+	}, [activeTurnId, listSessions, runningThreadIds, selectSession, selectedThreadId]);
+
 	const applyWorkspaceRoot = useCallback(
 		async (nextRoot: string) => {
 			setWorkspaceRootError(null);
@@ -2754,6 +2826,30 @@ export function CodexChat() {
 									}}
 								>
 									New session
+								</button>
+								<button
+									type="button"
+									className={[
+										MENU_STYLES.popoverItem,
+										!selectedThreadId ? 'pointer-events-none opacity-50' : '',
+									].join(' ')}
+									onClick={() => void forkSession()}
+									disabled={!selectedThreadId}
+									title={selectedThreadId ? 'Fork the current session' : 'Select a session first'}
+								>
+									Fork session
+								</button>
+								<button
+									type="button"
+									className={[
+										MENU_STYLES.popoverItem,
+										!selectedThreadId ? 'pointer-events-none opacity-50' : '',
+									].join(' ')}
+									onClick={() => void rollbackSession()}
+									disabled={!selectedThreadId}
+									title={selectedThreadId ? 'Rollback last turn (history only)' : 'Select a session first'}
+								>
+									Rollback last turn
 								</button>
 							</div>
 						</>
