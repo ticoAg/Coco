@@ -14,6 +14,7 @@ export interface TreeNodeData {
 	isSelected?: boolean;
 	isActive?: boolean;
 	status?: string;
+	actions?: Array<{ id: string; title: string }>;
 	metadata?: {
 		taskId?: string;
 		agentInstance?: string;

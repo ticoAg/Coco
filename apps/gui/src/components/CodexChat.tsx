@@ -1,6 +1,6 @@
 import { getVersion } from '@tauri-apps/api/app';
 import { listen } from '@tauri-apps/api/event';
-import { message as dialogMessage, open as openDialog } from '@tauri-apps/plugin-dialog';
+import { confirm as dialogConfirm, message as dialogMessage, open as openDialog } from '@tauri-apps/plugin-dialog';
 import { ArrowUp, Box, ChevronDown, ChevronRight, File, FileText, Folder, Image, Info, Plus, RotateCw, Settings, Slash, X, Zap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -27,7 +27,7 @@ import {
 	resolveParsedCmd,
 	safeString,
 } from './codex/utils';
-import { MENU_STYLES } from './codex/styles/menu-styles';
+import { MENU_STYLES, SIDEBAR_EXPANDED_WIDTH_PX } from './codex/styles/menu-styles';
 import { SlashCommandMenu } from './codex/SlashCommandMenu';
 import { SkillMenu } from './codex/SkillMenu';
 import { StatusBar, type StatusPopover } from './codex/StatusBar';
@@ -52,6 +52,9 @@ import type {
 import type { TaskDirectoryEntry, TreeNodeData } from '../types/sidebar';
 
 const SETTINGS_STORAGE_KEY = 'agentmesh.codexChat.settings.v2';
+const SESSION_TREE_WIDTH_STORAGE_KEY = 'agentmesh.codexChat.sessionTreeWidth.v1';
+const SESSION_TREE_MIN_WIDTH_PX = 200;
+const SESSION_TREE_MAX_WIDTH_PX = 520;
 
 function loadCodexChatSettings(): CodexChatSettings {
 	const defaults: CodexChatSettings = {
@@ -76,6 +79,27 @@ function loadCodexChatSettings(): CodexChatSettings {
 function persistCodexChatSettings(next: CodexChatSettings) {
 	try {
 		window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next));
+	} catch {
+		// ignore
+	}
+}
+
+function loadSessionTreeWidth(): number {
+	if (typeof window === 'undefined') return SIDEBAR_EXPANDED_WIDTH_PX;
+	try {
+		const raw = window.localStorage.getItem(SESSION_TREE_WIDTH_STORAGE_KEY);
+		if (!raw) return SIDEBAR_EXPANDED_WIDTH_PX;
+		const parsed = Number(raw);
+		if (!Number.isFinite(parsed)) return SIDEBAR_EXPANDED_WIDTH_PX;
+		return Math.min(SESSION_TREE_MAX_WIDTH_PX, Math.max(SESSION_TREE_MIN_WIDTH_PX, parsed));
+	} catch {
+		return SIDEBAR_EXPANDED_WIDTH_PX;
+	}
+}
+
+function persistSessionTreeWidth(next: number) {
+	try {
+		window.localStorage.setItem(SESSION_TREE_WIDTH_STORAGE_KEY, String(next));
 	} catch {
 		// ignore
 	}
@@ -855,16 +879,30 @@ type TaskContextMenuState = {
 	threadId: string;
 };
 
+type RenameTaskState = {
+	threadId: string;
+	value: string;
+	error: string | null;
+};
+
 export function CodexChat() {
 	const [settings, setSettings] = useState<CodexChatSettings>(() => loadCodexChatSettings());
 	const [sessions, setSessions] = useState<CodexThreadSummary[]>([]);
 	const [sessionsLoading, setSessionsLoading] = useState(true);
 	const [sessionsError, setSessionsError] = useState<string | null>(null);
+	const [sessionsLoadedOnce, setSessionsLoadedOnce] = useState(false);
 	const [runningThreadIds, setRunningThreadIds] = useState<Record<string, boolean>>({});
 	const [isSessionTreeExpanded, setIsSessionTreeExpanded] = useState(true);
 	const [sessionTreeExpandedNodes, setSessionTreeExpandedNodes] = useState<Set<string>>(new Set());
 	const [selectedSessionTreeNodeOverride, setSelectedSessionTreeNodeOverride] = useState<string | null>(null);
 	const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenuState | null>(null);
+	const [renameTaskDialog, setRenameTaskDialog] = useState<RenameTaskState | null>(null);
+	const [sessionTreeWidthPx, setSessionTreeWidthPx] = useState(() => loadSessionTreeWidth());
+	const autoRefreshTimerRef = useRef<number | null>(null);
+	const autoRefreshUntilRef = useRef<number>(0);
+	const listSessionsRef = useRef<() => Promise<void>>(async () => {});
+	const archiveTaskInFlightRef = useRef<Set<string>>(new Set());
+	const renameTaskInputRef = useRef<HTMLInputElement>(null);
 
 	const [fileTabs, setFileTabs] = useState<FilePreviewTab[]>([]);
 	const [activeMainTabId, setActiveMainTabId] = useState<string>(MAIN_TAB_CHAT_ID);
@@ -872,7 +910,8 @@ export function CodexChat() {
 
 	const [workspaceDirEntriesByPath, setWorkspaceDirEntriesByPath] = useState<Record<string, TaskDirectoryEntry[]>>({});
 	const [workspaceDirLoadingByPath, setWorkspaceDirLoadingByPath] = useState<Record<string, boolean>>({});
-	const [workspaceDirErrorByPath, setWorkspaceDirErrorByPath] = useState<Record<string, string | null>>({});
+	const [workspaceListToast, setWorkspaceListToast] = useState<string | null>(null);
+	const workspaceListToastTimerRef = useRef<number | null>(null);
 	const sessionTreeExpandedNodesRef = useRef<Set<string>>(new Set());
 
 	// Collab/workbench state (Codex thread graph derived from CollabAgentToolCall items).
@@ -932,6 +971,8 @@ export function CodexChat() {
 	const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
 	const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
 	const [workspaceRootError, setWorkspaceRootError] = useState<string | null>(null);
+	// If a thread's persisted cwd becomes invalid, fall back to the workspace root for file browsing.
+	const [workspaceBasePathOverride, setWorkspaceBasePathOverride] = useState<string | null>(null);
 	const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
 	const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
 	const itemToTurnRef = useRef<Record<string, string>>({});
@@ -960,7 +1001,32 @@ export function CodexChat() {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const menuListRef = useRef<HTMLDivElement>(null);
-	const workspaceBasePath = activeThread?.cwd ?? workspaceRoot ?? null;
+	const computedWorkspaceBasePath = activeThread?.cwd ?? workspaceRoot ?? null;
+	const workspaceBasePath = workspaceBasePathOverride ?? computedWorkspaceBasePath;
+
+	// Reset the override when the source base path changes (e.g. switching sessions / selecting a new project).
+	useEffect(() => {
+		setWorkspaceBasePathOverride(null);
+	}, [computedWorkspaceBasePath]);
+
+	const showWorkspaceListToast = useCallback((message: string) => {
+		setWorkspaceListToast(message);
+		if (workspaceListToastTimerRef.current) {
+			window.clearTimeout(workspaceListToastTimerRef.current);
+		}
+		workspaceListToastTimerRef.current = window.setTimeout(() => {
+			setWorkspaceListToast(null);
+			workspaceListToastTimerRef.current = null;
+		}, 5000);
+	}, []);
+
+	useEffect(() => {
+		return () => {
+			if (!workspaceListToastTimerRef.current) return;
+			window.clearTimeout(workspaceListToastTimerRef.current);
+			workspaceListToastTimerRef.current = null;
+		};
+	}, []);
 
 	useEffect(() => {
 		fileTabsRef.current = fileTabs;
@@ -994,19 +1060,29 @@ export function CodexChat() {
 		async (relativePath: string) => {
 			if (!workspaceBasePath) return;
 			setWorkspaceDirLoadingByPath((prev) => ({ ...prev, [relativePath]: true }));
-			setWorkspaceDirErrorByPath((prev) => ({ ...prev, [relativePath]: null }));
 			try {
 				const entries = await apiClient.workspaceListDirectory(workspaceBasePath, relativePath);
 				setWorkspaceDirEntriesByPath((prev) => ({ ...prev, [relativePath]: entries }));
 			} catch (err) {
-				const message = err instanceof Error ? err.message : 'Failed to list directory';
+				const message = errorMessage(err, 'Failed to list directory');
+				const target = relativePath.trim()
+					? `${workspaceBasePath.replace(/\/$/, '')}/${relativePath.replace(/^\//, '')}`
+					: workspaceBasePath;
 				setWorkspaceDirEntriesByPath((prev) => ({ ...prev, [relativePath]: [] }));
-				setWorkspaceDirErrorByPath((prev) => ({ ...prev, [relativePath]: message }));
+
+				// When the current thread's cwd goes stale (deleted/moved), keep the UI usable by
+				// falling back to the workspace root for browsing.
+				if (!relativePath.trim() && workspaceRoot && workspaceBasePath !== workspaceRoot) {
+					setWorkspaceBasePathOverride(workspaceRoot);
+					showWorkspaceListToast(`无法列出目录：${workspaceBasePath}\n${message}\n已回退到：${workspaceRoot}`);
+				} else {
+					showWorkspaceListToast(`无法列出目录：${target}\n${message}`);
+				}
 			} finally {
 				setWorkspaceDirLoadingByPath((prev) => ({ ...prev, [relativePath]: false }));
 			}
 		},
-		[workspaceBasePath]
+		[showWorkspaceListToast, workspaceBasePath, workspaceRoot]
 	);
 
 	const ensureWorkspaceDirectoryLoaded = useCallback(
@@ -1025,7 +1101,6 @@ export function CodexChat() {
 	useEffect(() => {
 		setWorkspaceDirEntriesByPath({});
 		setWorkspaceDirLoadingByPath({});
-		setWorkspaceDirErrorByPath({});
 		if (!workspaceBasePath) return;
 		void loadWorkspaceDirectory('');
 	}, [workspaceBasePath, loadWorkspaceDirectory]);
@@ -1101,17 +1176,64 @@ export function CodexChat() {
 		});
 	}, []);
 
+	const maybeStartAutoRefresh = useCallback((data: CodexThreadSummary[]) => {
+		const now = Date.now();
+		const hasRecent = data.some((session) => session.updatedAtMs != null && now - session.updatedAtMs <= 30 * 1000);
+		if (!hasRecent) return;
+
+		autoRefreshUntilRef.current = Math.max(autoRefreshUntilRef.current, now + 30 * 1000);
+		if (autoRefreshTimerRef.current != null) return;
+
+		autoRefreshTimerRef.current = window.setInterval(() => {
+			const now = Date.now();
+			if (now > autoRefreshUntilRef.current) {
+				if (autoRefreshTimerRef.current != null) {
+					window.clearInterval(autoRefreshTimerRef.current);
+					autoRefreshTimerRef.current = null;
+				}
+				return;
+			}
+			void listSessionsRef.current();
+		}, 7_000);
+	}, []);
+
+	const handleSessionTreeWidthChange = useCallback((nextWidth: number) => {
+		const clamped = Math.min(SESSION_TREE_MAX_WIDTH_PX, Math.max(SESSION_TREE_MIN_WIDTH_PX, nextWidth));
+		setSessionTreeWidthPx(clamped);
+		persistSessionTreeWidth(clamped);
+	}, []);
+
 	const listSessions = useCallback(async () => {
-		setSessionsLoading(true);
+		const shouldShowLoading = !sessionsLoadedOnce;
+		if (shouldShowLoading) {
+			setSessionsLoading(true);
+		}
 		setSessionsError(null);
 		try {
 			const res = await apiClient.codexThreadList(null, 200);
 			setSessions(res.data);
+			setSessionsLoadedOnce(true);
+			maybeStartAutoRefresh(res.data ?? []);
 		} catch (err) {
 			setSessionsError(errorMessage(err, 'Failed to list sessions'));
 		} finally {
-			setSessionsLoading(false);
+			if (shouldShowLoading) {
+				setSessionsLoading(false);
+			}
 		}
+	}, [maybeStartAutoRefresh, sessionsLoadedOnce]);
+
+	useEffect(() => {
+		listSessionsRef.current = listSessions;
+	}, [listSessions]);
+
+	useEffect(() => {
+		return () => {
+			if (autoRefreshTimerRef.current != null) {
+				window.clearInterval(autoRefreshTimerRef.current);
+				autoRefreshTimerRef.current = null;
+			}
+		};
 	}, []);
 
 	const loadModelsAndChatDefaults = useCallback(async () => {
@@ -1521,6 +1643,10 @@ export function CodexChat() {
 		const workerNodeIdByThreadId: Record<string, string> = {};
 		const workerFilesNodeIdByThreadId: Record<string, string> = {};
 		const nodeById: Record<string, TreeNodeData> = {};
+		const archivedGroupNodeIdByKey: Record<string, string> = {};
+		const archivedGroupThreadIdsByKey: Record<string, string[]> = {};
+		const archivedGroupKeyByNodeId: Record<string, string> = {};
+		const taskLatestUpdateMsByThreadId: Record<string, number | null> = {};
 
 		const registerNode = (node: TreeNodeData) => {
 			nodeById[node.id] = node;
@@ -1571,6 +1697,7 @@ export function CodexChat() {
 
 				const children: TreeNodeData[] = [];
 				const orchestratorId = collectSpawnChildren(session.id)[0] ?? null;
+				const workerIds = orchestratorId ? collectSpawnChildren(orchestratorId) : [];
 				const runningRoot = Boolean(runningThreadIds[session.id]);
 				let taskIsActive = runningRoot;
 
@@ -1578,7 +1705,6 @@ export function CodexChat() {
 					const orchestratorNodeId = `orchestrator-${orchestratorId}`;
 					nodeIdByThreadId[orchestratorId] = orchestratorNodeId;
 
-					const workerIds = collectSpawnChildren(orchestratorId);
 					const workerNodes: TreeNodeData[] = workerIds.map((workerId): TreeNodeData => {
 						const workerNodeId = `worker-${workerId}`;
 						const filesNodeId = `worker-${workerId}-files`;
@@ -1631,6 +1757,19 @@ export function CodexChat() {
 					children.push(orchestratorNode);
 				}
 
+				const candidateThreadIds = [session.id, orchestratorId, ...workerIds].filter(
+					(threadId): threadId is string => Boolean(threadId)
+				);
+				let latestUpdateMs: number | null = null;
+				for (const threadId of candidateThreadIds) {
+					const updatedAtMs = threadSummaryById.get(threadId)?.updatedAtMs ?? null;
+					if (updatedAtMs == null) continue;
+					if (latestUpdateMs == null || updatedAtMs > latestUpdateMs) {
+						latestUpdateMs = updatedAtMs;
+					}
+				}
+				taskLatestUpdateMsByThreadId[session.id] = latestUpdateMs;
+
 				const taskNode: TreeNodeData = {
 					id: taskNodeId,
 					type: 'task',
@@ -1645,11 +1784,80 @@ export function CodexChat() {
 				return taskNode;
 			});
 
+			const nowMs = Date.now();
+			const activeNodes: TreeNodeData[] = [];
+			const archivedNodesByDate: Record<string, Record<string, TreeNodeData[]>> = {};
+			for (const node of taskNodes) {
+				const threadId = node.metadata?.threadId ?? '';
+				const summary = threadSummaryById.get(threadId);
+				const updatedAtMs = taskLatestUpdateMsByThreadId[threadId] ?? summary?.updatedAtMs ?? null;
+				const isArchived = updatedAtMs != null && nowMs - updatedAtMs > 60 * 60 * 1000;
+				if (!isArchived) {
+					activeNodes.push(node);
+					continue;
+				}
+				const date = updatedAtMs != null ? new Date(updatedAtMs) : new Date();
+				const year = date.getFullYear();
+				const month = String(date.getMonth() + 1).padStart(2, '0');
+				const day = String(date.getDate()).padStart(2, '0');
+				const dateKey = `${year}-${month}-${day}`;
+				const hourKey = String(date.getHours()).padStart(2, '0');
+				if (!archivedNodesByDate[dateKey]) {
+					archivedNodesByDate[dateKey] = {};
+				}
+				if (!archivedNodesByDate[dateKey][hourKey]) {
+					archivedNodesByDate[dateKey][hourKey] = [];
+					archivedGroupThreadIdsByKey[`${dateKey}/${hourKey}`] = [];
+				}
+				archivedNodesByDate[dateKey][hourKey].push(node);
+				archivedGroupThreadIdsByKey[`${dateKey}/${hourKey}`].push(threadId);
+			}
+
+		const archivedDateNodes: TreeNodeData[] = Object.keys(archivedNodesByDate)
+			.sort()
+			.map((dateKey) => {
+				const hourGroups = archivedNodesByDate[dateKey];
+				const hourNodes: TreeNodeData[] = Object.keys(hourGroups)
+					.sort()
+					.map((hourKey) => {
+						const groupKey = `${dateKey}/${hourKey}`;
+						const nodeId = `archived-group-${dateKey}-${hourKey}`;
+						archivedGroupNodeIdByKey[groupKey] = nodeId;
+						archivedGroupKeyByNodeId[nodeId] = groupKey;
+						const hourNode: TreeNodeData = {
+							id: nodeId,
+							type: 'folder',
+							label: hourKey,
+							actions: [{ id: 'archive-group', title: 'Archive all sessions in this group' }],
+							children: hourGroups[hourKey],
+						};
+						registerNode(hourNode);
+						return hourNode;
+					});
+
+				const dateNode: TreeNodeData = {
+					id: `archived-date-${dateKey}`,
+					type: 'folder',
+					label: dateKey,
+					children: hourNodes,
+				};
+				registerNode(dateNode);
+				return dateNode;
+			});
+
+		const archivedGroupRootNode: TreeNodeData = {
+			id: 'archived-group',
+			type: 'folder',
+			label: 'Archived',
+			children: archivedDateNodes,
+		};
+		registerNode(archivedGroupRootNode);
+
 		const rootNode: TreeNodeData = {
 			id: rootId,
 			type: 'repo',
 			label: rootLabel,
-			children: taskNodes,
+			children: [...activeNodes, archivedGroupRootNode],
 		};
 		registerNode(rootNode);
 		const treeData: TreeNodeData[] = [rootNode];
@@ -1662,6 +1870,9 @@ export function CodexChat() {
 			workerNodeIdByThreadId,
 			workerFilesNodeIdByThreadId,
 			nodeById,
+			archivedGroupNodeIdByKey,
+			archivedGroupThreadIdsByKey,
+			archivedGroupKeyByNodeId,
 		};
 	}, [sessions, runningThreadIds, activeThread?.cwd, workspaceRoot, workbenchGraph.edges, workspaceDirEntriesByPath]);
 
@@ -1678,7 +1889,7 @@ export function CodexChat() {
 		const isExpanded = sessionTreeExpandedNodesRef.current.has(nodeId);
 		if (!isExpanded) {
 			const node = sessionTree.nodeById[nodeId];
-			if (node?.type === 'folder') {
+			if (node?.type === 'folder' && node.metadata?.path != null) {
 				const path = node.metadata?.path ?? '';
 				ensureWorkspaceDirectoryLoaded(path);
 			}
@@ -1811,8 +2022,10 @@ export function CodexChat() {
 
 			if (node.type === 'folder') {
 				setSelectedSessionTreeNodeOverride(node.id);
-				const path = node.metadata?.path ?? '';
-				ensureWorkspaceDirectoryLoaded(path);
+				if (node.metadata?.path != null) {
+					const path = node.metadata?.path ?? '';
+					ensureWorkspaceDirectoryLoaded(path);
+				}
 				return;
 			}
 
@@ -1877,6 +2090,12 @@ export function CodexChat() {
 		};
 	}, [taskContextMenu]);
 
+	useEffect(() => {
+		if (!renameTaskDialog) return;
+		renameTaskInputRef.current?.focus();
+		renameTaskInputRef.current?.select();
+	}, [renameTaskDialog]);
+
 	const handleSessionTreeContextMenu = useCallback(
 		(node: TreeNodeData, event: React.MouseEvent) => {
 			if (node.type !== 'task') return;
@@ -1884,10 +2103,9 @@ export function CodexChat() {
 			if (!threadId) return;
 			event.preventDefault();
 			event.stopPropagation();
-			handleSessionTreeSelect(node);
 			setTaskContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id, threadId });
 		},
-		[handleSessionTreeSelect]
+		[]
 	);
 
 	const collectThreadIdsInNode = useCallback((root: TreeNodeData): string[] => {
@@ -1908,35 +2126,60 @@ export function CodexChat() {
 	}, []);
 
 	const renameTaskThread = useCallback(
-		async (threadId: string) => {
+		(threadId: string) => {
 			const summary = sessions.find((s) => s.id === threadId) ?? null;
 			const defaultTitle = (summary?.title ?? summary?.preview ?? '').trim();
-			const raw = window.prompt('Rename task (max 50 chars)', defaultTitle);
-			if (raw == null) return;
-			const next = raw.trim();
-			if (!next) {
-				await dialogMessage('Title must not be empty.', { title: 'Rename', kind: 'error' });
-				return;
-			}
-			try {
-				await apiClient.codexThreadTitleSet(threadId, next);
-				await listSessions();
-			} catch (err) {
-				await dialogMessage(errorMessage(err, 'Failed to rename task'), { title: 'Rename', kind: 'error' });
-			}
+			setRenameTaskDialog({ threadId, value: defaultTitle, error: null });
 		},
-		[sessions, listSessions]
+		[sessions]
 	);
+
+	const closeRenameTaskDialog = useCallback(() => {
+		setRenameTaskDialog(null);
+	}, []);
+
+	const submitRenameTask = useCallback(async () => {
+		if (!renameTaskDialog) return;
+		const next = renameTaskDialog.value.trim();
+		if (!next) {
+			setRenameTaskDialog((prev) => (prev ? { ...prev, error: 'Title must not be empty.' } : prev));
+			return;
+		}
+		try {
+			await apiClient.codexThreadTitleSet(renameTaskDialog.threadId, next);
+			setRenameTaskDialog(null);
+			await listSessions();
+		} catch (err) {
+			setRenameTaskDialog((prev) => (prev ? { ...prev, error: errorMessage(err, 'Failed to rename task') } : prev));
+		}
+	}, [listSessions, renameTaskDialog]);
 
 	const archiveTaskNode = useCallback(
 		async (taskNodeId: string) => {
-			const root = sessionTree.nodeById[taskNodeId];
-			if (!root) return;
-			const threadIds = collectThreadIdsInNode(root);
-			if (threadIds.length === 0) return;
+			const inFlight = archiveTaskInFlightRef.current;
+			if (inFlight.has(taskNodeId)) return;
+			inFlight.add(taskNodeId);
+			const release = () => inFlight.delete(taskNodeId);
 
-			const confirmed = window.confirm(`Archive this task and its ${threadIds.length - 1} descendant thread(s)?`);
-			if (!confirmed) return;
+			const root = sessionTree.nodeById[taskNodeId];
+			if (!root) {
+				release();
+				return;
+			}
+			const threadIds = collectThreadIdsInNode(root);
+			if (threadIds.length === 0) {
+				release();
+				return;
+			}
+
+			const confirmed = await dialogConfirm(`Archive this task and its ${threadIds.length - 1} descendant thread(s)?`, {
+				title: 'Archive',
+				kind: 'warning',
+			});
+			if (!confirmed) {
+				release();
+				return;
+			}
 
 			try {
 				for (const id of threadIds) {
@@ -1967,6 +2210,8 @@ export function CodexChat() {
 				await listSessions();
 			} catch (err) {
 				await dialogMessage(errorMessage(err, 'Failed to archive task'), { title: 'Delete', kind: 'error' });
+			} finally {
+				release();
 			}
 		},
 		[
@@ -1978,6 +2223,31 @@ export function CodexChat() {
 			setActiveMainTabId,
 			setIsWorkbenchEnabled,
 		]
+	);
+
+	const archiveArchivedGroup = useCallback(
+		async (groupKey: string) => {
+			const threadIds = sessionTree.archivedGroupThreadIdsByKey[groupKey] ?? [];
+			if (threadIds.length === 0) return;
+			const confirmed = await dialogConfirm(`Archive ${threadIds.length} session(s) in ${groupKey}?`, {
+				title: 'Archive',
+				kind: 'warning',
+			});
+			if (!confirmed) return;
+			try {
+				for (const id of threadIds) {
+					try {
+						await apiClient.codexThreadArchive(id);
+					} finally {
+						setThreadRunning(id, false);
+					}
+				}
+				await listSessions();
+			} catch (err) {
+				await dialogMessage(errorMessage(err, 'Failed to archive group'), { title: 'Archive', kind: 'error' });
+			}
+		},
+		[listSessions, sessionTree.archivedGroupThreadIdsByKey, setThreadRunning]
 	);
 
 	const collabAgentStateByThreadId = useMemo(() => {
@@ -2060,7 +2330,13 @@ export function CodexChat() {
 			if (nextProfile === selectedProfile) return;
 			const runningFocusedTurn = activeTurnId ? turnsById[activeTurnId]?.status === 'inProgress' : false;
 			if (runningFocusedTurn) {
-				const confirmed = window.confirm('Switching profile will stop the running turn and resume the session. Continue?');
+				const confirmed = await dialogConfirm(
+					'Switching profile will stop the running turn and resume the session. Continue?',
+					{
+						title: 'Switch profile',
+						kind: 'warning',
+					}
+				);
 				if (!confirmed) return;
 			}
 
@@ -2247,7 +2523,7 @@ export function CodexChat() {
 		const warning = isRunning
 			? 'A turn is currently running. Rolling back will interrupt the running turn and only affects session history (it does not revert file changes). Continue?'
 			: 'Rollback only affects session history (it does not revert file changes). Continue?';
-		const confirmed = window.confirm(warning);
+			const confirmed = await dialogConfirm(warning, { title: 'Rollback session', kind: 'warning' });
 		if (!confirmed) return;
 
 		if (isRunning && activeTurnId) {
@@ -3455,12 +3731,19 @@ export function CodexChat() {
 		return selectedModelInfo?.supportedReasoningEfforts ?? [];
 	}, [selectedModelInfo]);
 
+	const chatTabTitle = useMemo(() => {
+		if (!selectedThreadId) return '对话';
+		const summary = sessions.find((s) => s.id === selectedThreadId);
+		const fallback = activeThread?.preview?.trim() || '对话';
+		return labelForThread(summary, fallback);
+	}, [activeThread?.preview, selectedThreadId, sessions]);
+
 	const mainTabs = useMemo(() => {
 		return [
-			{ id: MAIN_TAB_CHAT_ID, title: '对话', kind: 'chat' as const },
+			{ id: MAIN_TAB_CHAT_ID, title: chatTabTitle, kind: 'chat' as const },
 			...fileTabs.map((tab) => ({ id: tab.id, title: tab.title, kind: 'file' as const })),
 		];
-	}, [fileTabs]);
+	}, [chatTabTitle, fileTabs]);
 
 	const activeFileTab = useMemo(() => {
 		if (activeMainTabId === MAIN_TAB_CHAT_ID) return null;
@@ -3771,11 +4054,21 @@ export function CodexChat() {
 					onExpandedChange={setIsSessionTreeExpanded}
 					workspaceLabel={sessionTree.rootLabel}
 					treeData={sessionTree.treeData}
+					widthPx={sessionTreeWidthPx}
+					minWidthPx={SESSION_TREE_MIN_WIDTH_PX}
+					maxWidthPx={SESSION_TREE_MAX_WIDTH_PX}
+					onWidthChange={handleSessionTreeWidthChange}
 					expandedNodes={sessionTreeExpandedNodes}
 					selectedNodeId={selectedSessionTreeNodeId}
 					onToggleExpand={toggleSessionTreeNode}
 					onSelectNode={handleSessionTreeSelect}
 					onContextMenu={handleSessionTreeContextMenu}
+					onNodeAction={(node, actionId) => {
+						if (actionId !== 'archive-group') return;
+						const groupKey = sessionTree.archivedGroupKeyByNodeId[node.id];
+						if (!groupKey) return;
+						void archiveArchivedGroup(groupKey);
+					}}
 					onCreateNewSession={() => void createNewSession()}
 					onRefresh={listSessions}
 					loading={sessionsLoading}
@@ -3829,11 +4122,77 @@ export function CodexChat() {
 									</button>
 								</div>
 							);
-					  })()
+						  })()
 					: null}
 
+				{renameTaskDialog ? (
+					<div
+						className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+						onMouseDown={(event) => {
+							if (event.target === event.currentTarget) closeRenameTaskDialog();
+						}}
+					>
+						<div className="w-full max-w-sm rounded-xl border border-white/10 bg-bg-panel/90 p-4 text-sm text-text-main backdrop-blur">
+							<div className="mb-3 flex items-center justify-between gap-2">
+								<div className="text-sm font-semibold">Rename task</div>
+								<button
+									type="button"
+									className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-xs hover:border-white/20"
+									onClick={closeRenameTaskDialog}
+								>
+									✕
+								</button>
+							</div>
+
+							{renameTaskDialog.error ? (
+								<div className="mb-3 rounded-md border border-status-error/30 bg-status-error/10 px-2 py-1 text-xs text-status-error">
+									{renameTaskDialog.error}
+								</div>
+							) : null}
+
+							<input
+								ref={renameTaskInputRef}
+								className="w-full rounded-md border border-white/10 bg-bg-panelHover px-2 py-1.5 text-xs outline-none focus:border-border-active"
+								value={renameTaskDialog.value}
+								maxLength={50}
+								onChange={(event) => {
+									const value = event.target.value;
+									setRenameTaskDialog((prev) => (prev ? { ...prev, value, error: null } : prev));
+								}}
+								onKeyDown={(event) => {
+									if (event.key === 'Escape') {
+										event.preventDefault();
+										closeRenameTaskDialog();
+									}
+									if (event.key === 'Enter') {
+										event.preventDefault();
+										void submitRenameTask();
+									}
+								}}
+							/>
+
+							<div className="mt-3 flex justify-end gap-2">
+								<button
+									type="button"
+									className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-1 text-xs hover:border-white/20"
+									onClick={closeRenameTaskDialog}
+								>
+									Cancel
+								</button>
+								<button
+									type="button"
+									className="rounded-md border border-primary/40 bg-primary/20 px-3 py-1 text-xs text-text-main hover:bg-primary/30"
+									onClick={() => void submitRenameTask()}
+								>
+									Save
+								</button>
+							</div>
+						</div>
+					</div>
+				) : null}
+
 				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col pb-0.5">
-					<div className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-2">
+					<div className="flex h-6 items-center justify-between gap-2 border-b border-white/10 px-3 py-0">
 						<div className="flex min-w-0 items-center gap-1 overflow-x-auto">
 							{mainTabs.map((tab) => {
 								const active = tab.id === activeMainTabId;
@@ -3841,7 +4200,7 @@ export function CodexChat() {
 									<div
 										key={tab.id}
 										className={[
-											'group inline-flex max-w-[180px] items-center gap-2 rounded-t-md border px-3 py-1 text-xs transition-colors',
+											'group inline-flex h-6 max-w-[180px] items-center gap-2 rounded-t-md border px-2 text-[11px] transition-colors',
 											active ? 'border-white/10 bg-bg-panelHover text-text-main -mb-px' : 'border-transparent text-text-muted hover:bg-white/5',
 										].join(' ')}
 										onClick={() => setActiveMainTabId(tab.id)}
@@ -3876,7 +4235,7 @@ export function CodexChat() {
 						<div className="relative flex shrink-0 items-center">
 							<button
 								type="button"
-								className="am-icon-button h-8 w-8 text-text-muted hover:text-text-main"
+								className="am-icon-button h-6 w-6 text-text-muted hover:text-text-main"
 								onClick={() => {
 									setIsSettingsMenuOpen(false);
 									void createNewSession();
@@ -3888,9 +4247,16 @@ export function CodexChat() {
 						</div>
 					</div>
 
-					<div className="flex min-h-0 flex-1 flex-col px-8 pt-6">
-					{workspaceRootError ? <div className="mt-2 text-xs text-status-warning">{workspaceRootError}</div> : null}
-					{workspaceDirErrorByPath[''] ? <div className="mt-1 text-xs text-status-warning">{workspaceDirErrorByPath['']}</div> : null}
+					<div className="relative flex min-h-0 flex-1 flex-col px-8 pt-6">
+						{workspaceRootError ? <div className="mt-2 text-xs text-status-warning">{workspaceRootError}</div> : null}
+						{workspaceListToast ? (
+							<div className="pointer-events-none absolute left-1/2 top-2 z-50 -translate-x-1/2">
+								<div className="max-w-[720px] whitespace-pre-wrap rounded-xl border border-white/10 bg-bg-panelHover/80 px-3 py-2 text-xs shadow-lg backdrop-blur">
+									<div className="font-semibold text-status-warning">工作区告警</div>
+									<div className="mt-1 text-text-muted">{workspaceListToast}</div>
+								</div>
+							</div>
+						) : null}
 
 					{activeMainTabId === MAIN_TAB_CHAT_ID ? (
 						<>

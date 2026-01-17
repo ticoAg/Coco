@@ -1,5 +1,5 @@
 import { ChevronLeft, Plus, RefreshCw } from 'lucide-react';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TreeNodeData } from '../../../types/sidebar';
 import { TreeNode } from './TreeNode';
 import { SIDEBAR_WIDTH_PX, SIDEBAR_EXPANDED_WIDTH_PX } from '../styles/menu-styles';
@@ -9,11 +9,16 @@ interface SessionTreeSidebarProps {
 	onExpandedChange: (expanded: boolean) => void;
 	workspaceLabel: string;
 	treeData: TreeNodeData[];
+	widthPx?: number;
+	minWidthPx?: number;
+	maxWidthPx?: number;
+	onWidthChange?: (widthPx: number) => void;
 	expandedNodes: Set<string>;
 	selectedNodeId: string | null;
 	onToggleExpand: (nodeId: string) => void;
 	onSelectNode: (node: TreeNodeData) => void;
 	onContextMenu?: (node: TreeNodeData, event: React.MouseEvent) => void;
+	onNodeAction?: (node: TreeNodeData, actionId: string) => void;
 	onCreateNewSession?: () => void;
 	onRefresh?: () => void;
 	loading?: boolean;
@@ -25,16 +30,27 @@ export function SessionTreeSidebar({
 	onExpandedChange,
 	workspaceLabel,
 	treeData,
+	widthPx,
+	minWidthPx,
+	maxWidthPx,
+	onWidthChange,
 	expandedNodes,
 	selectedNodeId,
 	onToggleExpand,
 	onSelectNode,
 	onContextMenu,
+	onNodeAction,
 	onCreateNewSession,
 	onRefresh,
 	loading,
 	error,
 }: SessionTreeSidebarProps) {
+	const handleNodeAction = useCallback(
+		(node: TreeNodeData, actionId: string) => {
+			onNodeAction?.(node, actionId);
+		},
+		[onNodeAction]
+	);
 	const handleNodeSelect = useCallback(
 		(node: TreeNodeData) => {
 			onSelectNode(node);
@@ -57,16 +73,44 @@ export function SessionTreeSidebar({
 					onSelect={handleNodeSelect}
 					onToggleExpand={onToggleExpand}
 					onContextMenu={onContextMenu}
+					onAction={handleNodeAction}
 					renderChildren={
 						node.children ? () => node.children!.map((child) => renderNode(child, depth + 1)) : undefined
 					}
 				/>
 			);
 		},
-		[expandedNodes, selectedNodeId, handleNodeSelect, onToggleExpand, onContextMenu]
+		[expandedNodes, selectedNodeId, handleNodeSelect, onToggleExpand, onContextMenu, isExpanded, widthPx]
 	);
 
-	const sidebarWidth = isExpanded ? SIDEBAR_EXPANDED_WIDTH_PX : SIDEBAR_WIDTH_PX;
+	const sidebarWidth = isExpanded ? widthPx ?? SIDEBAR_EXPANDED_WIDTH_PX : SIDEBAR_WIDTH_PX;
+	const minWidth = minWidthPx ?? 200;
+	const maxWidth = maxWidthPx ?? 520;
+	const resizeStartRef = useRef<{ x: number; width: number } | null>(null);
+	const [isResizing, setIsResizing] = useState(false);
+
+	useEffect(() => {
+		if (!isResizing) return;
+
+		const handleMove = (event: MouseEvent) => {
+			const start = resizeStartRef.current;
+			if (!start) return;
+			const next = Math.min(maxWidth, Math.max(minWidth, start.width + (event.clientX - start.x)));
+			onWidthChange?.(next);
+		};
+		const handleUp = () => {
+			setIsResizing(false);
+			resizeStartRef.current = null;
+		};
+
+		window.addEventListener('mousemove', handleMove);
+		window.addEventListener('mouseup', handleUp);
+
+		return () => {
+			window.removeEventListener('mousemove', handleMove);
+			window.removeEventListener('mouseup', handleUp);
+		};
+	}, [isResizing, maxWidth, minWidth, onWidthChange]);
 
 	// Collapsed view
 	if (!isExpanded) {
@@ -154,6 +198,24 @@ export function SessionTreeSidebar({
 					</div>
 				) : null}
 			</aside>
+
+			{isExpanded ? (
+				<div
+					role="separator"
+					aria-orientation="vertical"
+					className={[
+						'absolute top-0 right-0 h-full w-1 cursor-col-resize transition-colors',
+						isResizing ? 'bg-primary/40' : 'hover:bg-white/10',
+					].join(' ')}
+					onMouseDown={(event) => {
+						if (!onWidthChange) return;
+						event.preventDefault();
+						event.stopPropagation();
+						resizeStartRef.current = { x: event.clientX, width: sidebarWidth };
+						setIsResizing(true);
+					}}
+				/>
+			) : null}
 		</div>
 	);
 }

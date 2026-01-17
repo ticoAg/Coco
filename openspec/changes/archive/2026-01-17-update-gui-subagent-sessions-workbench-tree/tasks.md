@@ -10,8 +10,6 @@
 - [x] 2.3 前端：file 节点预览（只读；Markdown 渲染；HTML 预览）。
 - [x] 2.4 前端：auto-follow toggle（on：自动选中 running 且最近更新的 session；off：保留手动选择）。
 - [x] 2.5 后端：补齐读取任务目录树所需的最小接口（安全路径约束，禁止越界）。
-- [ ] 2.6 （可选）对 session.json 含 threadId 的 session 增加 “Open in Codex Workbench” 入口（依赖 `update-codex-app-server-adapter-pool`）（按要求跳过）。
 
 ## 3. Validation
 - [x] 3.1 `openspec validate update-gui-subagent-sessions-workbench-tree --strict`
-- [ ] 3.2 `npm -C apps/gui run build`（失败：缺少前端依赖）

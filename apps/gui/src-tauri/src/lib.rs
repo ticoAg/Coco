@@ -102,15 +102,17 @@ struct CodexThreadLoadedListResponse {
 #[serde(rename_all = "camelCase")]
 struct CodexThreadTitleSidecar {
     title: String,
-    #[serde(default = "default_codex_thread_title_source")]
-    source: String, // "generated-v1" | "manual"
+    source: String, // "manual"
     #[serde(default)]
     updated_at_ms: Option<u64>,
 }
 
-fn default_codex_thread_title_source() -> String {
-    "generated-v1".to_string()
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexThreadArchiveGuard {
+    archived_at_ms: u64,
 }
+
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -341,6 +343,20 @@ fn codex_thread_sidecar_path(
     codex_thread_sidecar_dir(workspace_root).join(format!("{thread_id}.json"))
 }
 
+fn codex_thread_archive_guard_dir(workspace_root: &std::path::Path) -> std::path::PathBuf {
+    workspace_root
+        .join(".agentmesh")
+        .join("codex")
+        .join("archive_guards")
+}
+
+fn codex_thread_archive_guard_path(
+    workspace_root: &std::path::Path,
+    thread_id: &str,
+) -> std::path::PathBuf {
+    codex_thread_archive_guard_dir(workspace_root).join(format!("{thread_id}.json"))
+}
+
 fn truncate_unicode_chars(value: &str, max_chars: usize) -> String {
     if max_chars == 0 {
         return String::new();
@@ -357,6 +373,69 @@ fn truncate_unicode_chars(value: &str, max_chars: usize) -> String {
 
 fn collapse_whitespace_to_single_spaces(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn is_cjk_char(value: char) -> bool {
+    matches!(value as u32,
+        0x2E80..=0x2EFF // CJK Radicals Supplement
+        | 0x3000..=0x303F // CJK Symbols and Punctuation
+        | 0x31C0..=0x31EF // CJK Strokes
+        | 0x3400..=0x4DBF // CJK Unified Ideographs Extension A
+        | 0x4E00..=0x9FFF // CJK Unified Ideographs
+        | 0xF900..=0xFAFF // CJK Compatibility Ideographs
+        | 0xFF00..=0xFFEF // Halfwidth and Fullwidth Forms
+        | 0x20000..=0x2A6DF // CJK Unified Ideographs Extension B
+        | 0x2A700..=0x2B73F // Extension C
+        | 0x2B740..=0x2B81F // Extension D
+        | 0x2B820..=0x2CEAF // Extension E/F
+        | 0x2CEB0..=0x2EBEF // Extension G
+        | 0x2F800..=0x2FA1F // CJK Compatibility Ideographs Supplement
+    )
+}
+
+fn truncate_mixed_cjk_or_word(value: &str, max_units: usize) -> String {
+    if max_units == 0 {
+        return String::new();
+    }
+    let mut out = String::new();
+    let mut units = 0usize;
+    let mut chars = value.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch.is_whitespace() {
+            if !out.ends_with(' ') && !out.is_empty() {
+                out.push(' ');
+            }
+            continue;
+        }
+
+        if is_cjk_char(ch) {
+            if units >= max_units {
+                break;
+            }
+            out.push(ch);
+            units += 1;
+            continue;
+        }
+
+        let mut token = String::new();
+        token.push(ch);
+        while let Some(&next) = chars.peek() {
+            if next.is_whitespace() || is_cjk_char(next) {
+                break;
+            }
+            token.push(next);
+            chars.next();
+        }
+
+        if units >= max_units {
+            break;
+        }
+        units += 1;
+        out.push_str(&token);
+    }
+
+    out.trim().to_string()
 }
 
 fn derive_auto_thread_title_from_preview(preview: &str) -> Option<String> {
@@ -381,7 +460,7 @@ fn derive_auto_thread_title_from_preview(preview: &str) -> Option<String> {
         return None;
     }
 
-    let truncated = truncate_unicode_chars(&normalized, 25);
+    let truncated = truncate_mixed_cjk_or_word(&normalized, 50);
     let final_title = truncated.trim().to_string();
     if final_title.is_empty() {
         None
@@ -417,6 +496,40 @@ fn remove_codex_thread_title_sidecar(
     thread_id: &str,
 ) -> Result<(), String> {
     let path = codex_thread_sidecar_path(workspace_root, thread_id);
+    match std::fs::remove_file(path) {
+        Ok(_) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
+fn read_codex_thread_archive_guard(
+    workspace_root: &std::path::Path,
+    thread_id: &str,
+) -> Option<CodexThreadArchiveGuard> {
+    let path = codex_thread_archive_guard_path(workspace_root, thread_id);
+    let content = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str::<CodexThreadArchiveGuard>(&content).ok()
+}
+
+fn write_codex_thread_archive_guard(
+    workspace_root: &std::path::Path,
+    thread_id: &str,
+    guard: &CodexThreadArchiveGuard,
+) -> Result<(), String> {
+    let dir = codex_thread_archive_guard_dir(workspace_root);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = codex_thread_archive_guard_path(workspace_root, thread_id);
+    let json = serde_json::to_string_pretty(guard).map_err(|e| e.to_string())?;
+    std::fs::write(path, json).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn remove_codex_thread_archive_guard(
+    workspace_root: &std::path::Path,
+    thread_id: &str,
+) -> Result<(), String> {
+    let path = codex_thread_archive_guard_path(workspace_root, thread_id);
     match std::fs::remove_file(path) {
         Ok(_) => Ok(()),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -1206,6 +1319,103 @@ fn default_codex_home_dir() -> Result<std::path::PathBuf, String> {
     Ok(std::path::PathBuf::from(home).join(".codex"))
 }
 
+fn rollout_date_parts_from_filename(name: &str) -> Option<(String, String, String)> {
+    let core = name.strip_prefix("rollout-")?.strip_suffix(".jsonl")?;
+    let (date_part, _) = core.split_once('T')?;
+    let mut parts = date_part.split('-');
+    let year = parts.next()?;
+    let month = parts.next()?;
+    let day = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    if year.len() != 4 || month.len() != 2 || day.len() != 2 {
+        return None;
+    }
+    Some((year.to_string(), month.to_string(), day.to_string()))
+}
+
+fn rollout_thread_id_from_filename(name: &str) -> Option<String> {
+    let core = name.strip_prefix("rollout-")?.strip_suffix(".jsonl")?;
+    if core.len() < 36 {
+        return None;
+    }
+    let thread_id = &core[core.len() - 36..];
+    Some(thread_id.to_string())
+}
+
+async fn restore_recent_archived_sessions(
+    codex_home: &std::path::Path,
+    workspace_root: &std::path::Path,
+    max_age: std::time::Duration,
+) -> Result<(), String> {
+    let archived_dir = codex_home.join("archived_sessions");
+    let sessions_dir = codex_home.join("sessions");
+
+    let mut entries = match tokio::fs::read_dir(&archived_dir).await {
+        Ok(entries) => entries,
+        Err(_) => return Ok(()),
+    };
+
+    let _ = tokio::fs::create_dir_all(&sessions_dir).await;
+    let now = std::time::SystemTime::now();
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let file_type = match entry.file_type().await {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+
+        let metadata = match entry.metadata().await {
+            Ok(meta) => meta,
+            Err(_) => continue,
+        };
+        let modified = match metadata.modified() {
+            Ok(time) => time,
+            Err(_) => continue,
+        };
+
+        let age = now.duration_since(modified).unwrap_or_default();
+        if age > max_age {
+            continue;
+        }
+
+        let file_name = entry.file_name();
+        let file_name_str = match file_name.to_str() {
+            Some(name) => name,
+            None => continue,
+        };
+        let thread_id = rollout_thread_id_from_filename(file_name_str);
+        if let Some(ref thread_id) = thread_id {
+            if let Some(guard) = read_codex_thread_archive_guard(workspace_root, thread_id) {
+                let modified_ms = to_epoch_ms(modified);
+                if modified_ms.is_none() || modified_ms <= Some(guard.archived_at_ms) {
+                    continue;
+                }
+            }
+        }
+        let destination_dir = match rollout_date_parts_from_filename(file_name_str) {
+            Some((year, month, day)) => sessions_dir.join(year).join(month).join(day),
+            None => continue,
+        };
+        let _ = tokio::fs::create_dir_all(&destination_dir).await;
+        let destination = destination_dir.join(&file_name);
+        if tokio::fs::metadata(&destination).await.is_ok() {
+            continue;
+        }
+
+        let _ = tokio::fs::rename(entry.path(), &destination).await;
+        if let Some(thread_id) = thread_id {
+            let _ = remove_codex_thread_archive_guard(workspace_root, &thread_id);
+        }
+    }
+
+    Ok(())
+}
+
 async fn get_or_start_codex(
     state: &tauri::State<'_, AppState>,
     app: tauri::AppHandle,
@@ -1364,6 +1574,10 @@ async fn codex_thread_list(
         .workspace_root()
         .to_path_buf();
 
+    let codex_home = default_codex_home_dir()?;
+    let _ =
+        restore_recent_archived_sessions(&codex_home, &workspace_root, std::time::Duration::from_secs(3 * 60)).await;
+
     let codex = get_or_start_codex(&state, app, app_server_id).await?;
     let params = serde_json::json!({
         "cursor": cursor,
@@ -1407,26 +1621,19 @@ async fn codex_thread_list(
 
         let mut title: Option<String> = None;
         if let Some(sidecar) = read_codex_thread_title_sidecar(&workspace_root, id) {
-            let raw = sidecar.title.trim();
-            if !raw.is_empty() {
-                let max = if sidecar.source == "generated-v1" { 25 } else { 50 };
-                let trimmed = truncate_unicode_chars(raw, max).trim().to_string();
-                if !trimmed.is_empty() {
-                    title = Some(trimmed);
+            if sidecar.source == "manual" {
+                let raw = sidecar.title.trim();
+                if !raw.is_empty() {
+                    let trimmed = truncate_unicode_chars(raw, 50).trim().to_string();
+                    if !trimmed.is_empty() {
+                        title = Some(trimmed);
+                    }
                 }
             }
         }
 
         if title.is_none() {
             if let Some(auto) = derive_auto_thread_title_from_preview(&preview) {
-                let updated_at_ms = to_epoch_ms(std::time::SystemTime::now());
-                let sidecar = CodexThreadTitleSidecar {
-                    title: auto.clone(),
-                    source: "generated-v1".to_string(),
-                    updated_at_ms,
-                };
-                // Best-effort: don't fail listing if sidecar write fails.
-                let _ = write_codex_thread_title_sidecar(&workspace_root, id, &sidecar);
                 title = Some(auto);
             }
         }
@@ -1519,6 +1726,11 @@ async fn codex_thread_archive(
     let codex = get_or_start_codex(&state, app, app_server_id).await?;
     let params = serde_json::json!({ "threadId": thread_id.clone() });
     let _ = codex.request("thread/archive", Some(params)).await?;
+
+    if let Some(archived_at_ms) = to_epoch_ms(std::time::SystemTime::now()) {
+        let guard = CodexThreadArchiveGuard { archived_at_ms };
+        let _ = write_codex_thread_archive_guard(&workspace_root, &thread_id, &guard);
+    }
 
     // Best-effort: ignore sidecar cleanup failures.
     let _ = remove_codex_thread_title_sidecar(&workspace_root, &thread_id);
@@ -2351,18 +2563,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn auto_title_extracts_marker_and_truncates_25_chars() {
+    fn auto_title_extracts_marker_and_truncates_50_units() {
         let preview = "prefix\n## My request for Codex:\n12345678901234567890\nsuffix";
         let title = derive_auto_thread_title_from_preview(preview).unwrap();
-        assert_eq!(title, "12345678901234567890 suff");
+        assert_eq!(title, "12345678901234567890 suffix");
     }
 
     #[test]
     fn auto_title_supports_fullwidth_colon_marker() {
         let preview = "## My request for Codex：\nabcdefg hijklmnop";
         let title = derive_auto_thread_title_from_preview(preview).unwrap();
-        // whitespace gets collapsed, then truncated to 25 chars (input is shorter)
+        // whitespace gets collapsed, then truncated to 50 units (input is shorter)
         assert_eq!(title, "abcdefg hijklmnop");
+    }
+
+    #[test]
+    fn auto_title_counts_cjk_chars_and_english_words() {
+        let preview = "## My request for Codex:\n你好 world, this is AI";
+        let title = derive_auto_thread_title_from_preview(preview).unwrap();
+        // 2 CJK chars + 4 English words => within 50 units
+        assert_eq!(title, "你好 world, this is AI");
     }
 
     #[test]

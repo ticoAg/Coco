@@ -1,4 +1,4 @@
-import { ChevronRight } from 'lucide-react';
+import { Archive, ChevronRight } from 'lucide-react';
 import type { TreeNodeData } from '../../../types/sidebar';
 import { SessionTreeIcon, getStatusColor } from './SessionTreeIcons';
 import { SessionRunningIndicator } from '../SessionRunningIndicator';
@@ -12,6 +12,7 @@ interface TreeNodeProps {
 	onToggleExpand: (nodeId: string) => void;
 	onContextMenu?: (node: TreeNodeData, event: React.MouseEvent) => void;
 	renderChildren?: () => React.ReactNode;
+	onAction?: (node: TreeNodeData, actionId: string) => void;
 }
 
 export function TreeNode({
@@ -23,6 +24,7 @@ export function TreeNode({
 	onToggleExpand,
 	onContextMenu,
 	renderChildren,
+	onAction,
 }: TreeNodeProps) {
 	const indentPx = 8 + depth * 12;
 	const hasChildren = Array.isArray(node.children);
@@ -39,10 +41,13 @@ export function TreeNode({
 	const showInteractionCount =
 		node.interactionCount != null && (node.type === 'task' || node.type === 'orchestrator' || node.type === 'worker');
 
+	const labelTitle = node.label;
+	const action = node.actions?.[0] ?? null;
+
 	return (
 		<div>
 			<div
-				className={`flex items-center gap-1 rounded-lg px-1 py-0.5 cursor-pointer transition-colors ${
+				className={`group flex items-center gap-1 rounded-lg px-1 py-0.5 cursor-pointer transition-colors ${
 					isSelected ? 'bg-primary/20' : 'hover:bg-white/5'
 				}`}
 				style={{ paddingLeft: indentPx }}
@@ -87,7 +92,24 @@ export function TreeNode({
 				{node.isActive ? <SessionRunningIndicator /> : null}
 
 				{/* Label */}
-				<span className="truncate text-[11px] text-text-main flex-1 min-w-0">{node.label}</span>
+				<span className="truncate text-[11px] text-text-main flex-1 min-w-0" title={labelTitle}>
+					{node.label}
+				</span>
+
+				{/* Hover action */}
+				{action ? (
+					<button
+						type="button"
+						className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-white/10 hover:text-text-main"
+						title={action.title}
+						onClick={(event) => {
+							event.stopPropagation();
+							onAction?.(node, action.id);
+						}}
+					>
+						<Archive size={12} />
+					</button>
+				) : null}
 
 				{/* Status badge */}
 				{node.status && node.type !== 'repo' ? (
