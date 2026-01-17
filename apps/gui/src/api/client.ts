@@ -164,6 +164,14 @@ export async function codexThreadLoadedList(cursor?: string | null, limit?: numb
 	});
 }
 
+export async function codexThreadTitleSet(threadId: string, title: string): Promise<void> {
+	await invoke<void>('codex_thread_title_set', { threadId, title });
+}
+
+export async function codexThreadArchive(threadId: string, appServerId?: string | null): Promise<void> {
+	await invoke<void>('codex_thread_archive', { threadId, appServerId: appServerId ?? null });
+}
+
 export async function codexThreadStart(model?: string | null, appServerId?: string | null): Promise<unknown> {
 	return invoke<unknown>('codex_thread_start', { model: model ?? null, appServerId: appServerId ?? null });
 }
@@ -356,6 +364,8 @@ export const apiClient = {
 	codexAppServerEnsure,
 	codexAppServerShutdown,
 	codexThreadList,
+	codexThreadTitleSet,
+	codexThreadArchive,
 	codexThreadStart,
 	codexThreadResume,
 	codexThreadFork,

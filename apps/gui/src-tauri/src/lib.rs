@@ -76,6 +76,8 @@ struct TaskDirectoryEntry {
 struct CodexThreadSummary {
     id: String,
     preview: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
     model_provider: String,
     created_at: i64,
     updated_at_ms: Option<u64>,
@@ -94,6 +96,20 @@ struct CodexThreadListResponse {
 struct CodexThreadLoadedListResponse {
     data: Vec<String>,
     next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexThreadTitleSidecar {
+    title: String,
+    #[serde(default = "default_codex_thread_title_source")]
+    source: String, // "generated-v1" | "manual"
+    #[serde(default)]
+    updated_at_ms: Option<u64>,
+}
+
+fn default_codex_thread_title_source() -> String {
+    "generated-v1".to_string()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -123,6 +139,8 @@ pub fn run() {
             codex_app_server_shutdown,
             codex_thread_list,
             codex_thread_loaded_list,
+            codex_thread_title_set,
+            codex_thread_archive,
             codex_thread_start,
             codex_thread_resume,
             codex_thread_fork,
@@ -306,6 +324,103 @@ fn validate_id(value: &str, label: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("invalid {label}: {value}"))
+    }
+}
+
+fn codex_thread_sidecar_dir(workspace_root: &std::path::Path) -> std::path::PathBuf {
+    workspace_root
+        .join(".agentmesh")
+        .join("codex")
+        .join("threads")
+}
+
+fn codex_thread_sidecar_path(
+    workspace_root: &std::path::Path,
+    thread_id: &str,
+) -> std::path::PathBuf {
+    codex_thread_sidecar_dir(workspace_root).join(format!("{thread_id}.json"))
+}
+
+fn truncate_unicode_chars(value: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let mut out = String::with_capacity(value.len().min(max_chars));
+    for (idx, ch) in value.chars().enumerate() {
+        if idx >= max_chars {
+            break;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn collapse_whitespace_to_single_spaces(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn derive_auto_thread_title_from_preview(preview: &str) -> Option<String> {
+    const MARKER_ASCII: &str = "## My request for Codex:";
+    const MARKER_FULLWIDTH: &str = "## My request for Codex：";
+
+    let trimmed = preview.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let extracted = if let Some(idx) = trimmed.find(MARKER_ASCII) {
+        &trimmed[idx + MARKER_ASCII.len()..]
+    } else if let Some(idx) = trimmed.find(MARKER_FULLWIDTH) {
+        &trimmed[idx + MARKER_FULLWIDTH.len()..]
+    } else {
+        trimmed
+    };
+
+    let normalized = collapse_whitespace_to_single_spaces(extracted).trim().to_string();
+    if normalized.is_empty() {
+        return None;
+    }
+
+    let truncated = truncate_unicode_chars(&normalized, 25);
+    let final_title = truncated.trim().to_string();
+    if final_title.is_empty() {
+        None
+    } else {
+        Some(final_title)
+    }
+}
+
+fn read_codex_thread_title_sidecar(
+    workspace_root: &std::path::Path,
+    thread_id: &str,
+) -> Option<CodexThreadTitleSidecar> {
+    let path = codex_thread_sidecar_path(workspace_root, thread_id);
+    let content = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str::<CodexThreadTitleSidecar>(&content).ok()
+}
+
+fn write_codex_thread_title_sidecar(
+    workspace_root: &std::path::Path,
+    thread_id: &str,
+    sidecar: &CodexThreadTitleSidecar,
+) -> Result<(), String> {
+    let dir = codex_thread_sidecar_dir(workspace_root);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = codex_thread_sidecar_path(workspace_root, thread_id);
+    let json = serde_json::to_string_pretty(sidecar).map_err(|e| e.to_string())?;
+    std::fs::write(path, json).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn remove_codex_thread_title_sidecar(
+    workspace_root: &std::path::Path,
+    thread_id: &str,
+) -> Result<(), String> {
+    let path = codex_thread_sidecar_path(workspace_root, thread_id);
+    match std::fs::remove_file(path) {
+        Ok(_) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err.to_string()),
     }
 }
 
@@ -1289,6 +1404,33 @@ async fn codex_thread_list(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+
+        let mut title: Option<String> = None;
+        if let Some(sidecar) = read_codex_thread_title_sidecar(&workspace_root, id) {
+            let raw = sidecar.title.trim();
+            if !raw.is_empty() {
+                let max = if sidecar.source == "generated-v1" { 25 } else { 50 };
+                let trimmed = truncate_unicode_chars(raw, max).trim().to_string();
+                if !trimmed.is_empty() {
+                    title = Some(trimmed);
+                }
+            }
+        }
+
+        if title.is_none() {
+            if let Some(auto) = derive_auto_thread_title_from_preview(&preview) {
+                let updated_at_ms = to_epoch_ms(std::time::SystemTime::now());
+                let sidecar = CodexThreadTitleSidecar {
+                    title: auto.clone(),
+                    source: "generated-v1".to_string(),
+                    updated_at_ms,
+                };
+                // Best-effort: don't fail listing if sidecar write fails.
+                let _ = write_codex_thread_title_sidecar(&workspace_root, id, &sidecar);
+                title = Some(auto);
+            }
+        }
+
         let model_provider = entry
             .get("modelProvider")
             .and_then(|v| v.as_str())
@@ -1307,6 +1449,7 @@ async fn codex_thread_list(
         threads.push(CodexThreadSummary {
             id: id.to_string(),
             preview,
+            title,
             model_provider,
             created_at,
             updated_at_ms,
@@ -1325,6 +1468,61 @@ async fn codex_thread_list(
         data: threads,
         next_cursor,
     })
+}
+
+#[tauri::command]
+fn codex_thread_title_set(
+    state: tauri::State<'_, AppState>,
+    thread_id: String,
+    title: String,
+) -> Result<(), String> {
+    validate_id(&thread_id, "thread_id")?;
+
+    let workspace_root = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
+
+    let collapsed = collapse_whitespace_to_single_spaces(title.trim());
+    let truncated = truncate_unicode_chars(collapsed.trim(), 50).trim().to_string();
+    if truncated.is_empty() {
+        return Err("title must not be empty".to_string());
+    }
+
+    let sidecar = CodexThreadTitleSidecar {
+        title: truncated,
+        source: "manual".to_string(),
+        updated_at_ms: to_epoch_ms(std::time::SystemTime::now()),
+    };
+    write_codex_thread_title_sidecar(&workspace_root, &thread_id, &sidecar)?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn codex_thread_archive(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    thread_id: String,
+    app_server_id: Option<String>,
+) -> Result<(), String> {
+    validate_id(&thread_id, "thread_id")?;
+
+    let workspace_root = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
+
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
+    let params = serde_json::json!({ "threadId": thread_id.clone() });
+    let _ = codex.request("thread/archive", Some(params)).await?;
+
+    // Best-effort: ignore sidecar cleanup failures.
+    let _ = remove_codex_thread_title_sidecar(&workspace_root, &thread_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -2146,4 +2344,29 @@ fn get_git_status(cwd: &std::path::Path) -> Option<GitStatus> {
         modified,
         staged,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_title_extracts_marker_and_truncates_25_chars() {
+        let preview = "prefix\n## My request for Codex:\n12345678901234567890\nsuffix";
+        let title = derive_auto_thread_title_from_preview(preview).unwrap();
+        assert_eq!(title, "12345678901234567890 suff");
+    }
+
+    #[test]
+    fn auto_title_supports_fullwidth_colon_marker() {
+        let preview = "## My request for Codex：\nabcdefg hijklmnop";
+        let title = derive_auto_thread_title_from_preview(preview).unwrap();
+        // whitespace gets collapsed, then truncated to 25 chars (input is shorter)
+        assert_eq!(title, "abcdefg hijklmnop");
+    }
+
+    #[test]
+    fn auto_title_returns_none_for_empty_preview() {
+        assert_eq!(derive_auto_thread_title_from_preview("   "), None);
+    }
 }

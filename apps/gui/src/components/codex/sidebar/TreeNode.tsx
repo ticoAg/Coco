@@ -10,6 +10,7 @@ interface TreeNodeProps {
 	isSelected: boolean;
 	onSelect: (node: TreeNodeData) => void;
 	onToggleExpand: (nodeId: string) => void;
+	onContextMenu?: (node: TreeNodeData, event: React.MouseEvent) => void;
 	renderChildren?: () => React.ReactNode;
 }
 
@@ -20,6 +21,7 @@ export function TreeNode({
 	isSelected,
 	onSelect,
 	onToggleExpand,
+	onContextMenu,
 	renderChildren,
 }: TreeNodeProps) {
 	const indentPx = 8 + depth * 12;
@@ -45,6 +47,10 @@ export function TreeNode({
 				}`}
 				style={{ paddingLeft: indentPx }}
 				onClick={handleClick}
+				onContextMenu={(event) => {
+					if (!onContextMenu) return;
+					onContextMenu(node, event);
+				}}
 			>
 				{/* Expand/Collapse chevron */}
 				<button

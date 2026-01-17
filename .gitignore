@@ -113,6 +113,9 @@ target/
 .agentmesh/tasks/*
 !.agentmesh/tasks/.gitkeep
 
+# Codex Chat session title sidecars (workspace-local data)
+.agentmesh/codex/
+
 # Local logs
 .agentmesh/logs/
 

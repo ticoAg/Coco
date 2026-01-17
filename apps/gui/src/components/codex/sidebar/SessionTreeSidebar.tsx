@@ -13,6 +13,7 @@ interface SessionTreeSidebarProps {
 	selectedNodeId: string | null;
 	onToggleExpand: (nodeId: string) => void;
 	onSelectNode: (node: TreeNodeData) => void;
+	onContextMenu?: (node: TreeNodeData, event: React.MouseEvent) => void;
 	onCreateNewSession?: () => void;
 	onRefresh?: () => void;
 	loading?: boolean;
@@ -28,6 +29,7 @@ export function SessionTreeSidebar({
 	selectedNodeId,
 	onToggleExpand,
 	onSelectNode,
+	onContextMenu,
 	onCreateNewSession,
 	onRefresh,
 	loading,
@@ -54,13 +56,14 @@ export function SessionTreeSidebar({
 					isSelected={isNodeSelected}
 					onSelect={handleNodeSelect}
 					onToggleExpand={onToggleExpand}
+					onContextMenu={onContextMenu}
 					renderChildren={
 						node.children ? () => node.children!.map((child) => renderNode(child, depth + 1)) : undefined
 					}
 				/>
 			);
 		},
-		[expandedNodes, selectedNodeId, handleNodeSelect, onToggleExpand]
+		[expandedNodes, selectedNodeId, handleNodeSelect, onToggleExpand, onContextMenu]
 	);
 
 	const sidebarWidth = isExpanded ? SIDEBAR_EXPANDED_WIDTH_PX : SIDEBAR_WIDTH_PX;

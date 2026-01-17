@@ -798,6 +798,8 @@ function parseTurnStatus(value: unknown): TurnBlockStatus {
 
 function labelForThread(summary?: CodexThreadSummary, fallback?: string): string {
 	if (!summary) return fallback ?? 'unknown';
+	const title = summary.title?.trim();
+	if (title) return title;
 	const preview = summary.preview?.trim();
 	return preview ? preview : summary.id;
 }
@@ -846,6 +848,13 @@ type FilePreviewTab = {
 	error: string | null;
 };
 
+type TaskContextMenuState = {
+	x: number;
+	y: number;
+	nodeId: string;
+	threadId: string;
+};
+
 export function CodexChat() {
 	const [settings, setSettings] = useState<CodexChatSettings>(() => loadCodexChatSettings());
 	const [sessions, setSessions] = useState<CodexThreadSummary[]>([]);
@@ -855,6 +864,7 @@ export function CodexChat() {
 	const [isSessionTreeExpanded, setIsSessionTreeExpanded] = useState(true);
 	const [sessionTreeExpandedNodes, setSessionTreeExpandedNodes] = useState<Set<string>>(new Set());
 	const [selectedSessionTreeNodeOverride, setSelectedSessionTreeNodeOverride] = useState<string | null>(null);
+	const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenuState | null>(null);
 
 	const [fileTabs, setFileTabs] = useState<FilePreviewTab[]>([]);
 	const [activeMainTabId, setActiveMainTabId] = useState<string>(MAIN_TAB_CHAT_ID);
@@ -1840,6 +1850,133 @@ export function CodexChat() {
 			sessionTree.workerFilesNodeIdByThreadId,
 			sessionTree.workerNodeIdByThreadId,
 			setActiveMainTabId,
+		]
+	);
+
+	const closeTaskContextMenu = useCallback(() => setTaskContextMenu(null), []);
+
+	useEffect(() => {
+		if (!taskContextMenu) return;
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				setTaskContextMenu(null);
+			}
+		};
+		const handlePointerDown = () => setTaskContextMenu(null);
+
+		window.addEventListener('keydown', handleKeyDown);
+		window.addEventListener('mousedown', handlePointerDown);
+		// Close on scroll too (captures scroll in nested containers).
+		window.addEventListener('scroll', handlePointerDown, true);
+
+		return () => {
+			window.removeEventListener('keydown', handleKeyDown);
+			window.removeEventListener('mousedown', handlePointerDown);
+			window.removeEventListener('scroll', handlePointerDown, true);
+		};
+	}, [taskContextMenu]);
+
+	const handleSessionTreeContextMenu = useCallback(
+		(node: TreeNodeData, event: React.MouseEvent) => {
+			if (node.type !== 'task') return;
+			const threadId = node.metadata?.threadId;
+			if (!threadId) return;
+			event.preventDefault();
+			event.stopPropagation();
+			handleSessionTreeSelect(node);
+			setTaskContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id, threadId });
+		},
+		[handleSessionTreeSelect]
+	);
+
+	const collectThreadIdsInNode = useCallback((root: TreeNodeData): string[] => {
+		const out: string[] = [];
+		const seen = new Set<string>();
+		const walk = (node: TreeNodeData) => {
+			const threadId = node.metadata?.threadId;
+			if (threadId && !seen.has(threadId)) {
+				seen.add(threadId);
+				out.push(threadId);
+			}
+			for (const child of node.children ?? []) {
+				walk(child);
+			}
+		};
+		walk(root);
+		return out;
+	}, []);
+
+	const renameTaskThread = useCallback(
+		async (threadId: string) => {
+			const summary = sessions.find((s) => s.id === threadId) ?? null;
+			const defaultTitle = (summary?.title ?? summary?.preview ?? '').trim();
+			const raw = window.prompt('Rename task (max 50 chars)', defaultTitle);
+			if (raw == null) return;
+			const next = raw.trim();
+			if (!next) {
+				await dialogMessage('Title must not be empty.', { title: 'Rename', kind: 'error' });
+				return;
+			}
+			try {
+				await apiClient.codexThreadTitleSet(threadId, next);
+				await listSessions();
+			} catch (err) {
+				await dialogMessage(errorMessage(err, 'Failed to rename task'), { title: 'Rename', kind: 'error' });
+			}
+		},
+		[sessions, listSessions]
+	);
+
+	const archiveTaskNode = useCallback(
+		async (taskNodeId: string) => {
+			const root = sessionTree.nodeById[taskNodeId];
+			if (!root) return;
+			const threadIds = collectThreadIdsInNode(root);
+			if (threadIds.length === 0) return;
+
+			const confirmed = window.confirm(`Archive this task and its ${threadIds.length - 1} descendant thread(s)?`);
+			if (!confirmed) return;
+
+			try {
+				for (const id of threadIds) {
+					try {
+						await apiClient.codexThreadArchive(id);
+					} finally {
+						setThreadRunning(id, false);
+					}
+				}
+
+				if (selectedThreadId && threadIds.includes(selectedThreadId)) {
+					setTurnOrder([]);
+					setTurnsById({});
+					setThreadTokenUsage(null);
+					setCollapsedWorkingByTurnId({});
+					setItemToTurnId({});
+					itemToTurnRef.current = {};
+					setCollapsedByEntryId({});
+					setActiveThread(null);
+					setActiveTurnId(null);
+					setSelectedThreadId(null);
+					setSelectedSessionTreeNodeOverride(null);
+					setIsWorkbenchEnabled(false);
+					setWorkbenchRootThreadId(null);
+					setActiveMainTabId(MAIN_TAB_CHAT_ID);
+				}
+
+				await listSessions();
+			} catch (err) {
+				await dialogMessage(errorMessage(err, 'Failed to archive task'), { title: 'Delete', kind: 'error' });
+			}
+		},
+		[
+			collectThreadIdsInNode,
+			listSessions,
+			selectedThreadId,
+			sessionTree.nodeById,
+			setThreadRunning,
+			setActiveMainTabId,
+			setIsWorkbenchEnabled,
 		]
 	);
 
@@ -3629,11 +3766,62 @@ export function CodexChat() {
 					selectedNodeId={selectedSessionTreeNodeId}
 					onToggleExpand={toggleSessionTreeNode}
 					onSelectNode={handleSessionTreeSelect}
+					onContextMenu={handleSessionTreeContextMenu}
 					onCreateNewSession={() => void createNewSession()}
 					onRefresh={listSessions}
 					loading={sessionsLoading}
 					error={sessionsError}
 				/>
+
+				{taskContextMenu
+					? (() => {
+							const menuWidth = 188;
+							const menuHeight = 72;
+							const x =
+								typeof window !== 'undefined'
+									? Math.min(taskContextMenu.x, Math.max(8, window.innerWidth - menuWidth - 8))
+									: taskContextMenu.x;
+							const y =
+								typeof window !== 'undefined'
+									? Math.min(taskContextMenu.y, Math.max(8, window.innerHeight - menuHeight - 8))
+									: taskContextMenu.y;
+
+							return (
+								<div
+									className="fixed z-50 w-[188px] rounded-md border border-white/10 bg-bg-panel/95 p-1 text-[11px] text-text-main shadow-lg backdrop-blur"
+									style={{ left: x, top: y }}
+									onMouseDown={(e) => e.stopPropagation()}
+									onContextMenu={(e) => {
+										e.preventDefault();
+										e.stopPropagation();
+									}}
+								>
+									<button
+										type="button"
+										className="flex w-full items-center rounded px-2 py-1.5 hover:bg-white/5"
+										onClick={() => {
+											const threadId = taskContextMenu.threadId;
+											closeTaskContextMenu();
+											void renameTaskThread(threadId);
+										}}
+									>
+										Rename…
+									</button>
+									<button
+										type="button"
+										className="flex w-full items-center rounded px-2 py-1.5 text-status-error hover:bg-status-error/10"
+										onClick={() => {
+											const nodeId = taskContextMenu.nodeId;
+											closeTaskContextMenu();
+											void archiveTaskNode(nodeId);
+										}}
+									>
+										Delete (Archive)
+									</button>
+								</div>
+							);
+					  })()
+					: null}
 
 				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col pb-0.5">
 					<div className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-2">
