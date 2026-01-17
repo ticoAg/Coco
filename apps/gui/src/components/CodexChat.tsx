@@ -30,6 +30,7 @@ import { MENU_STYLES, SIDEBAR_WIDTH_PX, SIDEBAR_ICON_BUTTON_PX } from './codex/s
 import { SlashCommandMenu } from './codex/SlashCommandMenu';
 import { SkillMenu } from './codex/SkillMenu';
 import { StatusBar, type StatusPopover } from './codex/StatusBar';
+import { SessionRunningIndicator } from './codex/SessionRunningIndicator';
 import { SessionSidebar } from './codex/SessionSidebar';
 import { SLASH_COMMANDS, type SlashCommand } from './codex/slash-commands';
 import { TurnBlock, type TurnBlockView } from './codex/TurnBlock';
@@ -78,8 +79,10 @@ function persistCodexChatSettings(next: CodexChatSettings) {
 	}
 }
 
-function isCollapsibleEntry(entry: ChatEntry): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'webSearch' | 'mcp' }> {
-	return entry.kind === 'command' || entry.kind === 'fileChange' || entry.kind === 'webSearch' || entry.kind === 'mcp';
+function isCollapsibleEntry(
+	entry: ChatEntry
+): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'webSearch' | 'mcp' | 'collab' }> {
+	return entry.kind === 'command' || entry.kind === 'fileChange' || entry.kind === 'webSearch' || entry.kind === 'mcp' || entry.kind === 'collab';
 }
 
 function repoNameFromPath(path: string): string {
@@ -609,6 +612,19 @@ function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
 				message: error?.message,
 			};
 		}
+		case 'collabagenttoolcall': {
+			const it = item as Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>;
+			return {
+				kind: 'collab',
+				id: it.id,
+				tool: it.tool,
+				status: it.status,
+				senderThreadId: it.senderThreadId,
+				receiverThreadIds: Array.isArray(it.receiverThreadIds) ? it.receiverThreadIds : [],
+				prompt: it.prompt ?? null,
+				agentsStates: it.agentsStates ?? {},
+			};
+		}
 		default: {
 			if (typeof window !== 'undefined' && rawType) {
 				// eslint-disable-next-line no-console
@@ -765,8 +781,8 @@ function normalizeThreadFromResponse(res: unknown): CodexThread | null {
 
 const PENDING_TURN_ID = '__pending__';
 
-function isActivityEntry(entry: ChatEntry): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'mcp' | 'webSearch' }> {
-	return entry.kind === 'command' || entry.kind === 'fileChange' || entry.kind === 'mcp' || entry.kind === 'webSearch';
+function isActivityEntry(entry: ChatEntry): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'mcp' | 'webSearch' | 'collab' }> {
+	return entry.kind === 'command' || entry.kind === 'fileChange' || entry.kind === 'mcp' || entry.kind === 'webSearch' || entry.kind === 'collab';
 }
 
 function parseTurnStatus(value: unknown): TurnBlockStatus {
@@ -791,6 +807,17 @@ export function CodexChat() {
 	const [sessionsError, setSessionsError] = useState<string | null>(null);
 	const [isSessionsOpen, setIsSessionsOpen] = useState(false);
 	const [runningThreadIds, setRunningThreadIds] = useState<Record<string, boolean>>({});
+
+	// Collab/workbench state (Codex thread graph derived from CollabAgentToolCall items).
+	const [isWorkbenchEnabled, setIsWorkbenchEnabled] = useState(false);
+	const [workbenchRootThreadId, setWorkbenchRootThreadId] = useState<string | null>(null);
+	const [workbenchAutoFocus, setWorkbenchAutoFocus] = useState(true);
+	const [forkParentByThreadId, setForkParentByThreadId] = useState<Record<string, string>>({});
+	const [collabItemsByThreadId, setCollabItemsByThreadId] = useState<Record<string, Record<string, Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>>>>({});
+	const [collabSeqByItemId, setCollabSeqByItemId] = useState<Record<string, number>>({});
+	const collabSeqRef = useRef(0);
+	const autoFocusInFlightRef = useRef(false);
+	const lastAutoFocusedThreadRef = useRef<string | null>(null);
 
 	const [models, setModels] = useState<CodexModelInfo[]>([]);
 	const [modelsError, setModelsError] = useState<string | null>(null);
@@ -1111,8 +1138,42 @@ export function CodexChat() {
 		[selectedEffort]
 	);
 
+	const ingestCollabItems = useCallback(
+		(threadId: string, items: Array<Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>>) => {
+			if (!threadId || items.length === 0) return;
+
+			setCollabItemsByThreadId((prev) => {
+				const existing = prev[threadId] ?? {};
+				let changed = false;
+				const nextForThread: Record<string, Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>> = { ...existing };
+				for (const item of items) {
+					if (!item?.id) continue;
+					const prevItem = nextForThread[item.id];
+					if (prevItem !== item) {
+						nextForThread[item.id] = item;
+						changed = true;
+					}
+				}
+				if (!changed) return prev;
+				return { ...prev, [threadId]: nextForThread };
+			});
+
+			setCollabSeqByItemId((prev) => {
+				let next: Record<string, number> | null = null;
+				for (const item of items) {
+					if (!item?.id) continue;
+					if (Object.prototype.hasOwnProperty.call(prev, item.id)) continue;
+					if (!next) next = { ...prev };
+					next[item.id] = collabSeqRef.current++;
+				}
+				return next ?? prev;
+			});
+		},
+		[]
+	);
+
 	const selectSession = useCallback(
-		async (threadId: string) => {
+		async (threadId: string, options?: { setAsWorkbenchRoot?: boolean }) => {
 			setSelectedThreadId(threadId);
 			setTurnOrder([]);
 			setTurnsById({});
@@ -1123,6 +1184,9 @@ export function CodexChat() {
 			itemToTurnRef.current = {};
 			setActiveThread(null);
 			setActiveTurnId(null);
+			if (options?.setAsWorkbenchRoot) {
+				setWorkbenchRootThreadId(threadId);
+			}
 			setIsSessionsOpen(false);
 
 			try {
@@ -1149,6 +1213,20 @@ export function CodexChat() {
 				}
 
 				setActiveThread(thread);
+
+				// Capture collab tool calls from this thread so the workbench tree/panel can update even
+				// when the thread isn't currently focused.
+				const collabItems: Array<Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>> = [];
+				for (const turn of thread.turns ?? []) {
+					for (const item of turn.items ?? []) {
+						const rawType = safeString((item as unknown as { type?: unknown })?.type);
+						const typeKey = rawType.replace(/[-_]/g, '').toLowerCase();
+						if (typeKey === 'collabagenttoolcall') {
+							collabItems.push(item as Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>);
+						}
+					}
+				}
+				ingestCollabItems(thread.id, collabItems);
 
 				const nextOrder: string[] = [];
 				const nextTurns: Record<string, TurnBlockData> = {};
@@ -1237,8 +1315,155 @@ export function CodexChat() {
 				});
 			}
 		},
-		[settings.defaultCollapseDetails]
+		[ingestCollabItems, settings.defaultCollapseDetails]
 	);
+
+	const workbenchGraph = useMemo(() => {
+		type Edge = { from: string; to: string; kind: 'spawn' | 'fork'; seq: number };
+
+		const edges: Edge[] = [];
+		const incomingCount: Record<string, number> = {};
+
+		for (const byId of Object.values(collabItemsByThreadId)) {
+			for (const item of Object.values(byId)) {
+				if (!item || item.tool !== 'spawnAgent') continue;
+				const from = item.senderThreadId;
+				const receivers = Array.isArray(item.receiverThreadIds) ? item.receiverThreadIds : [];
+				if (!from || receivers.length === 0) continue;
+				const seq = collabSeqByItemId[item.id] ?? Number.MAX_SAFE_INTEGER;
+				for (const to of receivers) {
+					if (!to) continue;
+					edges.push({ from, to, kind: 'spawn', seq });
+					incomingCount[to] = (incomingCount[to] ?? 0) + 1;
+				}
+			}
+		}
+
+		for (const [child, parent] of Object.entries(forkParentByThreadId)) {
+			if (!child || !parent) continue;
+			edges.push({ from: parent, to: child, kind: 'fork', seq: Number.MAX_SAFE_INTEGER });
+			incomingCount[child] = (incomingCount[child] ?? 0) + 1;
+		}
+
+		const allThreads = new Set<string>();
+		for (const e of edges) {
+			allThreads.add(e.from);
+			allThreads.add(e.to);
+		}
+
+		const rootCandidates = Array.from(allThreads).filter((t) => (incomingCount[t] ?? 0) === 0);
+		rootCandidates.sort((a, b) => a.localeCompare(b));
+
+		const rootThreadId = workbenchRootThreadId ?? selectedThreadId ?? rootCandidates[0] ?? null;
+
+		const firstSpawnFromRoot = edges
+			.filter((e) => e.kind === 'spawn' && e.from === rootThreadId)
+			.sort((a, b) => a.seq - b.seq)[0];
+		const orchestratorThreadId = firstSpawnFromRoot?.to ?? null;
+
+		const workerThreadIds = Array.from(
+			new Set(
+				edges
+					.filter((e) => e.kind === 'spawn' && e.from === orchestratorThreadId)
+					.sort((a, b) => a.seq - b.seq)
+					.map((e) => e.to)
+			)
+		);
+
+		const childrenByParent: Record<string, Array<{ threadId: string; kind: 'spawn' | 'fork'; seq: number }>> = {};
+		for (const e of edges) {
+			if (!childrenByParent[e.from]) childrenByParent[e.from] = [];
+			childrenByParent[e.from].push({ threadId: e.to, kind: e.kind, seq: e.seq });
+		}
+		for (const list of Object.values(childrenByParent)) {
+			list.sort((a, b) => (a.kind === b.kind ? a.seq - b.seq : a.kind.localeCompare(b.kind)));
+		}
+
+		return {
+			edges,
+			rootCandidates,
+			rootThreadId,
+			orchestratorThreadId,
+			workerThreadIds,
+			childrenByParent,
+			hasSpawnEdges: edges.some((e) => e.kind === 'spawn'),
+		};
+	}, [collabItemsByThreadId, collabSeqByItemId, forkParentByThreadId, selectedThreadId, workbenchRootThreadId]);
+
+	const collabAgentStateByThreadId = useMemo(() => {
+		type State = { status: string; message: string | null; seq: number };
+		const out: Record<string, State> = {};
+
+		for (const byId of Object.values(collabItemsByThreadId)) {
+			for (const item of Object.values(byId)) {
+				const seq = collabSeqByItemId[item.id] ?? Number.MAX_SAFE_INTEGER;
+				const agents = item.agentsStates ?? {};
+				for (const [threadId, raw] of Object.entries(agents)) {
+					const status = safeString((raw as any)?.status);
+					const message = typeof (raw as any)?.message === 'string' ? (raw as any).message : null;
+					const prev = out[threadId];
+					if (!prev || seq > prev.seq) {
+						out[threadId] = { status, message, seq };
+					}
+				}
+			}
+		}
+
+		return out;
+	}, [collabItemsByThreadId, collabSeqByItemId]);
+
+	useEffect(() => {
+		if (!isWorkbenchEnabled || !workbenchAutoFocus) return;
+		if (autoFocusInFlightRef.current) return;
+
+		const running = Object.entries(collabAgentStateByThreadId)
+			.filter(([, st]) => st.status === 'running')
+			.sort((a, b) => b[1].seq - a[1].seq)
+			.map(([threadId]) => threadId);
+
+		let candidate: string | null = null;
+		for (const threadId of running) {
+			if (workbenchGraph.workerThreadIds.includes(threadId)) {
+				candidate = threadId;
+				break;
+			}
+		}
+		if (!candidate && workbenchGraph.orchestratorThreadId) {
+			if (running.includes(workbenchGraph.orchestratorThreadId)) {
+				candidate = workbenchGraph.orchestratorThreadId;
+			}
+		}
+		if (!candidate) candidate = running[0] ?? null;
+
+		// Fallback: use turn started/completed notifications.
+		if (!candidate) {
+			const runningTurnThreadIds = Object.keys(runningThreadIds).filter((t) => runningThreadIds[t]);
+			candidate = runningTurnThreadIds[0] ?? null;
+		}
+
+		if (!candidate) return;
+		if (candidate === selectedThreadId) return;
+		if (candidate === lastAutoFocusedThreadRef.current) return;
+
+		autoFocusInFlightRef.current = true;
+		lastAutoFocusedThreadRef.current = candidate;
+		void (async () => {
+			try {
+				await selectSession(candidate);
+			} finally {
+				autoFocusInFlightRef.current = false;
+			}
+		})();
+	}, [
+		collabAgentStateByThreadId,
+		isWorkbenchEnabled,
+		runningThreadIds,
+		selectedThreadId,
+		selectSession,
+		workbenchAutoFocus,
+		workbenchGraph.orchestratorThreadId,
+		workbenchGraph.workerThreadIds,
+	]);
 
 	const applyProfile = useCallback(
 		async (nextProfile: string) => {
@@ -1307,41 +1532,54 @@ export function CodexChat() {
 		}
 	}, [listSessions, selectedModel]);
 
-	const forkSession = useCallback(async () => {
-		if (!selectedThreadId) return;
+	const forkThread = useCallback(
+		async (threadId: string) => {
+			if (!threadId) return;
 
-		const isRunning = Boolean(runningThreadIds[selectedThreadId]);
-		if (isRunning) {
-			const confirmed = window.confirm('A turn is currently running. Forking now will interrupt the running turn. Continue?');
-			if (!confirmed) return;
-			if (activeTurnId) {
-				try {
-					await apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId);
-				} catch {
-					// Best-effort; even if interrupt fails, the fork request might still succeed.
+			const isRunning = Boolean(runningThreadIds[threadId]);
+			if (isRunning) {
+				const confirmed = window.confirm(
+					threadId === selectedThreadId
+						? 'A turn is currently running. Forking now will interrupt the running turn. Continue?'
+						: 'A turn may be running on this thread. Forking may fail if the server cannot snapshot history during generation. Continue?'
+				);
+				if (!confirmed) return;
+				if (threadId === selectedThreadId && activeTurnId) {
+					try {
+						await apiClient.codexTurnInterrupt(threadId, activeTurnId);
+					} catch {
+						// Best-effort; even if interrupt fails, the fork request might still succeed.
+					}
 				}
 			}
-		}
 
-		setIsSettingsMenuOpen(false);
+			setIsSettingsMenuOpen(false);
 
-		try {
-			const res = await apiClient.codexThreadFork(selectedThreadId);
-			const thread = normalizeThreadFromResponse(res);
-			if (!thread?.id) throw new Error('Failed to parse thread/fork response');
-			await selectSession(thread.id);
-			await listSessions();
-		} catch (err) {
 			try {
-				await dialogMessage(errorMessage(err, 'Failed to fork session'), {
-					title: 'Fork session',
-					kind: 'error',
-				});
-			} catch {
-				// ignore
+				const res = await apiClient.codexThreadFork(threadId);
+				const thread = normalizeThreadFromResponse(res);
+				if (!thread?.id) throw new Error('Failed to parse thread/fork response');
+				setForkParentByThreadId((prev) => ({ ...prev, [thread.id]: threadId }));
+				await selectSession(thread.id);
+				await listSessions();
+			} catch (err) {
+				try {
+					await dialogMessage(errorMessage(err, 'Failed to fork session'), {
+						title: 'Fork session',
+						kind: 'error',
+					});
+				} catch {
+					// ignore
+				}
 			}
-		}
-	}, [activeTurnId, listSessions, runningThreadIds, selectSession, selectedThreadId]);
+		},
+		[activeTurnId, listSessions, runningThreadIds, selectSession, selectedThreadId]
+	);
+
+	const forkSession = useCallback(async () => {
+		if (!selectedThreadId) return;
+		await forkThread(selectedThreadId);
+	}, [forkThread, selectedThreadId]);
 
 	const rollbackSession = useCallback(async () => {
 		if (!selectedThreadId) return;
@@ -2203,6 +2441,18 @@ export function CodexChat() {
 				if (method === 'turn/completed' && threadId) {
 					setThreadRunning(threadId, false);
 				}
+
+				// Collab tool calls are useful to keep even when we are not focused on that thread,
+				// since they define the thread graph and agent state updates.
+				if ((method === 'item/started' || method === 'item/completed') && threadId) {
+					const item = params?.item as CodexThreadItem | undefined;
+					const rawType = safeString((item as unknown as { type?: unknown })?.type);
+					const typeKey = rawType.replace(/[-_]/g, '').toLowerCase();
+					if (typeKey === 'collabagenttoolcall' && item) {
+						ingestCollabItems(threadId, [item as Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>]);
+					}
+				}
+
 				if (selectedThreadId && threadId && threadId !== selectedThreadId) return;
 
 				if (method === 'thread/tokenUsage/updated') {
@@ -2526,7 +2776,7 @@ export function CodexChat() {
 					// ignore
 				});
 		};
-	}, [activeTurnId, selectedThreadId, setThreadRunning, settings.defaultCollapseDetails]);
+	}, [activeTurnId, ingestCollabItems, selectedThreadId, setThreadRunning, settings.defaultCollapseDetails]);
 
 	const selectedModelInfo = useMemo(() => {
 		if (!selectedModel) return null;
@@ -2763,6 +3013,28 @@ export function CodexChat() {
 				<div className="relative mr-3 flex shrink-0 items-center gap-1.5">
 					<button
 						type="button"
+						className={[
+							'flex h-8 w-8 items-center justify-center rounded-lg border border-border-menuDivider bg-bg-panel/40 text-text-main transition-colors',
+							workbenchGraph.hasSpawnEdges || isWorkbenchEnabled ? 'hover:bg-bg-panelHover' : 'opacity-40 pointer-events-none',
+							isWorkbenchEnabled ? 'border-primary/40 bg-primary/10' : '',
+						].join(' ')}
+						onClick={() => {
+							setIsSettingsMenuOpen(false);
+							setIsWorkbenchEnabled((v) => {
+								const next = !v;
+								if (next && selectedThreadId) {
+									setWorkbenchRootThreadId(selectedThreadId);
+								}
+								return next;
+							});
+						}}
+						title={workbenchGraph.hasSpawnEdges || isWorkbenchEnabled ? 'Collab Workbench' : 'Collab Workbench (waiting for collab items)'}
+					>
+						<Box className="h-5 w-5" />
+					</button>
+
+					<button
+						type="button"
 						className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-menuDivider bg-bg-panel/40 text-text-main hover:bg-bg-panelHover transition-colors"
 						onClick={() => {
 							setIsSettingsMenuOpen(false);
@@ -2903,20 +3175,166 @@ export function CodexChat() {
 						</div>
 					</div>
 
-					<div ref={scrollRef} className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4">
-						{renderTurns.map((turn) => (
-							<TurnBlock
-								key={turn.id}
-								turn={turn}
-								collapsedWorkingByTurnId={collapsedWorkingByTurnId}
-								collapsedByEntryId={collapsedByEntryId}
-								settings={settings}
-								pendingTurnId={PENDING_TURN_ID}
-								toggleTurnWorking={toggleTurnWorking}
-								toggleEntryCollapse={toggleEntryCollapse}
-								approve={approve}
-							/>
-						))}
+					<div className="mt-4 min-h-0 flex-1 overflow-hidden flex gap-4">
+						{isWorkbenchEnabled ? (
+							<div className="w-[280px] shrink-0 min-h-0 overflow-hidden rounded-xl border border-white/10 bg-bg-panelHover/40">
+								<div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
+									<div className="min-w-0">
+										<div className="text-xs font-semibold">Collab Workbench</div>
+										<div className="mt-0.5 truncate text-[10px] text-text-muted">
+											{workbenchGraph.rootThreadId ? `root: ${workbenchGraph.rootThreadId}` : 'root: (none)'}
+										</div>
+									</div>
+									<label className="flex items-center gap-1 text-[10px] text-text-muted">
+										<input
+											type="checkbox"
+											checked={workbenchAutoFocus}
+											onChange={(e) => setWorkbenchAutoFocus(e.target.checked)}
+										/>
+										<span>Auto-focus</span>
+									</label>
+								</div>
+
+								<div className="min-h-0 overflow-y-auto px-2 py-2">
+									{(() => {
+										const visited = new Set<string>();
+										const roleFor = (threadId: string): 'root' | 'orchestrator' | 'worker' | 'thread' => {
+											if (threadId === workbenchGraph.rootThreadId) return 'root';
+											if (threadId === workbenchGraph.orchestratorThreadId) return 'orchestrator';
+											if (workbenchGraph.workerThreadIds.includes(threadId)) return 'worker';
+											return 'thread';
+										};
+										const statusFor = (threadId: string): string | null => {
+											const st = collabAgentStateByThreadId[threadId];
+											return st?.status ? st.status : null;
+										};
+										const renderNode = (threadId: string, depth: number): JSX.Element | null => {
+											if (!threadId) return null;
+											if (visited.has(threadId)) return null;
+											visited.add(threadId);
+
+											const role = roleFor(threadId);
+											const running = Boolean(runningThreadIds[threadId]);
+											const status = statusFor(threadId);
+											const indentPx = 8 + depth * 12;
+
+											const children = workbenchGraph.childrenByParent[threadId] ?? [];
+
+											return (
+												<div key={threadId}>
+													<div className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 hover:bg-white/5">
+														<button
+															type="button"
+															className="min-w-0 flex-1 text-left"
+															style={{ paddingLeft: indentPx }}
+															onClick={() => void selectSession(threadId)}
+															title={threadId}
+														>
+															<div className="flex items-center gap-2">
+																{running ? <SessionRunningIndicator /> : null}
+																<div className="truncate text-[11px] text-text-main">{threadId}</div>
+															</div>
+															<div className="mt-0.5 flex items-center gap-1 text-[10px] text-text-muted">
+																<span className="rounded bg-white/10 px-1 py-0.5">{role}</span>
+																{status ? <span className="rounded bg-white/10 px-1 py-0.5">{status}</span> : null}
+															</div>
+														</button>
+														<button
+															type="button"
+															className="shrink-0 rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-text-muted hover:border-white/20"
+															onClick={() => void forkThread(threadId)}
+															title="Fork this thread"
+														>
+															Fork
+														</button>
+													</div>
+
+													{children.length > 0 ? (
+														<div>
+															{children.map((c) => (
+																<div key={`${threadId}-${c.kind}-${c.threadId}`}>{renderNode(c.threadId, depth + 1)}</div>
+															))}
+														</div>
+													) : null}
+												</div>
+											);
+										};
+
+										if (!workbenchGraph.rootThreadId) {
+											return <div className="px-2 py-2 text-[11px] text-text-muted">No collab graph yet. Start a multi-agent task to see threads.</div>;
+										}
+										return <div className="space-y-1">{renderNode(workbenchGraph.rootThreadId, 0)}</div>;
+									})()}
+								</div>
+							</div>
+						) : null}
+
+						<div className="min-h-0 flex-1 flex flex-col overflow-hidden">
+							{isWorkbenchEnabled && (workbenchGraph.orchestratorThreadId || workbenchGraph.workerThreadIds.length > 0) ? (
+								<div className="mb-2 flex flex-wrap items-center gap-2">
+									<button
+										type="button"
+										className={[
+											'rounded-full border px-2 py-1 text-[11px] leading-none transition-colors',
+											selectedThreadId === workbenchGraph.rootThreadId ? 'border-primary/50 bg-primary/10 text-text-main' : 'border-white/10 bg-white/5 text-text-muted hover:bg-white/10',
+										].join(' ')}
+										onClick={() => {
+											const root = workbenchGraph.rootThreadId;
+											if (root) void selectSession(root, { setAsWorkbenchRoot: true });
+										}}
+									>
+										Root
+									</button>
+
+									{workbenchGraph.orchestratorThreadId ? (
+										<button
+											type="button"
+											className={[
+												'rounded-full border px-2 py-1 text-[11px] leading-none transition-colors',
+												selectedThreadId === workbenchGraph.orchestratorThreadId
+													? 'border-primary/50 bg-primary/10 text-text-main'
+													: 'border-white/10 bg-white/5 text-text-muted hover:bg-white/10',
+											].join(' ')}
+											onClick={() => void selectSession(workbenchGraph.orchestratorThreadId!)}
+											title={workbenchGraph.orchestratorThreadId}
+										>
+											Orchestrator
+										</button>
+									) : null}
+
+									{workbenchGraph.workerThreadIds.map((id) => (
+										<button
+											key={id}
+											type="button"
+											className={[
+												'rounded-full border px-2 py-1 text-[11px] leading-none transition-colors',
+												selectedThreadId === id ? 'border-primary/50 bg-primary/10 text-text-main' : 'border-white/10 bg-white/5 text-text-muted hover:bg-white/10',
+											].join(' ')}
+											onClick={() => void selectSession(id)}
+											title={id}
+										>
+											Worker
+										</button>
+									))}
+								</div>
+							) : null}
+
+							<div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4">
+								{renderTurns.map((turn) => (
+									<TurnBlock
+										key={turn.id}
+										turn={turn}
+										collapsedWorkingByTurnId={collapsedWorkingByTurnId}
+										collapsedByEntryId={collapsedByEntryId}
+										settings={settings}
+										pendingTurnId={PENDING_TURN_ID}
+										toggleTurnWorking={toggleTurnWorking}
+										toggleEntryCollapse={toggleEntryCollapse}
+										approve={approve}
+									/>
+								))}
+							</div>
+						</div>
 					</div>
 
 					<div className="relative -mx-6 mt-3 rounded-xl border border-token-border/80 bg-token-inputBackground/70 px-4 py-3 backdrop-blur">

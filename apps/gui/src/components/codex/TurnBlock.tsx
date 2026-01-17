@@ -329,6 +329,57 @@ export function TurnBlock({
 			);
 		}
 
+		if (e.kind === 'collab') {
+			const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
+			const receivers = Array.isArray(e.receiverThreadIds) ? e.receiverThreadIds : [];
+			const agentsStates = e.agentsStates ?? {};
+			const copyContent = stringifyJsonSafe({
+				tool: e.tool,
+				status: e.status,
+				senderThreadId: e.senderThreadId,
+				receiverThreadIds: receivers,
+				prompt: e.prompt ?? null,
+				agentsStates,
+			});
+			return (
+				<ActivityBlock
+					key={e.id}
+					titlePrefix="Collab:"
+					titleContent={`${e.tool}${receivers.length > 0 ? ` → ${receivers.join(', ')}` : ''}`}
+					titleMono
+					status={e.status !== 'completed' ? e.status : undefined}
+					copyContent={copyContent}
+					icon={<Zap className="h-3.5 w-3.5" />}
+					contentClassName="font-sans"
+					collapsible
+					collapsed={collapsed}
+					onToggleCollapse={() => toggleEntryCollapse(e.id)}
+				>
+					<div className="space-y-2">
+						<div className="text-[10px] text-text-muted">
+							sender: <span className="font-mono">{e.senderThreadId}</span>
+						</div>
+						{receivers.length > 0 ? (
+							<div className="text-[10px] text-text-muted">
+								receivers:{' '}
+								<span className="font-mono">
+									{receivers.map((t, idx) => (
+										<span key={`${t}-${idx}`}>{`${idx ? ', ' : ''}${t}`}</span>
+									))}
+								</span>
+							</div>
+						) : null}
+						{e.prompt ? (
+							<div className="rounded-md bg-white/5 px-2 py-1 text-[10px] text-text-muted whitespace-pre-wrap break-words">{e.prompt}</div>
+						) : null}
+						<pre className="whitespace-pre-wrap break-words rounded-md bg-white/5 px-2 py-1 text-[10px] text-text-muted">
+							{stringifyJsonSafe(agentsStates)}
+						</pre>
+					</div>
+				</ActivityBlock>
+			);
+		}
+
 		if (e.kind === 'mcp') {
 			const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
 			const contentBlocks = Array.isArray(e.result?.content) ? (e.result?.content ?? []) : [];

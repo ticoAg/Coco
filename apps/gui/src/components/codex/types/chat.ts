@@ -4,6 +4,11 @@ import type { parseCodeReviewStructuredOutputFromMessage } from '../assistantMes
 /** 附加内容类型 */
 export type AttachmentItem = { type: 'file'; path: string; name: string } | { type: 'skill'; name: string } | { type: 'prompt'; name: string };
 
+export type CollabAgentState = {
+	status: 'pendingInit' | 'running' | 'completed' | 'errored' | 'shutdown' | 'notFound';
+	message?: string | null;
+};
+
 export type AssistantBaseEntry = {
 	kind: 'assistant';
 	id: string;
@@ -62,6 +67,16 @@ export type ChatEntry =
 			kind: 'webSearch';
 			id: string;
 			query: string;
+	  }
+	| {
+			kind: 'collab';
+			id: string;
+			tool: 'spawnAgent' | 'sendInput' | 'wait' | 'closeAgent';
+			status: 'inProgress' | 'completed' | 'failed';
+			senderThreadId: string;
+			receiverThreadIds: string[];
+			prompt?: string | null;
+			agentsStates?: Record<string, CollabAgentState>;
 	  }
 	| {
 			kind: 'mcp';

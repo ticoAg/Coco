@@ -132,6 +132,22 @@ export type CodexThreadItem =
 	  }
 	| { type: 'webSearch'; id: string; query: string }
 	| { type: 'imageView'; id: string; path: string }
+	| {
+			type: 'collabAgentToolCall';
+			id: string;
+			tool: 'spawnAgent' | 'sendInput' | 'wait' | 'closeAgent';
+			status: 'inProgress' | 'completed' | 'failed';
+			senderThreadId: string;
+			receiverThreadIds: string[];
+			prompt?: string | null;
+			agentsStates: Record<
+				string,
+				{
+					status: 'pendingInit' | 'running' | 'completed' | 'errored' | 'shutdown' | 'notFound';
+					message?: string | null;
+				}
+			>;
+	  }
 	| { type: 'enteredReviewMode'; id: string; review: string }
 	| { type: 'exitedReviewMode'; id: string; review: string };
 
