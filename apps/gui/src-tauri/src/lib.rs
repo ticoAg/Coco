@@ -1,14 +1,18 @@
 use tauri::Manager;
 
 mod codex_app_server;
+mod codex_app_server_pool;
 mod codex_patch_diff;
 mod codex_rollout_restore;
 
 use codex_app_server::CodexAppServer;
 use codex_app_server::CodexDiagnostics;
+use codex_app_server_pool::CodexAppServerPool;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 use tokio::sync::Mutex as TokioMutex;
+
+const CODEX_APP_SERVER_POOL_MAX: usize = 8;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,6 +93,8 @@ pub fn run() {
             workspace_root_set,
             workspace_recent_list,
             window_new,
+            codex_app_server_ensure,
+            codex_app_server_shutdown,
             codex_thread_list,
             codex_thread_loaded_list,
             codex_thread_start,
@@ -117,13 +123,8 @@ pub fn run() {
                 let app_handle = window.app_handle().clone();
                 tauri::async_runtime::spawn(async move {
                     let state = app_handle.state::<AppState>();
-                    let server = {
-                        let mut guard = state.codex.lock().await;
-                        guard.take()
-                    };
-                    if let Some(server) = server {
-                        server.shutdown().await;
-                    }
+                    let mut pool = state.codex_pool.lock().await;
+                    pool.shutdown_all().await;
                 });
             }
         })
@@ -134,7 +135,7 @@ pub fn run() {
                 orchestrator: std::sync::Mutex::new(agentmesh_orchestrator::Orchestrator::new(
                     workspace_root,
                 )),
-                codex: TokioMutex::new(None),
+                codex_pool: TokioMutex::new(CodexAppServerPool::new(CODEX_APP_SERVER_POOL_MAX)),
                 codex_profile: TokioMutex::new(None),
             });
 
@@ -153,7 +154,7 @@ pub fn run() {
 
 struct AppState {
     orchestrator: std::sync::Mutex<agentmesh_orchestrator::Orchestrator>,
-    codex: TokioMutex<Option<CodexAppServer>>,
+    codex_pool: TokioMutex<CodexAppServerPool>,
     codex_profile: TokioMutex<Option<String>>,
 }
 
@@ -711,25 +712,38 @@ fn codex_config_path() -> Result<std::path::PathBuf, String> {
         .join("config.toml"))
 }
 
+fn default_codex_home_dir() -> Result<std::path::PathBuf, String> {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .ok_or_else(|| "HOME directory not found".to_string())?;
+    Ok(std::path::PathBuf::from(home).join(".codex"))
+}
+
 async fn get_or_start_codex(
     state: &tauri::State<'_, AppState>,
     app: tauri::AppHandle,
+    app_server_id: Option<String>,
 ) -> Result<CodexAppServer, String> {
-    let mut guard = state.codex.lock().await;
-    if let Some(server) = guard.clone() {
-        return Ok(server);
-    }
-
     let cwd = state
         .orchestrator
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .workspace_root()
         .to_path_buf();
+
+    let mut pool = state.codex_pool.lock().await;
+
+    if let Some(id) = app_server_id.as_deref() {
+        return pool
+            .get(id)
+            .ok_or_else(|| format!("unknown appServerId: {id}"));
+    }
+
+    let codex_home = default_codex_home_dir()?;
     let profile = { state.codex_profile.lock().await.clone() };
-    let server = CodexAppServer::spawn(app, &cwd, profile).await?;
-    *guard = Some(server.clone());
-    Ok(server)
+    let id = pool.ensure(app, &cwd, &codex_home, profile).await?;
+    pool.get(&id)
+        .ok_or_else(|| "codex app-server pool internal error: missing server".to_string())
 }
 
 #[tauri::command]
@@ -762,12 +776,9 @@ async fn workspace_root_set(
     persist_workspace_root(&app, &root)?;
     update_recent_workspaces(&app, &root)?;
 
-    let server = {
-        let mut guard = state.codex.lock().await;
-        guard.take()
-    };
-    if let Some(server) = server {
-        server.shutdown().await;
+    {
+        let mut pool = state.codex_pool.lock().await;
+        pool.shutdown_all().await;
     }
 
     {
@@ -801,12 +812,62 @@ fn window_new(app: tauri::AppHandle) -> Result<String, String> {
     Ok(label)
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexAppServerEnsureResponse {
+    app_server_id: String,
+}
+
+#[tauri::command]
+async fn codex_app_server_ensure(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    codex_home: Option<String>,
+    profile: Option<String>,
+) -> Result<CodexAppServerEnsureResponse, String> {
+    let cwd = state
+        .orchestrator
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .workspace_root()
+        .to_path_buf();
+
+    let codex_home = codex_home
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or(default_codex_home_dir()?);
+
+    let profile = profile
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+    let profile = match profile {
+        Some(p) => Some(p),
+        None => state.codex_profile.lock().await.clone(),
+    };
+
+    let mut pool = state.codex_pool.lock().await;
+    let app_server_id = pool.ensure(app, &cwd, &codex_home, profile).await?;
+    Ok(CodexAppServerEnsureResponse { app_server_id })
+}
+
+#[tauri::command]
+async fn codex_app_server_shutdown(
+    state: tauri::State<'_, AppState>,
+    app_server_id: String,
+) -> Result<(), String> {
+    let mut pool = state.codex_pool.lock().await;
+    pool.shutdown(&app_server_id).await;
+    Ok(())
+}
+
 #[tauri::command]
 async fn codex_thread_list(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
     cursor: Option<String>,
     limit: Option<u32>,
+    app_server_id: Option<String>,
 ) -> Result<CodexThreadListResponse, String> {
     // Get current workspace for filtering
     let workspace_root = state
@@ -816,7 +877,7 @@ async fn codex_thread_list(
         .workspace_root()
         .to_path_buf();
 
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
     let params = serde_json::json!({
         "cursor": cursor,
         "limit": limit,
@@ -897,8 +958,9 @@ async fn codex_thread_loaded_list(
     app: tauri::AppHandle,
     cursor: Option<String>,
     limit: Option<u32>,
+    app_server_id: Option<String>,
 ) -> Result<CodexThreadLoadedListResponse, String> {
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
     let params = serde_json::json!({
         "cursor": cursor,
         "limit": limit,
@@ -932,8 +994,9 @@ async fn codex_thread_start(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
     model: Option<String>,
+    app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
     let cwd = state
         .orchestrator
         .lock()
@@ -954,8 +1017,9 @@ async fn codex_thread_resume(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
     thread_id: String,
+    app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
     let params = serde_json::json!({ "threadId": thread_id });
     let res = codex.request("thread/resume", Some(params)).await?;
     codex_rollout_restore::augment_thread_resume_response(res, &thread_id).await
@@ -966,8 +1030,9 @@ async fn codex_thread_fork(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
     thread_id: String,
+    app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
 
     let cwd = state
         .orchestrator
@@ -999,8 +1064,9 @@ async fn codex_thread_rollback(
     app: tauri::AppHandle,
     thread_id: String,
     num_turns: Option<u32>,
+    app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
 
     let num_turns = num_turns.unwrap_or(1);
     if num_turns < 1 {
@@ -1032,8 +1098,9 @@ async fn codex_turn_start(
     model: Option<String>,
     effort: Option<String>,
     approval_policy: Option<String>,
+    app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
 
     let effort = match effort.as_deref() {
         None => None,
@@ -1070,8 +1137,9 @@ async fn codex_turn_interrupt(
     app: tauri::AppHandle,
     thread_id: String,
     turn_id: String,
+    app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
     let params = serde_json::json!({ "threadId": thread_id, "turnId": turn_id });
     codex.request("turn/interrupt", Some(params)).await
 }
@@ -1082,13 +1150,14 @@ async fn codex_respond_approval(
     app: tauri::AppHandle,
     request_id: i64,
     decision: String,
+    app_server_id: Option<String>,
 ) -> Result<(), String> {
     let decision = decision.to_lowercase();
     if decision != "accept" && decision != "decline" {
         return Err("decision must be accept or decline".to_string());
     }
 
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
     codex
         .respond(request_id, serde_json::json!({ "decision": decision }))
         .await
@@ -1100,8 +1169,9 @@ async fn codex_model_list(
     app: tauri::AppHandle,
     cursor: Option<String>,
     limit: Option<u32>,
+    app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
     let params = serde_json::json!({ "cursor": cursor, "limit": limit });
     codex.request("model/list", Some(params)).await
 }
@@ -1111,8 +1181,9 @@ async fn codex_config_read_effective(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
     include_layers: Option<bool>,
+    app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
     let params = serde_json::json!({
         "includeLayers": include_layers.unwrap_or(false),
     });
@@ -1126,8 +1197,9 @@ async fn codex_config_write_chat_defaults(
     model: Option<String>,
     model_reasoning_effort: Option<String>,
     approval_policy: Option<String>,
+    app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
 
     let approval_policy = match approval_policy.as_deref() {
         None => None,
@@ -1195,13 +1267,11 @@ async fn codex_set_profile(
         *active_profile = normalized;
     }
 
-    let server = {
-        let mut guard = state.codex.lock().await;
-        guard.take()
-    };
-    if let Some(server) = server {
-        server.shutdown().await;
-    }
+    // Profile is currently treated as a GUI-global setting. For safety, only restart the
+    // default CODEX_HOME-scoped app-server instance.
+    let codex_home = default_codex_home_dir()?;
+    let mut pool = state.codex_pool.lock().await;
+    pool.shutdown_by_codex_home(&codex_home).await;
 
     Ok(())
 }
@@ -1268,8 +1338,9 @@ struct PromptsListResponse {
 async fn codex_skill_list(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
+    app_server_id: Option<String>,
 ) -> Result<SkillsListResponse, String> {
-    let codex = get_or_start_codex(&state, app).await?;
+    let codex = get_or_start_codex(&state, app, app_server_id).await?;
     let params = serde_json::json!({});
 
     let result = codex.request("skills/list", Some(params)).await?;

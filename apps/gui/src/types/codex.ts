@@ -1,6 +1,7 @@
 export type CodexJsonRpcEventKind = 'notification' | 'request' | 'stderr' | 'error' | 'unknown';
 
 export interface CodexJsonRpcEvent {
+	appServerId: string;
 	kind: CodexJsonRpcEventKind;
 	message: unknown;
 }

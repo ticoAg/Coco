@@ -97,36 +97,53 @@ export async function readSharedArtifact(taskId: string, category: SharedArtifac
 	});
 }
 
-export async function codexThreadList(cursor?: string | null, limit?: number | null): Promise<CodexThreadListResponse> {
+export async function codexAppServerEnsure(options?: {
+	codexHome?: string | null;
+	profile?: string | null;
+}): Promise<{ appServerId: string }> {
+	return invoke<{ appServerId: string }>('codex_app_server_ensure', {
+		codexHome: options?.codexHome ?? null,
+		profile: options?.profile ?? null,
+	});
+}
+
+export async function codexAppServerShutdown(appServerId: string): Promise<void> {
+	await invoke<void>('codex_app_server_shutdown', { appServerId });
+}
+
+export async function codexThreadList(cursor?: string | null, limit?: number | null, appServerId?: string | null): Promise<CodexThreadListResponse> {
 	return invoke<CodexThreadListResponse>('codex_thread_list', {
 		cursor: cursor ?? null,
 		limit: limit ?? null,
+		appServerId: appServerId ?? null,
 	});
 }
 
-export async function codexThreadLoadedList(cursor?: string | null, limit?: number | null): Promise<CodexThreadLoadedListResponse> {
+export async function codexThreadLoadedList(cursor?: string | null, limit?: number | null, appServerId?: string | null): Promise<CodexThreadLoadedListResponse> {
 	return invoke<CodexThreadLoadedListResponse>('codex_thread_loaded_list', {
 		cursor: cursor ?? null,
 		limit: limit ?? null,
+		appServerId: appServerId ?? null,
 	});
 }
 
-export async function codexThreadStart(model?: string | null): Promise<unknown> {
-	return invoke<unknown>('codex_thread_start', { model: model ?? null });
+export async function codexThreadStart(model?: string | null, appServerId?: string | null): Promise<unknown> {
+	return invoke<unknown>('codex_thread_start', { model: model ?? null, appServerId: appServerId ?? null });
 }
 
-export async function codexThreadResume(threadId: string): Promise<unknown> {
-	return invoke<unknown>('codex_thread_resume', { threadId });
+export async function codexThreadResume(threadId: string, appServerId?: string | null): Promise<unknown> {
+	return invoke<unknown>('codex_thread_resume', { threadId, appServerId: appServerId ?? null });
 }
 
-export async function codexThreadFork(threadId: string): Promise<unknown> {
-	return invoke<unknown>('codex_thread_fork', { threadId });
+export async function codexThreadFork(threadId: string, appServerId?: string | null): Promise<unknown> {
+	return invoke<unknown>('codex_thread_fork', { threadId, appServerId: appServerId ?? null });
 }
 
-export async function codexThreadRollback(threadId: string, numTurns?: number | null): Promise<unknown> {
+export async function codexThreadRollback(threadId: string, numTurns?: number | null, appServerId?: string | null): Promise<unknown> {
 	return invoke<unknown>('codex_thread_rollback', {
 		threadId,
 		numTurns: numTurns ?? null,
+		appServerId: appServerId ?? null,
 	});
 }
 
@@ -135,7 +152,8 @@ export async function codexTurnStart(
 	input: CodexUserInput[],
 	model?: string | null,
 	effort?: string | null,
-	approvalPolicy?: string | null
+	approvalPolicy?: string | null,
+	appServerId?: string | null
 ): Promise<unknown> {
 	return invoke<unknown>('codex_turn_start', {
 		threadId,
@@ -143,33 +161,38 @@ export async function codexTurnStart(
 		model: model ?? null,
 		effort: effort ?? null,
 		approvalPolicy: approvalPolicy ?? null,
+		appServerId: appServerId ?? null,
 	});
 }
 
-export async function codexTurnInterrupt(threadId: string, turnId: string): Promise<unknown> {
+export async function codexTurnInterrupt(threadId: string, turnId: string, appServerId?: string | null): Promise<unknown> {
 	return invoke<unknown>('codex_turn_interrupt', {
 		threadId,
 		turnId,
+		appServerId: appServerId ?? null,
 	});
 }
 
-export async function codexRespondApproval(requestId: number, decision: 'accept' | 'decline'): Promise<void> {
+export async function codexRespondApproval(requestId: number, decision: 'accept' | 'decline', appServerId?: string | null): Promise<void> {
 	await invoke<void>('codex_respond_approval', {
 		requestId,
 		decision,
+		appServerId: appServerId ?? null,
 	});
 }
 
-export async function codexModelList(cursor?: string | null, limit?: number | null): Promise<CodexModelListResponse> {
+export async function codexModelList(cursor?: string | null, limit?: number | null, appServerId?: string | null): Promise<CodexModelListResponse> {
 	return invoke<CodexModelListResponse>('codex_model_list', {
 		cursor: cursor ?? null,
 		limit: limit ?? null,
+		appServerId: appServerId ?? null,
 	});
 }
 
-export async function codexConfigReadEffective(includeLayers?: boolean | null): Promise<unknown> {
+export async function codexConfigReadEffective(includeLayers?: boolean | null, appServerId?: string | null): Promise<unknown> {
 	return invoke<unknown>('codex_config_read_effective', {
 		includeLayers: includeLayers ?? null,
+		appServerId: appServerId ?? null,
 	});
 }
 
@@ -177,11 +200,13 @@ export async function codexConfigWriteChatDefaults(options: {
 	model?: string | null;
 	modelReasoningEffort?: string | null;
 	approvalPolicy?: string | null;
+	appServerId?: string | null;
 }): Promise<unknown> {
 	return invoke<unknown>('codex_config_write_chat_defaults', {
 		model: options.model ?? null,
 		modelReasoningEffort: options.modelReasoningEffort ?? null,
 		approvalPolicy: options.approvalPolicy ?? null,
+		appServerId: options.appServerId ?? null,
 	});
 }
 
@@ -257,8 +282,8 @@ export async function getAutoContext(cwd: string): Promise<AutoContextInfo> {
 	return invoke<AutoContextInfo>('get_auto_context', { cwd });
 }
 
-export async function codexSkillList(): Promise<SkillsListResponse> {
-	return invoke<SkillsListResponse>('codex_skill_list');
+export async function codexSkillList(appServerId?: string | null): Promise<SkillsListResponse> {
+	return invoke<SkillsListResponse>('codex_skill_list', { appServerId: appServerId ?? null });
 }
 
 export async function codexPromptList(): Promise<PromptsListResponse> {
@@ -276,6 +301,8 @@ export const apiClient = {
 	tailSubagentEvents,
 	listSharedArtifacts,
 	readSharedArtifact,
+	codexAppServerEnsure,
+	codexAppServerShutdown,
 	codexThreadList,
 	codexThreadStart,
 	codexThreadResume,

@@ -37,6 +37,7 @@ static SHELL_ENV_CACHE: OnceCell<ShellEnvSnapshot> = OnceCell::const_new();
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexJsonRpcEvent {
+    pub app_server_id: String,
     pub kind: String,
     pub message: Value,
 }
@@ -69,6 +70,7 @@ pub struct CodexAppServer {
 
 struct CodexAppServerInner {
     app: tauri::AppHandle,
+    app_server_id: String,
     child: Mutex<Child>,
     stdin: Mutex<ChildStdin>,
     pending: Mutex<HashMap<i64, oneshot::Sender<Result<Value, String>>>>,
@@ -81,6 +83,8 @@ impl CodexAppServer {
         app: tauri::AppHandle,
         cwd: &Path,
         profile: Option<String>,
+        codex_home: Option<&Path>,
+        app_server_id: String,
     ) -> Result<Self, String> {
         let (codex_bin, env, env_source) = resolve_codex_bin_and_env().await?;
 
@@ -98,6 +102,11 @@ impl CodexAppServer {
             .env("AGENTMESH_CODEX_ENV_SOURCE", env_source)
             .current_dir(cwd);
 
+        if let Some(home) = codex_home {
+            std::fs::create_dir_all(home).map_err(|e| e.to_string())?;
+            cmd.env("CODEX_HOME", home);
+        }
+
         let mut child = cmd.spawn().map_err(|e| e.to_string())?;
 
         let stdin = child
@@ -112,6 +121,7 @@ impl CodexAppServer {
 
         let inner = Arc::new(CodexAppServerInner {
             app: app.clone(),
+            app_server_id,
             child: Mutex::new(child),
             stdin: Mutex::new(stdin),
             pending: Mutex::new(HashMap::new()),
@@ -489,6 +499,7 @@ async fn run_stdout_loop(inner: Arc<CodexAppServerInner>, stdout: ChildStdout) {
                 let _ = inner.app.emit(
                     EVENT_NAME,
                     CodexJsonRpcEvent {
+                        app_server_id: inner.app_server_id.clone(),
                         kind: "error".to_string(),
                         message: json!({
                             "type": "parse_error",
@@ -542,6 +553,7 @@ async fn run_stdout_loop(inner: Arc<CodexAppServerInner>, stdout: ChildStdout) {
             let _ = inner.app.emit(
                 EVENT_NAME,
                 CodexJsonRpcEvent {
+                    app_server_id: inner.app_server_id.clone(),
                     kind: "request".to_string(),
                     message: parsed,
                 },
@@ -560,6 +572,7 @@ async fn run_stdout_loop(inner: Arc<CodexAppServerInner>, stdout: ChildStdout) {
             let _ = inner.app.emit(
                 EVENT_NAME,
                 CodexJsonRpcEvent {
+                    app_server_id: inner.app_server_id.clone(),
                     kind: "notification".to_string(),
                     message: parsed,
                 },
@@ -571,6 +584,7 @@ async fn run_stdout_loop(inner: Arc<CodexAppServerInner>, stdout: ChildStdout) {
         let _ = inner.app.emit(
             EVENT_NAME,
             CodexJsonRpcEvent {
+                app_server_id: inner.app_server_id.clone(),
                 kind: "unknown".to_string(),
                 message: parsed,
             },
@@ -607,6 +621,7 @@ async fn run_stderr_loop(inner: Arc<CodexAppServerInner>, stderr: ChildStderr) {
         let _ = inner.app.emit(
             EVENT_NAME,
             CodexJsonRpcEvent {
+                app_server_id: inner.app_server_id.clone(),
                 kind: "stderr".to_string(),
                 message: json!({ "line": line }),
             },
