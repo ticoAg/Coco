@@ -2158,7 +2158,8 @@ export function CodexChat() {
 				// Prefer path-based fork so we can fork from the latest persisted history even if
 				// the source thread is currently generating (unstable protocol field, but works well
 				// for "fork from a completed turn" UX).
-				const res = await apiClient.codexThreadFork(selectedThreadId, { path: activeThread?.path ?? null });
+				const forkPath = activeThread?.id === selectedThreadId ? (activeThread?.path ?? null) : null;
+				const res = await apiClient.codexThreadFork(selectedThreadId, { path: forkPath });
 				const forked = normalizeThreadFromResponse(res);
 				if (!forked?.id) throw new Error('Failed to parse thread/fork response');
 
@@ -2175,6 +2176,14 @@ export function CodexChat() {
 						forkPointIdxInForked = found;
 						break;
 					}
+				}
+
+				// Some servers synthesize turn ids on resume/fork (e.g. "turn-1", "turn-2"...), so
+				// turn ids may not match the currently running UI turn ids. Prefer id-matching when it
+				// works, but fall back to position-based mapping so the rollback lands on the expected
+				// turn index.
+				if (forkPointIdxInForked < 0 && forkedTurnIds.length > 0) {
+					forkPointIdxInForked = Math.min(candidateIdx, forkedTurnIds.length - 1);
 				}
 
 				const rollbackTurns = forkPointIdxInForked < 0 ? 0 : Math.max(0, forkedTurnIds.length - 1 - forkPointIdxInForked);
@@ -2196,7 +2205,7 @@ export function CodexChat() {
 				}
 			}
 		},
-		[activeThread?.path, listSessions, selectSession, selectedThreadId, turnOrder, turnsById]
+		[activeThread?.id, activeThread?.path, listSessions, selectSession, selectedThreadId, turnOrder, turnsById]
 	);
 
 	const forkThreadLatest = useCallback(
