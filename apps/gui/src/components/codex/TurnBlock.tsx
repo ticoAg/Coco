@@ -538,18 +538,14 @@ export function TurnBlock({
 	const workingOpen = collapsedExplicit === undefined ? turn.status === 'inProgress' : !collapsedExplicit;
 	const hasWorking = turn.workingItemCount > 0;
 
-	return (
-		<div className="space-y-2">
-			{/* Turn title bar */}
-			<div className="group flex items-center justify-between px-1">
-				<div className="min-w-0 truncate text-[10px] text-text-menuDesc opacity-80">
-					{turnStatusLabel(turn.status)}
-					{turn.id === pendingTurnId ? ' (pending)' : ''}
-				</div>
-				<div className="flex shrink-0 items-center gap-1.5">
-					<button
-						type="button"
-						className={[
+		return (
+			<div className="space-y-2">
+				{/* Turn title bar */}
+				<div className="group flex items-center justify-end px-1">
+					<div className="flex shrink-0 items-center gap-1.5">
+						<button
+							type="button"
+							className={[
 							'rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main',
 							finalAssistantText ? '' : 'pointer-events-none opacity-40',
 						].join(' ')}
