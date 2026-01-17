@@ -1405,6 +1405,7 @@ async fn codex_thread_fork(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
     thread_id: String,
+    path: Option<String>,
     app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let codex = get_or_start_codex(&state, app, app_server_id).await?;
@@ -1417,7 +1418,10 @@ async fn codex_thread_fork(
         .to_string_lossy()
         .to_string();
 
-    let params = serde_json::json!({ "threadId": thread_id, "cwd": cwd });
+    let mut params = serde_json::json!({ "threadId": thread_id, "cwd": cwd });
+    if let Some(path) = path {
+        params["path"] = serde_json::Value::String(path);
+    }
     let res = codex.request("thread/fork", Some(params)).await?;
     let new_thread_id = res
         .get("thread")

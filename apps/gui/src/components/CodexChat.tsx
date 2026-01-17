@@ -1985,29 +1985,87 @@ export function CodexChat() {
 		}
 	}, [listSessions, selectedModel]);
 
-	const forkThread = useCallback(
-		async (threadId: string) => {
-			if (!threadId) return;
+	const forkFromTurn = useCallback(
+		async (requestedTurnId: string) => {
+			if (!selectedThreadId) return;
 
-			const isRunning = Boolean(runningThreadIds[threadId]);
-			if (isRunning) {
-				const confirmed = window.confirm(
-					threadId === selectedThreadId
-						? 'A turn is currently running. Forking now will interrupt the running turn. Continue?'
-						: 'A turn may be running on this thread. Forking may fail if the server cannot snapshot history during generation. Continue?'
-				);
-				if (!confirmed) return;
-				if (threadId === selectedThreadId && activeTurnId) {
-					try {
-						await apiClient.codexTurnInterrupt(threadId, activeTurnId);
-					} catch {
-						// Best-effort; even if interrupt fails, the fork request might still succeed.
-					}
+			const uiTurnIds = turnOrder.filter((id) => id && id !== PENDING_TURN_ID);
+			if (uiTurnIds.length === 0) return;
+
+			let startIdx = uiTurnIds.indexOf(requestedTurnId);
+			if (startIdx < 0) startIdx = uiTurnIds.length - 1;
+
+			// Find the nearest stable turn (not in progress). This avoids trying to fork from a
+			// running turn; we will "walk back" to the most recent completed/failed/interrupted turn.
+			let candidateIdx = -1;
+			for (let idx = startIdx; idx >= 0; idx -= 1) {
+				const id = uiTurnIds[idx];
+				const status = turnsById[id]?.status ?? 'unknown';
+				if (status !== 'inProgress') {
+					candidateIdx = idx;
+					break;
 				}
+			}
+			if (candidateIdx < 0) {
+				try {
+					await dialogMessage('No completed turns to fork from yet.', { title: 'Fork', kind: 'error' });
+				} catch {
+					// ignore
+				}
+				return;
 			}
 
 			setIsSettingsMenuOpen(false);
 
+			try {
+				// Prefer path-based fork so we can fork from the latest persisted history even if
+				// the source thread is currently generating (unstable protocol field, but works well
+				// for "fork from a completed turn" UX).
+				const res = await apiClient.codexThreadFork(selectedThreadId, { path: activeThread?.path ?? null });
+				const forked = normalizeThreadFromResponse(res);
+				if (!forked?.id) throw new Error('Failed to parse thread/fork response');
+
+				// After forking, rollback the new thread so it ends at the requested (or nearest prior) turn.
+				const forkedTurnIds = (forked.turns ?? []).map((t) => t.id).filter(Boolean);
+				let forkPointIdxInForked = -1;
+
+				// If the forked history is behind the UI state (e.g. source thread is still running),
+				// walk backwards until we find a turn that exists in the forked thread.
+				for (let idx = candidateIdx; idx >= 0; idx -= 1) {
+					const turnId = uiTurnIds[idx];
+					const found = forkedTurnIds.indexOf(turnId);
+					if (found >= 0) {
+						forkPointIdxInForked = found;
+						break;
+					}
+				}
+
+				const rollbackTurns = forkPointIdxInForked < 0 ? 0 : Math.max(0, forkedTurnIds.length - 1 - forkPointIdxInForked);
+				if (rollbackTurns > 0) {
+					await apiClient.codexThreadRollback(forked.id, rollbackTurns);
+				}
+
+				setForkParentByThreadId((prev) => ({ ...prev, [forked.id]: selectedThreadId }));
+				await selectSession(forked.id);
+				await listSessions();
+			} catch (err) {
+				try {
+					await dialogMessage(errorMessage(err, 'Failed to fork session'), {
+						title: 'Fork session',
+						kind: 'error',
+					});
+				} catch {
+					// ignore
+				}
+			}
+		},
+		[activeThread?.path, listSessions, selectSession, selectedThreadId, turnOrder, turnsById]
+	);
+
+	const forkThreadLatest = useCallback(
+		async (threadId: string) => {
+			if (!threadId) return;
+			setIsSettingsMenuOpen(false);
 			try {
 				const res = await apiClient.codexThreadFork(threadId);
 				const thread = normalizeThreadFromResponse(res);
@@ -2026,13 +2084,15 @@ export function CodexChat() {
 				}
 			}
 		},
-		[activeTurnId, listSessions, runningThreadIds, selectSession, selectedThreadId]
+		[listSessions, selectSession]
 	);
 
 	const forkSession = useCallback(async () => {
 		if (!selectedThreadId) return;
-		await forkThread(selectedThreadId);
-	}, [forkThread, selectedThreadId]);
+		const lastRealTurnId = [...turnOrder].reverse().find((id) => id && id !== PENDING_TURN_ID) ?? '';
+		if (!lastRealTurnId) return;
+		await forkFromTurn(lastRealTurnId);
+	}, [forkFromTurn, selectedThreadId, turnOrder]);
 
 	const rollbackSession = useCallback(async () => {
 		if (!selectedThreadId) return;
@@ -3701,14 +3761,14 @@ export function CodexChat() {
 																{status ? <span className="rounded bg-white/10 px-1 py-0.5">{status}</span> : null}
 															</div>
 														</button>
-														<button
-															type="button"
-															className="shrink-0 rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-text-muted hover:border-white/20"
-															onClick={() => void forkThread(threadId)}
-															title="Fork this thread"
-														>
-															Fork
-														</button>
+															<button
+																type="button"
+																className="shrink-0 rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-text-muted hover:border-white/20"
+																onClick={() => void forkThreadLatest(threadId)}
+																title="Fork this thread"
+															>
+																Fork
+															</button>
 													</div>
 
 													{children.length > 0 ? (
@@ -3782,20 +3842,21 @@ export function CodexChat() {
 							) : null}
 
 							<div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4">
-								{renderTurns.map((turn) => (
-									<TurnBlock
-										key={turn.id}
-										turn={turn}
-										collapsedWorkingByTurnId={collapsedWorkingByTurnId}
-										collapsedByEntryId={collapsedByEntryId}
-										settings={settings}
-										pendingTurnId={PENDING_TURN_ID}
-										toggleTurnWorking={toggleTurnWorking}
-										toggleEntryCollapse={toggleEntryCollapse}
-										approve={approve}
-									/>
-								))}
-							</div>
+									{renderTurns.map((turn) => (
+										<TurnBlock
+											key={turn.id}
+											turn={turn}
+											collapsedWorkingByTurnId={collapsedWorkingByTurnId}
+											collapsedByEntryId={collapsedByEntryId}
+											settings={settings}
+											pendingTurnId={PENDING_TURN_ID}
+											toggleTurnWorking={toggleTurnWorking}
+											toggleEntryCollapse={toggleEntryCollapse}
+											approve={approve}
+											onForkFromTurn={forkFromTurn}
+										/>
+									))}
+								</div>
 						</div>
 					</div>
 

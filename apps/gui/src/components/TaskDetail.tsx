@@ -295,7 +295,15 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 		setWorkbenchEvidenceLoading(true);
 		try {
 			const entries = await apiClient.taskListDir(task.id, 'shared/evidence');
-			setWorkbenchEvidenceEntries(entries);
+			setWorkbenchEvidenceEntries(
+				entries.map((entry) => ({
+					path: entry.path,
+					name: entry.name,
+					kind: entry.isDirectory ? 'dir' : 'file',
+					updatedAtMs: entry.updatedAtMs,
+					sizeBytes: entry.sizeBytes,
+				}))
+			);
 			setWorkbenchEvidenceError(null);
 		} catch (err) {
 			setWorkbenchEvidenceError(err instanceof Error ? err.message : 'Failed to load evidence');

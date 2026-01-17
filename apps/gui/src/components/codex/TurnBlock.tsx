@@ -1,4 +1,5 @@
-import { BookOpen, Brain, ChevronRight, Copy, File, FileText, Search, Terminal, Wrench, Zap } from 'lucide-react';
+import { BookOpen, Brain, Check, ChevronRight, Copy, File, FileText, GitBranch, Search, Terminal, Wrench, Zap } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { Collapse } from '../ui/Collapse';
 import { ActivityBlock } from './ActivityBlock';
 import { ChatMarkdown } from './ChatMarkdown';
@@ -38,6 +39,7 @@ interface TurnBlockProps {
 	toggleTurnWorking: (turnId: string) => void;
 	toggleEntryCollapse: (entryId: string) => void;
 	approve: (requestId: number, decision: 'accept' | 'decline') => void;
+	onForkFromTurn?: (turnId: string) => void;
 }
 
 // ============================================================================
@@ -123,7 +125,27 @@ export function TurnBlock({
 	toggleTurnWorking,
 	toggleEntryCollapse,
 	approve,
+	onForkFromTurn,
 }: TurnBlockProps) {
+	const [didCopyTurn, setDidCopyTurn] = useState(false);
+
+	useEffect(() => {
+		if (!didCopyTurn) return;
+		const timer = window.setTimeout(() => setDidCopyTurn(false), 1200);
+		return () => window.clearTimeout(timer);
+	}, [didCopyTurn]);
+
+	const finalAssistantText = useMemo(() => {
+		const parts = turn.assistantMessageEntries.map((e) => e.text).filter(Boolean);
+		return parts.join('\n\n');
+	}, [turn.assistantMessageEntries]);
+
+	const copyFinalAssistantText = () => {
+		if (!finalAssistantText) return;
+		void navigator.clipboard.writeText(finalAssistantText);
+		setDidCopyTurn(true);
+	};
+
 	const renderWorkingItem = (item: WorkingItem): JSX.Element | null => {
 		if (isReadingGroup(item)) {
 			const isFinished = item.entries.every((entry) => entry.status !== 'inProgress');
@@ -503,6 +525,43 @@ export function TurnBlock({
 
 	return (
 		<div className="space-y-2">
+			{/* Turn title bar */}
+			<div className="group flex items-center justify-between px-1">
+				<div className="min-w-0 truncate text-[10px] text-text-menuDesc opacity-80">
+					{turnStatusLabel(turn.status)}
+					{turn.id === pendingTurnId ? ' (pending)' : ''}
+				</div>
+				<div className="flex shrink-0 items-center gap-1.5">
+					<button
+						type="button"
+						className={[
+							'rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main',
+							finalAssistantText ? '' : 'pointer-events-none opacity-40',
+						].join(' ')}
+						title="Copy final reply"
+						onClick={(ev) => {
+							ev.stopPropagation();
+							copyFinalAssistantText();
+						}}
+					>
+						{didCopyTurn ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+					</button>
+					{onForkFromTurn ? (
+						<button
+							type="button"
+							className="rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main"
+							title="Fork from this turn"
+							onClick={(ev) => {
+								ev.stopPropagation();
+								onForkFromTurn(turn.id);
+							}}
+						>
+							<GitBranch className="h-3 w-3" />
+						</button>
+					) : null}
+				</div>
+			</div>
+
 			<div className="space-y-2">
 				{turn.userEntries.map((e) => (
 					<div key={e.id} className="flex justify-end">
@@ -590,14 +649,47 @@ export function TurnBlock({
 
 			<div className="space-y-2">
 				{turn.assistantMessageEntries.map((e) => (
-					<div key={e.id} className="px-1 py-1 text-[11px] leading-[1.25] text-text-dim">
-						{e.renderPlaceholderWhileStreaming && !e.completed ? (
-							<div className="text-[12px] text-text-menuDesc">Generating…</div>
-						) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
-							<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
-						) : (
-							<ChatMarkdown text={e.text} className="text-[11px] !leading-[1.25] text-text-dim" textClassName="text-text-dim" dense />
-						)}
+					<div key={e.id} className="px-1 py-1">
+						<div className="rounded-xl border border-white/10 bg-bg-panelHover/30 px-3 py-2">
+							<div className="text-[11px] leading-[1.25] text-text-dim">
+								{e.renderPlaceholderWhileStreaming && !e.completed ? (
+									<div className="text-[12px] text-text-menuDesc">Generating…</div>
+								) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
+									<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
+								) : (
+									<ChatMarkdown text={e.text} className="text-[11px] !leading-[1.25] text-text-dim" textClassName="text-text-dim" dense />
+								)}
+							</div>
+							<div className="mt-2 flex items-center justify-end gap-1.5">
+								<button
+									type="button"
+									className={[
+										'rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main',
+										e.text ? '' : 'pointer-events-none opacity-40',
+									].join(' ')}
+									title="Copy reply"
+									onClick={(ev) => {
+										ev.stopPropagation();
+										copyFinalAssistantText();
+									}}
+								>
+									{didCopyTurn ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+								</button>
+								{onForkFromTurn ? (
+									<button
+										type="button"
+										className="rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main"
+										title="Fork from this turn"
+										onClick={(ev) => {
+											ev.stopPropagation();
+											onForkFromTurn(turn.id);
+										}}
+									>
+										<GitBranch className="h-3 w-3" />
+									</button>
+								) : null}
+							</div>
+						</div>
 					</div>
 				))}
 			</div>

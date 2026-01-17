@@ -107,6 +107,11 @@ export async function taskListDirectory(taskId: string, relativePath: string): P
 	});
 }
 
+// Back-compat alias (some UI components use the shorter name)
+export async function taskListDir(taskId: string, relativePath: string): Promise<TaskDirectoryEntry[]> {
+	return taskListDirectory(taskId, relativePath);
+}
+
 export async function workspaceListDirectory(cwd: string, relativePath: string): Promise<TaskDirectoryEntry[]> {
 	return invoke<TaskDirectoryEntry[]>('workspace_list_directory', {
 		cwd,
@@ -167,8 +172,18 @@ export async function codexThreadResume(threadId: string, appServerId?: string |
 	return invoke<unknown>('codex_thread_resume', { threadId, appServerId: appServerId ?? null });
 }
 
-export async function codexThreadFork(threadId: string, appServerId?: string | null): Promise<unknown> {
-	return invoke<unknown>('codex_thread_fork', { threadId, appServerId: appServerId ?? null });
+export async function codexThreadFork(
+	threadId: string,
+	options?: {
+		path?: string | null;
+		appServerId?: string | null;
+	}
+): Promise<unknown> {
+	return invoke<unknown>('codex_thread_fork', {
+		threadId,
+		path: options?.path ?? null,
+		appServerId: options?.appServerId ?? null,
+	});
 }
 
 export async function codexThreadRollback(threadId: string, numTurns?: number | null, appServerId?: string | null): Promise<unknown> {
@@ -334,6 +349,7 @@ export const apiClient = {
 	tailSubagentStderr,
 	taskReadTextFile,
 	taskListDirectory,
+	taskListDir,
 	workspaceListDirectory,
 	listSharedArtifacts,
 	readSharedArtifact,
