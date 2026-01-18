@@ -42,8 +42,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 - **文档系统同步**：在方案中明确本次变更如果影响文档系统`./docs`,需同步更新文档系统
 
 ### 2. 上下文感知 (Context Awareness)
-> 目前版本codex已支持`collab`模式，在探索上下文的过程中优先使用此模式通过 orchestrator 分配多个worker明确的探索任务以并行进行高效的探索以提高效率
-> 当用户请求：了解/勘察/梳理/定位架构/找入口/排查多模块问题 → MUST 进入 orchestrator 流程并 spawn >=2 个 worker, 必须输出：关键文件路径 + 行号范围 + “我怎么找到的”(rg 命令/文件锚点)
+
 - **阅读优于臆测**：实现功能前，先探索repo中功能相关的模块，确定修改目标
 - **SDK 查证**：调用第三方库前，请查阅本地源码, 严禁凭猜测编写接口调用
 - **AI 协议共享**: 主动阅读工作目录下可能存在的agent.md,claude.md,gemini.md,readme.md了解对应 repo, module的工作模式
