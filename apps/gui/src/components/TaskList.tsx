@@ -80,8 +80,8 @@ interface TaskListProps {
 export function TaskList({ tasks, loading, error, selectedTaskId, onSelectTask, onCreateTask, onRefresh }: TaskListProps) {
 	const runningCount = tasks.filter((t) => t.state === 'working').length;
 
-	return (
-		<section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
+		return (
+			<section className="rounded-2xl border border-white/10 bg-bg-menu p-6">
 			<div className="mb-5 flex items-start justify-between gap-4">
 				<div>
 					<h2 className="text-lg font-semibold">Tasks</h2>

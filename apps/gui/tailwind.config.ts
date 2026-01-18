@@ -13,6 +13,7 @@ export default {
           panelHover: rgb("--am-bg-panel-hover"),
           // Menus / popovers
           menu: rgb("--am-bg-menu"),
+          popover: rgb("--am-bg-popover"),
           menuItemHover: "rgb(255 255 255 / var(--am-alpha-menu-item-hover))",
         },
         primary: {

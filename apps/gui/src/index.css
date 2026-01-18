@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@config '../tailwind.config.ts';
 
 @layer base {
 	:root {
@@ -6,7 +7,8 @@
 		--am-bg-app: 15 17 21; /* #0f1115 */
 		--am-bg-panel: 24 27 33; /* #181b21 */
 		--am-bg-panel-hover: 31 35 43; /* #1f232b */
-		--am-bg-menu: 28 32 40; /* #1c2028 */
+		--am-bg-menu: 36 36 36; /* #242424 */
+		--am-bg-popover: 38 40 44; /* #26282c - Neutral gray, darker than input */
 
 		/* Text */
 		--am-text-main: 255 255 255;
@@ -43,7 +45,7 @@
 		--am-alpha-menu-divider: 0.08;
 
 		/* Shadows */
-		--am-shadow-menu: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 18px 60px rgba(0, 0, 0, 0.55), 0 6px 22px rgba(0, 0, 0, 0.35);
+		--am-shadow-menu: 0 18px 60px rgba(0, 0, 0, 0.55), 0 6px 22px rgba(0, 0, 0, 0.35);
 		--am-shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 28px rgba(0, 0, 0, 0.35), 0 2px 10px rgba(0, 0, 0, 0.25);
 	}
 
@@ -55,9 +57,9 @@
 
 @layer components {
 	.am-card {
-		@apply rounded-xl border backdrop-blur;
+		@apply rounded-xl border;
 		border-color: rgb(var(--am-token-border) / 0.8);
-		background-color: rgb(var(--am-token-input-background) / 0.7);
+		background-color: rgb(var(--am-bg-menu));
 		box-shadow: var(--am-shadow-card);
 	}
 

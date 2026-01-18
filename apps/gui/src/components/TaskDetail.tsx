@@ -408,31 +408,31 @@ export function TaskDetail({ task, events, loading, error, hasMoreEvents, onLoad
 	}, [workbenchEnabled, workbenchSelectionKey, workbenchSelected, selectAgentInstance, refreshWorkbenchPreview]);
 
 	if (loading) {
-		return (
-			<section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
+			return (
+				<section className="rounded-2xl border border-white/10 bg-bg-menu p-6">
 				<div className="text-sm text-text-muted">Loading…</div>
 			</section>
 		);
 	}
 
 	if (error) {
-		return (
-			<section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
+			return (
+				<section className="rounded-2xl border border-white/10 bg-bg-menu p-6">
 				<div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{error}</div>
 			</section>
 		);
 	}
 
 	if (!task) {
-		return (
-			<section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
+			return (
+				<section className="rounded-2xl border border-white/10 bg-bg-menu p-6">
 				<div className="text-sm text-text-muted">Select a task to see details.</div>
 			</section>
 		);
 	}
 
-	return (
-		<section className="rounded-2xl border border-white/10 bg-bg-panel/70 p-6 backdrop-blur">
+		return (
+			<section className="rounded-2xl border border-white/10 bg-bg-menu p-6">
 			<div className="mb-4 flex items-start justify-between gap-4">
 				<div className="min-w-0">
 					<div className="flex items-center gap-3">

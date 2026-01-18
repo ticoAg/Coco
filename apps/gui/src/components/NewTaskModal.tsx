@@ -91,7 +91,7 @@ export function NewTaskModal({ isOpen, onClose, onSubmit, loading = false }: New
 
 	return (
 		<div ref={modalRef} onClick={handleBackdropClick} className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
-			<div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-bg-panel/90 p-6 backdrop-blur">
+				<div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-bg-popover p-6">
 				<div className="mb-5 flex items-start justify-between gap-4">
 					<div>
 						<h2 className="text-lg font-semibold">Create Task</h2>

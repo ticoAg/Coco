@@ -1,7 +1,7 @@
 /** 公共菜单样式配置 */
 export const MENU_STYLES = {
 	/** 弹出菜单容器 */
-	popover: 'rounded-xl border border-border-menu bg-bg-menu/95 shadow-menu backdrop-blur ring-1 ring-border-menuInner',
+	popover: 'rounded-xl bg-bg-popover shadow-menu',
 	/** 弹出菜单标题 */
 	popoverTitle: 'px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-text-menuLabel',
 	/** 弹出菜单选项 */

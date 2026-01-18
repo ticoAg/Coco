@@ -4092,7 +4092,7 @@ export function CodexChat() {
 
 						return (
 							<div
-								className="fixed z-50 w-[188px] rounded-md border border-white/10 bg-bg-panel/95 p-1 text-[11px] text-text-main shadow-lg backdrop-blur"
+									className="fixed z-50 w-[188px] rounded-md border border-white/10 bg-bg-popover p-1 text-[11px] text-text-main shadow-lg"
 								style={{ left: x, top: y }}
 								onMouseDown={(e) => e.stopPropagation()}
 								onContextMenu={(e) => {
@@ -4134,7 +4134,7 @@ export function CodexChat() {
 							if (event.target === event.currentTarget) closeRenameTaskDialog();
 						}}
 					>
-						<div className="w-full max-w-sm rounded-xl border border-white/10 bg-bg-panel/90 p-4 text-sm text-text-main backdrop-blur">
+							<div className="w-full max-w-sm rounded-xl border border-white/10 bg-bg-popover p-4 text-sm text-text-main">
 							<div className="mb-3 flex items-center justify-between gap-2">
 								<div className="text-sm font-semibold">Rename task</div>
 								<button
@@ -4194,16 +4194,16 @@ export function CodexChat() {
 				) : null}
 
 				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col pb-0.5">
-					<div className="flex h-6 items-center justify-between gap-2 border-b border-white/10 px-3 py-0">
-						<div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+					<div className="flex h-6 items-center justify-between border-b border-white/10 pr-3 py-0">
+						<div className="flex min-w-0 items-center overflow-x-auto">
 							{mainTabs.map((tab) => {
 								const active = tab.id === activeMainTabId;
 								return (
 									<div
 										key={tab.id}
 										className={[
-											'group inline-flex h-6 max-w-[180px] items-center gap-2 rounded-t-md border px-2 text-[11px] transition-colors',
-											active ? 'border-white/10 bg-bg-panelHover text-text-main -mb-px' : 'border-transparent text-text-muted hover:bg-white/5',
+											'group inline-flex h-6 max-w-[180px] items-center gap-1.5 border-b-2 px-3 text-[11px] transition-colors',
+											active ? 'border-primary bg-bg-panel/60 text-text-main' : 'border-transparent text-text-muted hover:text-text-main',
 										].join(' ')}
 										onClick={() => setActiveMainTabId(tab.id)}
 										role="button"
@@ -4249,11 +4249,11 @@ export function CodexChat() {
 						</div>
 					</div>
 
-					<div className="relative flex min-h-0 flex-1 flex-col px-8 pt-6">
+					<div className="relative flex min-h-0 flex-1 flex-col px-4 pt-6">
 						{workspaceRootError ? <div className="mt-2 text-xs text-status-warning">{workspaceRootError}</div> : null}
 						{workspaceListToast ? (
 							<div className="pointer-events-none absolute left-1/2 top-2 z-50 -translate-x-1/2">
-								<div className="max-w-[720px] whitespace-pre-wrap rounded-xl border border-white/10 bg-bg-panelHover/80 px-3 py-2 text-xs shadow-lg backdrop-blur">
+									<div className="max-w-[720px] whitespace-pre-wrap rounded-xl border border-white/10 bg-bg-popover px-3 py-2 text-xs shadow-lg">
 									<div className="font-semibold text-status-warning">工作区告警</div>
 									<div className="mt-1 text-text-muted">{workspaceListToast}</div>
 								</div>
@@ -4422,7 +4422,7 @@ export function CodexChat() {
 												/>
 											))}
 										</div>
-									<div className={`relative mt-4 flex flex-col gap-2 rounded-l-none rounded-r-[26px] border border-l-0 border-white/5 bg-[#2b2d31] px-4 py-3 transition-colors focus-within:border-white/10 ${isWorkbenchEnabled ? '-ml-4 w-[calc(100%_+_1rem)]' : '-ml-8 w-[calc(100%_+_2rem)]'}`}>
+									<div className="relative mt-4 flex flex-col gap-2 rounded-[26px] border border-white/5 bg-[#2b2d31] px-4 py-3 transition-colors focus-within:border-white/10">
 										{/* Popup Menu - shared container for +, / and $ menus */}
 										{isSlashMenuOpen || isAddContextOpen || isSkillMenuOpen ? (
 											<>
@@ -4806,7 +4806,7 @@ export function CodexChat() {
 					{isConfigOpen ? (
 						<div className="fixed inset-0 z-50 flex">
 							<div className="flex-1 bg-black/60" onClick={() => setIsConfigOpen(false)} role="button" tabIndex={0} />
-							<div className="w-[520px] max-w-[90vw] border-l border-white/10 bg-bg-panel/95 p-6 backdrop-blur">
+								<div className="w-[520px] max-w-[90vw] border-l border-white/10 bg-bg-popover p-6">
 								<div className="mb-4 flex items-start justify-between gap-3">
 									<div>
 										<div className="text-sm font-semibold">~/.codex/config.toml</div>
@@ -4856,7 +4856,7 @@ export function CodexChat() {
 					{isSettingsOpen ? (
 						<div className="fixed inset-0 z-50 flex">
 							<div className="flex-1 bg-black/60" onClick={() => setIsSettingsOpen(false)} role="button" tabIndex={0} />
-							<div className="w-[520px] max-w-[92vw] border-l border-white/10 bg-bg-panel/95 p-6 backdrop-blur">
+								<div className="w-[520px] max-w-[92vw] border-l border-white/10 bg-bg-popover p-6">
 								<div className="mb-4 flex items-start justify-between gap-3">
 									<div>
 										<div className="text-sm font-semibold">Chat Settings</div>

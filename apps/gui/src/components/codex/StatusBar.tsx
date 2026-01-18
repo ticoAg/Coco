@@ -35,6 +35,8 @@ function statusBarItemClass(active: boolean): string {
 	].join(' ');
 }
 
+const STATUS_SELECT_POPOVER_CLASS = `${MENU_STYLES.popover} border-0 ring-0`;
+
 function reasoningEffortLabelEn(effort: ReasoningEffort): string {
 	switch (effort) {
 		case 'none':
@@ -157,7 +159,7 @@ export function StatusBar({
 						</button>
 
 						{openStatusPopover === 'profile' ? (
-							<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
+							<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
 								<div className={MENU_STYLES.popoverTitle}>Switch mode</div>
 								<button
 									type="button"
@@ -221,7 +223,7 @@ export function StatusBar({
 								</button>
 
 								{openStatusPopover === 'config_profile' ? (
-									<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
+									<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
 										<div className={MENU_STYLES.popoverTitle}>Select profile</div>
 										<div className="max-h-[40vh] overflow-auto">
 											{profiles.map((profile) => {
@@ -253,14 +255,14 @@ export function StatusBar({
 								<Box className="h-3.5 w-3.5 text-text-menuLabel" />
 								<span className="truncate">{selectedModelInfo?.displayName ?? selectedModel ?? 'model'}</span>
 								<ChevronDown className="h-3 w-3" />
-							</button>
+								</button>
 
-							{openStatusPopover === 'model' ? (
-								<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
-									<div className={MENU_STYLES.popoverTitle}>Select model</div>
-									<div className="max-h-[40vh] overflow-auto">
-										{models.length === 0 ? (
-											<div className="px-3 py-1.5 text-[12px] text-text-muted">(unavailable)</div>
+								{openStatusPopover === 'model' ? (
+									<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
+										<div className={MENU_STYLES.popoverTitle}>Select model</div>
+										<div className="max-h-[40vh] overflow-auto">
+											{models.length === 0 ? (
+												<div className="px-3 py-1.5 text-[12px] text-text-muted">(unavailable)</div>
 										) : (
 											models.map((m) => {
 												const selected = selectedModel === m.model;
@@ -296,14 +298,14 @@ export function StatusBar({
 						>
 							<span className="truncate">{approvalPolicy}</span>
 							<ChevronDown className="h-3 w-3" />
-						</button>
+							</button>
 
-						{openStatusPopover === 'approval_policy' ? (
-							<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
-								<div className={MENU_STYLES.popoverTitle}>Approval policy</div>
-								<div>
-									{(['untrusted', 'on-request', 'on-failure', 'never'] as const).map((policy) => {
-										const selected = approvalPolicy === policy;
+							{openStatusPopover === 'approval_policy' ? (
+								<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
+									<div className={MENU_STYLES.popoverTitle}>Approval policy</div>
+									<div>
+										{(['untrusted', 'on-request', 'on-failure', 'never'] as const).map((policy) => {
+											const selected = approvalPolicy === policy;
 										const policyTitles: Record<string, string> = {
 											untrusted: '不信任模式，所有操作需要批准',
 											'on-request': '按需批准，仅在请求时需要批准',
@@ -341,14 +343,14 @@ export function StatusBar({
 							{selectedEffort ? reasoningEffortIcon(selectedEffort, 'h-3.5 w-3.5 text-text-menuLabel') : <Brain className="h-3.5 w-3.5 text-text-menuLabel" />}
 							<span className="truncate">{selectedEffort ? reasoningEffortLabelEn(selectedEffort) : 'Default'}</span>
 							<ChevronDown className="h-3 w-3" />
-						</button>
+							</button>
 
-						{openStatusPopover === 'model_reasoning_effort' ? (
-							<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
-								<div className={MENU_STYLES.popoverTitle}>Select reasoning</div>
-								<div>
-									{effortOptions.length === 0 ? (
-										<div className="px-3 py-1.5 text-[12px] text-text-muted">Default</div>
+							{openStatusPopover === 'model_reasoning_effort' ? (
+								<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
+									<div className={MENU_STYLES.popoverTitle}>Select reasoning</div>
+									<div>
+										{effortOptions.length === 0 ? (
+											<div className="px-3 py-1.5 text-[12px] text-text-muted">Default</div>
 									) : (
 										effortOptions.map((opt) => {
 											const selected = selectedEffort === opt.reasoningEffort;
