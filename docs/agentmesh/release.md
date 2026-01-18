@@ -26,7 +26,18 @@
 - 安装 pre-push hook：`scripts/hooks/install.sh`
 - 跳过 pre-push：`SKIP_RUST_PREFLIGHT=1 git push`
 - 手动预检：`scripts/release/preflight.sh`
-- 如需跳过：`SKIP_RUST_PREFLIGHT=1 scripts/release/preflight.sh`
+
+默认策略：
+
+- push `main` / push `vX.Y.Z` tag：跑 **完整预检**（Rust + GUI build + macOS Tauri build；tag 会额外校验版本号一致性）
+- push 其它分支：只跑 Rust（避免每次 push 都做 Tauri 打包）
+
+可用开关：
+
+- 跳过 Rust：`SKIP_RUST_PREFLIGHT=1 scripts/release/preflight.sh`
+- 跳过 GUI：`SKIP_GUI_PREFLIGHT=1 scripts/release/preflight.sh`
+- 跳过 Tauri：`SKIP_TAURI_PREFLIGHT=1 scripts/release/preflight.sh`
+- 强制要求 Node 20：`REQUIRE_NODE_20=1 scripts/release/preflight.sh`
 
 ## 发版流程（推荐）
 
@@ -52,6 +63,8 @@ scripts/release/propose_release.sh
 ```
 
 （可选）跳过本地预检：`SKIP_RUST_PREFLIGHT=1 scripts/release/propose_release.sh`
+
+说明：该脚本依赖一个可选的 release proposal 工具（`gh-release-dmg` skill）。如果你本地没有这个工具，脚本会给出提示并退出；不影响 tag 驱动的 GitHub Actions 发版流程。
 
 ### 3) 提交并 push
 

@@ -2,4 +2,29 @@
 set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
-"$repo_root/scripts/release/preflight.sh"
+
+# git passes a list of ref updates on stdin:
+# <local ref> <local sha> <remote ref> <remote sha>
+expected_version=""
+pushes_main=0
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  if [[ "$remote_ref" == "refs/heads/main" ]]; then
+    pushes_main=1
+  fi
+  if [[ "$remote_ref" =~ ^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+    expected_version="${BASH_REMATCH[1]}"
+  fi
+done
+
+if [[ "$pushes_main" -eq 1 ]] || [[ -n "$expected_version" ]]; then
+  # Full parity checks for pushes that trigger CI/release workflows.
+  if [[ -n "$expected_version" ]]; then
+    echo "[pre-push] Detected tag v${expected_version}; validating version consistency."
+    EXPECTED_VERSION="$expected_version" "$repo_root/scripts/release/preflight.sh"
+  else
+    "$repo_root/scripts/release/preflight.sh"
+  fi
+else
+  # Keep pre-push fast for non-main branches.
+  SKIP_GUI_PREFLIGHT=1 SKIP_TAURI_PREFLIGHT=1 "$repo_root/scripts/release/preflight.sh"
+fi
