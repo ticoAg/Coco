@@ -255,12 +255,14 @@ export async function codexConfigWriteChatDefaults(options: {
 	model?: string | null;
 	modelReasoningEffort?: string | null;
 	approvalPolicy?: string | null;
+	profile?: string | null;
 	appServerId?: string | null;
 }): Promise<unknown> {
 	return invoke<unknown>('codex_config_write_chat_defaults', {
 		model: options.model ?? null,
 		modelReasoningEffort: options.modelReasoningEffort ?? null,
 		approvalPolicy: options.approvalPolicy ?? null,
+		profile: options.profile ?? null,
 		appServerId: options.appServerId ?? null,
 	});
 }

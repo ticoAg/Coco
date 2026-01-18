@@ -1986,6 +1986,7 @@ async fn codex_config_write_chat_defaults(
     model: Option<String>,
     model_reasoning_effort: Option<String>,
     approval_policy: Option<String>,
+    profile: Option<String>,
     app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let codex = get_or_start_codex(&state, app, app_server_id).await?;
@@ -2004,25 +2005,32 @@ async fn codex_config_write_chat_defaults(
 
     let model = model.filter(|v| !v.trim().is_empty());
     let model_reasoning_effort = model_reasoning_effort.filter(|v| !v.trim().is_empty());
+    let profile = profile
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let key_path = |key: &str| match profile.as_deref() {
+        Some(profile) => format!("profiles.{profile}.{key}"),
+        None => key.to_string(),
+    };
 
     let mut edits = Vec::new();
     if let Some(model) = model {
         edits.push(serde_json::json!({
-            "keyPath": "model",
+            "keyPath": key_path("model"),
             "value": model,
             "mergeStrategy": "replace",
         }));
     }
     if let Some(effort) = model_reasoning_effort {
         edits.push(serde_json::json!({
-            "keyPath": "model_reasoning_effort",
+            "keyPath": key_path("model_reasoning_effort"),
             "value": effort,
             "mergeStrategy": "replace",
         }));
     }
     if let Some(policy) = approval_policy {
         edits.push(serde_json::json!({
-            "keyPath": "approval_policy",
+            "keyPath": key_path("approval_policy"),
             "value": policy,
             "mergeStrategy": "replace",
         }));

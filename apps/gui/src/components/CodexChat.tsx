@@ -732,15 +732,15 @@ function applyReasoningDelta(entries: ChatEntry[], id: string, delta: string, in
 	const base =
 		idx === -1
 			? ({
-					kind: 'assistant',
-					id,
-					role: 'reasoning',
-					text: '',
-					reasoningSummary: [],
-					reasoningContent: [],
-					streaming: true,
-					completed: false,
-				} as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>)
+				kind: 'assistant',
+				id,
+				role: 'reasoning',
+				text: '',
+				reasoningSummary: [],
+				reasoningContent: [],
+				streaming: true,
+				completed: false,
+			} as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>)
 			: (entries[idx] as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>);
 
 	const summary = ensureReasoningIndex(coerceReasoningParts(base.reasoningSummary), target === 'summary' ? index : -1);
@@ -770,13 +770,13 @@ function applyReasoningPartAdded(entries: ChatEntry[], id: string, index: number
 	const base =
 		idx === -1
 			? ({
-					kind: 'assistant',
-					id,
-					role: 'reasoning',
-					text: '',
-					reasoningSummary: [],
-					reasoningContent: [],
-				} as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>)
+				kind: 'assistant',
+				id,
+				role: 'reasoning',
+				text: '',
+				reasoningSummary: [],
+				reasoningContent: [],
+			} as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>)
 			: (entries[idx] as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>);
 
 	const summary = coerceReasoningParts(base.reasoningSummary);
@@ -900,7 +900,7 @@ export function CodexChat() {
 	const [sessionTreeWidthPx, setSessionTreeWidthPx] = useState(() => loadSessionTreeWidth());
 	const autoRefreshTimerRef = useRef<number | null>(null);
 	const autoRefreshUntilRef = useRef<number>(0);
-	const listSessionsRef = useRef<() => Promise<void>>(async () => {});
+	const listSessionsRef = useRef<() => Promise<void>>(async () => { });
 	const archiveTaskInFlightRef = useRef<Set<string>>(new Set());
 	const renameTaskInputRef = useRef<HTMLInputElement>(null);
 
@@ -1320,13 +1320,13 @@ export function CodexChat() {
 			setApprovalPolicy(next);
 			setOpenStatusPopover(null);
 			try {
-				await apiClient.codexConfigWriteChatDefaults({ approvalPolicy: next });
+				await apiClient.codexConfigWriteChatDefaults({ approvalPolicy: next, profile: selectedProfile });
 			} catch (err) {
 				setApprovalPolicy(prev);
 				setStatusPopoverError(errorMessage(err, 'Failed to update approval_policy'));
 			}
 		},
-		[approvalPolicy]
+		[approvalPolicy, selectedProfile]
 	);
 
 	const applyModel = useCallback(
@@ -1349,6 +1349,7 @@ export function CodexChat() {
 				await apiClient.codexConfigWriteChatDefaults({
 					model: nextModel,
 					modelReasoningEffort: nextEffort,
+					profile: selectedProfile,
 				});
 			} catch (err) {
 				setSelectedModel(prevModel);
@@ -1356,7 +1357,7 @@ export function CodexChat() {
 				setStatusPopoverError(errorMessage(err, 'Failed to update model'));
 			}
 		},
-		[models, selectedEffort, selectedModel]
+		[models, selectedEffort, selectedModel, selectedProfile]
 	);
 
 	const applyReasoningEffort = useCallback(
@@ -1369,13 +1370,14 @@ export function CodexChat() {
 			try {
 				await apiClient.codexConfigWriteChatDefaults({
 					modelReasoningEffort: nextEffort,
+					profile: selectedProfile,
 				});
 			} catch (err) {
 				setSelectedEffort(prev);
 				setStatusPopoverError(errorMessage(err, 'Failed to update model_reasoning_effort'));
 			}
 		},
-		[selectedEffort]
+		[selectedEffort, selectedProfile]
 	);
 
 	const ingestCollabItems = useCallback(
@@ -1784,34 +1786,34 @@ export function CodexChat() {
 				return taskNode;
 			});
 
-			const nowMs = Date.now();
-			const activeNodes: TreeNodeData[] = [];
-			const archivedNodesByDate: Record<string, Record<string, TreeNodeData[]>> = {};
-			for (const node of taskNodes) {
-				const threadId = node.metadata?.threadId ?? '';
-				const summary = threadSummaryById.get(threadId);
-				const updatedAtMs = taskLatestUpdateMsByThreadId[threadId] ?? summary?.updatedAtMs ?? null;
-				const isArchived = updatedAtMs != null && nowMs - updatedAtMs > 60 * 60 * 1000;
-				if (!isArchived) {
-					activeNodes.push(node);
-					continue;
-				}
-				const date = updatedAtMs != null ? new Date(updatedAtMs) : new Date();
-				const year = date.getFullYear();
-				const month = String(date.getMonth() + 1).padStart(2, '0');
-				const day = String(date.getDate()).padStart(2, '0');
-				const dateKey = `${year}-${month}-${day}`;
-				const hourKey = String(date.getHours()).padStart(2, '0');
-				if (!archivedNodesByDate[dateKey]) {
-					archivedNodesByDate[dateKey] = {};
-				}
-				if (!archivedNodesByDate[dateKey][hourKey]) {
-					archivedNodesByDate[dateKey][hourKey] = [];
-					archivedGroupThreadIdsByKey[`${dateKey}/${hourKey}`] = [];
-				}
-				archivedNodesByDate[dateKey][hourKey].push(node);
-				archivedGroupThreadIdsByKey[`${dateKey}/${hourKey}`].push(threadId);
+		const nowMs = Date.now();
+		const activeNodes: TreeNodeData[] = [];
+		const archivedNodesByDate: Record<string, Record<string, TreeNodeData[]>> = {};
+		for (const node of taskNodes) {
+			const threadId = node.metadata?.threadId ?? '';
+			const summary = threadSummaryById.get(threadId);
+			const updatedAtMs = taskLatestUpdateMsByThreadId[threadId] ?? summary?.updatedAtMs ?? null;
+			const isArchived = updatedAtMs != null && nowMs - updatedAtMs > 60 * 60 * 1000;
+			if (!isArchived) {
+				activeNodes.push(node);
+				continue;
 			}
+			const date = updatedAtMs != null ? new Date(updatedAtMs) : new Date();
+			const year = date.getFullYear();
+			const month = String(date.getMonth() + 1).padStart(2, '0');
+			const day = String(date.getDate()).padStart(2, '0');
+			const dateKey = `${year}-${month}-${day}`;
+			const hourKey = String(date.getHours()).padStart(2, '0');
+			if (!archivedNodesByDate[dateKey]) {
+				archivedNodesByDate[dateKey] = {};
+			}
+			if (!archivedNodesByDate[dateKey][hourKey]) {
+				archivedNodesByDate[dateKey][hourKey] = [];
+				archivedGroupThreadIdsByKey[`${dateKey}/${hourKey}`] = [];
+			}
+			archivedNodesByDate[dateKey][hourKey].push(node);
+			archivedGroupThreadIdsByKey[`${dateKey}/${hourKey}`].push(threadId);
+		}
 
 		const archivedDateNodes: TreeNodeData[] = Object.keys(archivedNodesByDate)
 			.sort()
@@ -1973,11 +1975,11 @@ export function CodexChat() {
 						prev.map((tab) =>
 							tab.id === tabId
 								? {
-										...tab,
-										content,
-										loading: false,
-										error: null,
-								  }
+									...tab,
+									content,
+									loading: false,
+									error: null,
+								}
 								: tab
 						)
 					);
@@ -2523,7 +2525,7 @@ export function CodexChat() {
 		const warning = isRunning
 			? 'A turn is currently running. Rolling back will interrupt the running turn and only affects session history (it does not revert file changes). Continue?'
 			: 'Rollback only affects session history (it does not revert file changes). Continue?';
-			const confirmed = await dialogConfirm(warning, { title: 'Rollback session', kind: 'warning' });
+		const confirmed = await dialogConfirm(warning, { title: 'Rollback session', kind: 'warning' });
 		if (!confirmed) return;
 
 		if (isRunning && activeTurnId) {
@@ -2655,10 +2657,10 @@ export function CodexChat() {
 
 			const outgoingText = autoContextEnabled
 				? wrapUserInputWithRepoContext({
-						userInput,
-						currentRepoPath,
-						relatedRepoPaths,
-					})
+					userInput,
+					currentRepoPath,
+					relatedRepoPaths,
+				})
 				: userInput;
 
 			// Build CodexUserInput array for API
@@ -4077,52 +4079,52 @@ export function CodexChat() {
 
 				{taskContextMenu
 					? (() => {
-							const menuWidth = 188;
-							const menuHeight = 72;
-							const x =
-								typeof window !== 'undefined'
-									? Math.min(taskContextMenu.x, Math.max(8, window.innerWidth - menuWidth - 8))
-									: taskContextMenu.x;
-							const y =
-								typeof window !== 'undefined'
-									? Math.min(taskContextMenu.y, Math.max(8, window.innerHeight - menuHeight - 8))
-									: taskContextMenu.y;
+						const menuWidth = 188;
+						const menuHeight = 72;
+						const x =
+							typeof window !== 'undefined'
+								? Math.min(taskContextMenu.x, Math.max(8, window.innerWidth - menuWidth - 8))
+								: taskContextMenu.x;
+						const y =
+							typeof window !== 'undefined'
+								? Math.min(taskContextMenu.y, Math.max(8, window.innerHeight - menuHeight - 8))
+								: taskContextMenu.y;
 
-							return (
-								<div
-									className="fixed z-50 w-[188px] rounded-md border border-white/10 bg-bg-panel/95 p-1 text-[11px] text-text-main shadow-lg backdrop-blur"
-									style={{ left: x, top: y }}
-									onMouseDown={(e) => e.stopPropagation()}
-									onContextMenu={(e) => {
-										e.preventDefault();
-										e.stopPropagation();
+						return (
+							<div
+								className="fixed z-50 w-[188px] rounded-md border border-white/10 bg-bg-panel/95 p-1 text-[11px] text-text-main shadow-lg backdrop-blur"
+								style={{ left: x, top: y }}
+								onMouseDown={(e) => e.stopPropagation()}
+								onContextMenu={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+								}}
+							>
+								<button
+									type="button"
+									className="flex w-full items-center rounded px-2 py-1.5 hover:bg-white/5"
+									onClick={() => {
+										const threadId = taskContextMenu.threadId;
+										closeTaskContextMenu();
+										void renameTaskThread(threadId);
 									}}
 								>
-									<button
-										type="button"
-										className="flex w-full items-center rounded px-2 py-1.5 hover:bg-white/5"
-										onClick={() => {
-											const threadId = taskContextMenu.threadId;
-											closeTaskContextMenu();
-											void renameTaskThread(threadId);
-										}}
-									>
-										Rename…
-									</button>
-									<button
-										type="button"
-										className="flex w-full items-center rounded px-2 py-1.5 text-status-error hover:bg-status-error/10"
-										onClick={() => {
-											const nodeId = taskContextMenu.nodeId;
-											closeTaskContextMenu();
-											void archiveTaskNode(nodeId);
-										}}
-									>
-										Delete (Archive)
-									</button>
-								</div>
-							);
-						  })()
+									Rename…
+								</button>
+								<button
+									type="button"
+									className="flex w-full items-center rounded px-2 py-1.5 text-status-error hover:bg-status-error/10"
+									onClick={() => {
+										const nodeId = taskContextMenu.nodeId;
+										closeTaskContextMenu();
+										void archiveTaskNode(nodeId);
+									}}
+								>
+									Delete (Archive)
+								</button>
+							</div>
+						);
+					})()
 					: null}
 
 				{renameTaskDialog ? (
@@ -4258,558 +4260,548 @@ export function CodexChat() {
 							</div>
 						) : null}
 
-					{activeMainTabId === MAIN_TAB_CHAT_ID ? (
-						<>
-							<div className="mt-3 min-h-0 flex-1 overflow-hidden flex gap-4">
-						{isWorkbenchEnabled ? (
-							<div className="w-[280px] shrink-0 min-h-0 overflow-hidden rounded-xl border border-white/10 bg-bg-panelHover/40">
-								<div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
-									<div className="min-w-0">
-										<div className="text-xs font-semibold">Collab Workbench</div>
-										<div className="mt-0.5 truncate text-[10px] text-text-muted">
-											{workbenchGraph.rootThreadId ? `root: ${workbenchGraph.rootThreadId}` : 'root: (none)'}
-										</div>
-									</div>
-									<label className="flex items-center gap-1 text-[10px] text-text-muted">
-										<input
-											type="checkbox"
-											checked={workbenchAutoFocus}
-											onChange={(e) => setWorkbenchAutoFocus(e.target.checked)}
-										/>
-										<span>Auto-focus</span>
-									</label>
-								</div>
-
-								<div className="min-h-0 overflow-y-auto px-2 py-2">
-									{(() => {
-										const visited = new Set<string>();
-										const roleFor = (threadId: string): 'root' | 'orchestrator' | 'worker' | 'thread' => {
-											if (threadId === workbenchGraph.rootThreadId) return 'root';
-											if (threadId === workbenchGraph.orchestratorThreadId) return 'orchestrator';
-											if (workbenchGraph.workerThreadIds.includes(threadId)) return 'worker';
-											return 'thread';
-										};
-										const statusFor = (threadId: string): string | null => {
-											const st = collabAgentStateByThreadId[threadId];
-											return st?.status ? st.status : null;
-										};
-										const renderNode = (threadId: string, depth: number): JSX.Element | null => {
-											if (!threadId) return null;
-											if (visited.has(threadId)) return null;
-											visited.add(threadId);
-
-											const role = roleFor(threadId);
-											const running = Boolean(runningThreadIds[threadId]);
-											const status = statusFor(threadId);
-											const indentPx = 8 + depth * 12;
-
-											const children = workbenchGraph.childrenByParent[threadId] ?? [];
-
-											return (
-												<div key={threadId}>
-													<div className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 hover:bg-white/5">
-														<button
-															type="button"
-															className="min-w-0 flex-1 text-left"
-															style={{ paddingLeft: indentPx }}
-															onClick={() => void selectSession(threadId)}
-															title={threadId}
-														>
-															<div className="flex items-center gap-2">
-																{running ? <SessionRunningIndicator /> : null}
-																<div className="truncate text-[11px] text-text-main">{threadId}</div>
-															</div>
-															<div className="mt-0.5 flex items-center gap-1 text-[10px] text-text-muted">
-																<span className="rounded bg-white/10 px-1 py-0.5">{role}</span>
-																{status ? <span className="rounded bg-white/10 px-1 py-0.5">{status}</span> : null}
-															</div>
-														</button>
-															<button
-																type="button"
-																className="shrink-0 rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-text-muted hover:border-white/20"
-																onClick={() => void forkThreadLatest(threadId)}
-																title="Fork this thread"
-															>
-																Fork
-															</button>
+						{activeMainTabId === MAIN_TAB_CHAT_ID ? (
+							<>
+								<div className="mt-3 min-h-0 flex-1 flex gap-4">
+									{isWorkbenchEnabled ? (
+										<div className="w-[280px] shrink-0 min-h-0 overflow-hidden rounded-xl border border-white/10 bg-bg-panelHover/40">
+											<div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
+												<div className="min-w-0">
+													<div className="text-xs font-semibold">Collab Workbench</div>
+													<div className="mt-0.5 truncate text-[10px] text-text-muted">
+														{workbenchGraph.rootThreadId ? `root: ${workbenchGraph.rootThreadId}` : 'root: (none)'}
 													</div>
+												</div>
+												<label className="flex items-center gap-1 text-[10px] text-text-muted">
+													<input
+														type="checkbox"
+														checked={workbenchAutoFocus}
+														onChange={(e) => setWorkbenchAutoFocus(e.target.checked)}
+													/>
+													<span>Auto-focus</span>
+												</label>
+											</div>
 
-													{children.length > 0 ? (
-														<div>
-															{children.map((c) => (
-																<div key={`${threadId}-${c.kind}-${c.threadId}`}>{renderNode(c.threadId, depth + 1)}</div>
-															))}
+											<div className="min-h-0 overflow-y-auto px-2 py-2">
+												{(() => {
+													const visited = new Set<string>();
+													const roleFor = (threadId: string): 'root' | 'orchestrator' | 'worker' | 'thread' => {
+														if (threadId === workbenchGraph.rootThreadId) return 'root';
+														if (threadId === workbenchGraph.orchestratorThreadId) return 'orchestrator';
+														if (workbenchGraph.workerThreadIds.includes(threadId)) return 'worker';
+														return 'thread';
+													};
+													const statusFor = (threadId: string): string | null => {
+														const st = collabAgentStateByThreadId[threadId];
+														return st?.status ? st.status : null;
+													};
+													const renderNode = (threadId: string, depth: number): JSX.Element | null => {
+														if (!threadId) return null;
+														if (visited.has(threadId)) return null;
+														visited.add(threadId);
+
+														const role = roleFor(threadId);
+														const running = Boolean(runningThreadIds[threadId]);
+														const status = statusFor(threadId);
+														const indentPx = 8 + depth * 12;
+
+														const children = workbenchGraph.childrenByParent[threadId] ?? [];
+
+														return (
+															<div key={threadId}>
+																<div className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 hover:bg-white/5">
+																	<button
+																		type="button"
+																		className="min-w-0 flex-1 text-left"
+																		style={{ paddingLeft: indentPx }}
+																		onClick={() => void selectSession(threadId)}
+																		title={threadId}
+																	>
+																		<div className="flex items-center gap-2">
+																			{running ? <SessionRunningIndicator /> : null}
+																			<div className="truncate text-[11px] text-text-main">{threadId}</div>
+																		</div>
+																		<div className="mt-0.5 flex items-center gap-1 text-[10px] text-text-muted">
+																			<span className="rounded bg-white/10 px-1 py-0.5">{role}</span>
+																			{status ? <span className="rounded bg-white/10 px-1 py-0.5">{status}</span> : null}
+																		</div>
+																	</button>
+																	<button
+																		type="button"
+																		className="shrink-0 rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-text-muted hover:border-white/20"
+																		onClick={() => void forkThreadLatest(threadId)}
+																		title="Fork this thread"
+																	>
+																		Fork
+																	</button>
+																</div>
+
+																{children.length > 0 ? (
+																	<div>
+																		{children.map((c) => (
+																			<div key={`${threadId}-${c.kind}-${c.threadId}`}>{renderNode(c.threadId, depth + 1)}</div>
+																		))}
+																	</div>
+																) : null}
+															</div>
+														);
+													};
+
+													if (!workbenchGraph.rootThreadId) {
+														return <div className="px-2 py-2 text-[11px] text-text-muted">No collab graph yet. Start a multi-agent task to see threads.</div>;
+													}
+													return <div className="space-y-1">{renderNode(workbenchGraph.rootThreadId, 0)}</div>;
+												})()}
+											</div>
+										</div>
+									) : null}
+
+									<div className="min-h-0 flex-1 flex flex-col">
+										{isWorkbenchEnabled && (workbenchGraph.orchestratorThreadId || workbenchGraph.workerThreadIds.length > 0) ? (
+											<div className="mb-2 flex flex-wrap items-center gap-2">
+												<button
+													type="button"
+													className={[
+														'rounded-full border px-2 py-1 text-[11px] leading-none transition-colors',
+														selectedThreadId === workbenchGraph.rootThreadId ? 'border-primary/50 bg-primary/10 text-text-main' : 'border-white/10 bg-white/5 text-text-muted hover:bg-white/10',
+													].join(' ')}
+													onClick={() => {
+														const root = workbenchGraph.rootThreadId;
+														if (root) void selectSession(root, { setAsWorkbenchRoot: true });
+													}}
+												>
+													Root
+												</button>
+
+												{workbenchGraph.orchestratorThreadId ? (
+													<button
+														type="button"
+														className={[
+															'rounded-full border px-2 py-1 text-[11px] leading-none transition-colors',
+															selectedThreadId === workbenchGraph.orchestratorThreadId
+																? 'border-primary/50 bg-primary/10 text-text-main'
+																: 'border-white/10 bg-white/5 text-text-muted hover:bg-white/10',
+														].join(' ')}
+														onClick={() => void selectSession(workbenchGraph.orchestratorThreadId!)}
+														title={workbenchGraph.orchestratorThreadId}
+													>
+														Orchestrator
+													</button>
+												) : null}
+
+												{workbenchGraph.workerThreadIds.map((id) => (
+													<button
+														key={id}
+														type="button"
+														className={[
+															'rounded-full border px-2 py-1 text-[11px] leading-none transition-colors',
+															selectedThreadId === id ? 'border-primary/50 bg-primary/10 text-text-main' : 'border-white/10 bg-white/5 text-text-muted hover:bg-white/10',
+														].join(' ')}
+														onClick={() => void selectSession(id)}
+														title={id}
+													>
+														Worker
+													</button>
+												))}
+											</div>
+										) : null}
+
+										<div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4">
+											{renderTurns.map((turn) => (
+												<TurnBlock
+													key={turn.id}
+													turn={turn}
+													collapsedWorkingByTurnId={collapsedWorkingByTurnId}
+													collapsedByEntryId={collapsedByEntryId}
+													settings={settings}
+													pendingTurnId={PENDING_TURN_ID}
+													toggleTurnWorking={toggleTurnWorking}
+													toggleEntryCollapse={toggleEntryCollapse}
+													approve={approve}
+													onForkFromTurn={forkFromTurn}
+												/>
+											))}
+										</div>
+									<div className={`relative mt-4 flex flex-col gap-2 rounded-l-none rounded-r-[26px] border border-l-0 border-white/5 bg-[#2b2d31] px-4 py-3 transition-colors focus-within:border-white/10 ${isWorkbenchEnabled ? '-ml-4 w-[calc(100%_+_1rem)]' : '-ml-8 w-[calc(100%_+_2rem)]'}`}>
+										{/* Popup Menu - shared container for +, / and $ menus */}
+										{isSlashMenuOpen || isAddContextOpen || isSkillMenuOpen ? (
+											<>
+												<div
+													className="fixed inset-0 z-40"
+													onClick={() => {
+														if (isSlashMenuOpen) {
+															setIsSlashMenuOpen(false);
+															setSlashSearchQuery('');
+															setSlashHighlightIndex(0);
+														}
+														if (isAddContextOpen) {
+															setIsAddContextOpen(false);
+															setFileSearchQuery('');
+															setFileSearchResults([]);
+														}
+														if (isSkillMenuOpen) {
+															setIsSkillMenuOpen(false);
+															setSkillSearchQuery('');
+															setSkillHighlightIndex(0);
+														}
+													}}
+													role="button"
+													tabIndex={0}
+												/>
+												<div className={`${MENU_STYLES.popoverPosition} ${MENU_STYLES.popover}`}>
+													{/* Search input */}
+													<input
+														type="text"
+														className={`mb-2 ${MENU_STYLES.searchInput}`}
+														placeholder={isSlashMenuOpen ? 'Search commands...' : isSkillMenuOpen ? 'Search skills...' : 'Search files...'}
+														value={isSlashMenuOpen ? slashSearchQuery : isSkillMenuOpen ? skillSearchQuery : fileSearchQuery}
+														onChange={(e) => {
+															if (isSlashMenuOpen) {
+																setSlashSearchQuery(e.target.value);
+																setSlashHighlightIndex(0);
+															} else if (isSkillMenuOpen) {
+																setSkillSearchQuery(e.target.value);
+																setSkillHighlightIndex(0);
+															} else {
+																void searchFiles(e.target.value);
+															}
+														}}
+														onKeyDown={(e) => {
+															// 处理方向键导航
+															if (e.key === 'ArrowDown') {
+																e.preventDefault();
+																if (isSlashMenuOpen) {
+																	setSlashHighlightIndex((i) => Math.min(i + 1, slashMenuTotalItems - 1));
+																} else if (isSkillMenuOpen) {
+																	setSkillHighlightIndex((i) => Math.min(i + 1, filteredSkills.length - 1));
+																}
+																return;
+															}
+															if (e.key === 'ArrowUp') {
+																e.preventDefault();
+																if (isSlashMenuOpen) {
+																	setSlashHighlightIndex((i) => Math.max(i - 1, 0));
+																} else if (isSkillMenuOpen) {
+																	setSkillHighlightIndex((i) => Math.max(i - 1, 0));
+																}
+																return;
+															}
+															// Tab 键补全
+															if (e.key === 'Tab') {
+																e.preventDefault();
+																if (isSlashMenuOpen) {
+																	if (slashHighlightIndex < filteredSlashCommands.length) {
+																		const selected = filteredSlashCommands[slashHighlightIndex];
+																		if (selected) {
+																			setInput(`/${selected.cmd.id} `);
+																			setIsSlashMenuOpen(false);
+																			setSlashSearchQuery('');
+																			textareaRef.current?.focus();
+																		}
+																	} else if (slashHighlightIndex < filteredSlashCommands.length + filteredPromptsForSlashMenu.length) {
+																		const promptIdx = slashHighlightIndex - filteredSlashCommands.length;
+																		const selected = filteredPromptsForSlashMenu[promptIdx];
+																		if (selected) {
+																			executePromptSelection(selected.prompt);
+																		}
+																	} else {
+																		const skillIdx = slashHighlightIndex - filteredSlashCommands.length - filteredPromptsForSlashMenu.length;
+																		const selected = filteredSkillsForSlashMenu[skillIdx];
+																		if (selected) {
+																			executeSkillSelection(selected.skill);
+																		}
+																	}
+																} else if (isSkillMenuOpen) {
+																	const selected = filteredSkills[skillHighlightIndex];
+																	if (selected) {
+																		executeSkillSelection(selected.skill);
+																	}
+																}
+																return;
+															}
+															// Enter 键执行
+															if (e.key === 'Enter') {
+																e.preventDefault();
+																if (isSlashMenuOpen) {
+																	if (slashHighlightIndex < filteredSlashCommands.length) {
+																		const selected = filteredSlashCommands[slashHighlightIndex];
+																		if (selected) executeSlashCommand(selected.cmd.id);
+																	} else if (slashHighlightIndex < filteredSlashCommands.length + filteredPromptsForSlashMenu.length) {
+																		const promptIdx = slashHighlightIndex - filteredSlashCommands.length;
+																		const selected = filteredPromptsForSlashMenu[promptIdx];
+																		if (selected) {
+																			executePromptSelection(selected.prompt);
+																		}
+																	} else {
+																		const skillIdx = slashHighlightIndex - filteredSlashCommands.length - filteredPromptsForSlashMenu.length;
+																		const selected = filteredSkillsForSlashMenu[skillIdx];
+																		if (selected) {
+																			executeSkillSelection(selected.skill);
+																		}
+																	}
+																} else if (isSkillMenuOpen) {
+																	const selected = filteredSkills[skillHighlightIndex];
+																	if (selected) executeSkillSelection(selected.skill);
+																}
+																return;
+															}
+															// Escape 键关闭菜单
+															if (e.key === 'Escape') {
+																e.preventDefault();
+																if (isSlashMenuOpen) {
+																	setIsSlashMenuOpen(false);
+																	setSlashSearchQuery('');
+																} else if (isSkillMenuOpen) {
+																	setIsSkillMenuOpen(false);
+																	setSkillSearchQuery('');
+																} else if (isAddContextOpen) {
+																	setIsAddContextOpen(false);
+																	setFileSearchQuery('');
+																	setFileSearchResults([]);
+																}
+																textareaRef.current?.focus();
+																return;
+															}
+														}}
+														autoFocus
+													/>
+													{/* Content list */}
+													<div ref={menuListRef} className={MENU_STYLES.listContainer}>
+														{isSkillMenuOpen ? (
+															<SkillMenu
+																skills={skills}
+																filteredSkills={filteredSkills}
+																highlightIndex={skillHighlightIndex}
+																onHighlight={setSkillHighlightIndex}
+																onSelect={executeSkillSelection}
+															/>
+														) : isSlashMenuOpen ? (
+															<SlashCommandMenu
+																filteredCommands={filteredSlashCommands}
+																filteredPrompts={filteredPromptsForSlashMenu}
+																filteredSkills={filteredSkillsForSlashMenu}
+																highlightIndex={slashHighlightIndex}
+																onHighlight={setSlashHighlightIndex}
+																onSelectCommand={executeSlashCommand}
+																onSelectPrompt={executePromptSelection}
+																onSelectSkill={executeSkillSelection}
+															/>
+														) : (
+															// File search results
+															<>
+																{fileSearchResults.length > 0 ? (
+																	fileSearchResults.map((f) => (
+																		<button key={f.path} type="button" className={MENU_STYLES.popoverItem} onClick={() => void addFileAttachment(f)}>
+																			{f.isDirectory ? (
+																				<Folder className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
+																			) : (
+																				<File className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
+																			)}
+																			<span className="truncate">{f.path}</span>
+																		</button>
+																	))
+																) : fileSearchQuery ? (
+																	<div className={`${MENU_STYLES.popoverItemDesc} px-2 py-1`}>No files found</div>
+																) : null}
+															</>
+														)}
+													</div>
+													{/* Add image option (only for + menu) */}
+													{isAddContextOpen ? (
+														<div className="mt-1.5 border-t border-border-menuDivider pt-1.5">
+															<button type="button" className={MENU_STYLES.popoverItem} onClick={() => fileInputRef.current?.click()}>
+																<Image className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
+																<span>Add image</span>
+															</button>
 														</div>
 													) : null}
 												</div>
-											);
-										};
-
-										if (!workbenchGraph.rootThreadId) {
-											return <div className="px-2 py-2 text-[11px] text-text-muted">No collab graph yet. Start a multi-agent task to see threads.</div>;
-										}
-										return <div className="space-y-1">{renderNode(workbenchGraph.rootThreadId, 0)}</div>;
-									})()}
-								</div>
-							</div>
-						) : null}
-
-						<div className="min-h-0 flex-1 flex flex-col overflow-hidden">
-							{isWorkbenchEnabled && (workbenchGraph.orchestratorThreadId || workbenchGraph.workerThreadIds.length > 0) ? (
-								<div className="mb-2 flex flex-wrap items-center gap-2">
-									<button
-										type="button"
-										className={[
-											'rounded-full border px-2 py-1 text-[11px] leading-none transition-colors',
-											selectedThreadId === workbenchGraph.rootThreadId ? 'border-primary/50 bg-primary/10 text-text-main' : 'border-white/10 bg-white/5 text-text-muted hover:bg-white/10',
-										].join(' ')}
-										onClick={() => {
-											const root = workbenchGraph.rootThreadId;
-											if (root) void selectSession(root, { setAsWorkbenchRoot: true });
-										}}
-									>
-										Root
-									</button>
-
-									{workbenchGraph.orchestratorThreadId ? (
-										<button
-											type="button"
-											className={[
-												'rounded-full border px-2 py-1 text-[11px] leading-none transition-colors',
-												selectedThreadId === workbenchGraph.orchestratorThreadId
-													? 'border-primary/50 bg-primary/10 text-text-main'
-													: 'border-white/10 bg-white/5 text-text-muted hover:bg-white/10',
-											].join(' ')}
-											onClick={() => void selectSession(workbenchGraph.orchestratorThreadId!)}
-											title={workbenchGraph.orchestratorThreadId}
-										>
-											Orchestrator
-										</button>
-									) : null}
-
-									{workbenchGraph.workerThreadIds.map((id) => (
-										<button
-											key={id}
-											type="button"
-											className={[
-												'rounded-full border px-2 py-1 text-[11px] leading-none transition-colors',
-												selectedThreadId === id ? 'border-primary/50 bg-primary/10 text-text-main' : 'border-white/10 bg-white/5 text-text-muted hover:bg-white/10',
-											].join(' ')}
-											onClick={() => void selectSession(id)}
-											title={id}
-										>
-											Worker
-										</button>
-									))}
-								</div>
-							) : null}
-
-							<div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4">
-									{renderTurns.map((turn) => (
-										<TurnBlock
-											key={turn.id}
-											turn={turn}
-											collapsedWorkingByTurnId={collapsedWorkingByTurnId}
-											collapsedByEntryId={collapsedByEntryId}
-											settings={settings}
-											pendingTurnId={PENDING_TURN_ID}
-											toggleTurnWorking={toggleTurnWorking}
-											toggleEntryCollapse={toggleEntryCollapse}
-											approve={approve}
-											onForkFromTurn={forkFromTurn}
-										/>
-									))}
-								</div>
-						</div>
-					</div>
-
-					<div className="relative -mx-6 mt-3 rounded-xl border border-token-border/80 bg-token-inputBackground/70 px-4 py-3 backdrop-blur">
-						{/* Popup Menu - shared container for +, / and $ menus */}
-						{isSlashMenuOpen || isAddContextOpen || isSkillMenuOpen ? (
-							<>
-								<div
-									className="fixed inset-0 z-40"
-									onClick={() => {
-										if (isSlashMenuOpen) {
-											setIsSlashMenuOpen(false);
-											setSlashSearchQuery('');
-											setSlashHighlightIndex(0);
-										}
-										if (isAddContextOpen) {
-											setIsAddContextOpen(false);
-											setFileSearchQuery('');
-											setFileSearchResults([]);
-										}
-										if (isSkillMenuOpen) {
-											setIsSkillMenuOpen(false);
-											setSkillSearchQuery('');
-											setSkillHighlightIndex(0);
-										}
-									}}
-									role="button"
-									tabIndex={0}
-								/>
-								<div className={`${MENU_STYLES.popoverPosition} ${MENU_STYLES.popover}`}>
-									{/* Search input */}
-									<input
-										type="text"
-										className={`mb-2 ${MENU_STYLES.searchInput}`}
-										placeholder={isSlashMenuOpen ? 'Search commands...' : isSkillMenuOpen ? 'Search skills...' : 'Search files...'}
-										value={isSlashMenuOpen ? slashSearchQuery : isSkillMenuOpen ? skillSearchQuery : fileSearchQuery}
-										onChange={(e) => {
-											if (isSlashMenuOpen) {
-												setSlashSearchQuery(e.target.value);
-												setSlashHighlightIndex(0);
-											} else if (isSkillMenuOpen) {
-												setSkillSearchQuery(e.target.value);
-												setSkillHighlightIndex(0);
-											} else {
-												void searchFiles(e.target.value);
-											}
-										}}
-										onKeyDown={(e) => {
-											// 处理方向键导航
-											if (e.key === 'ArrowDown') {
-												e.preventDefault();
-												if (isSlashMenuOpen) {
-													setSlashHighlightIndex((i) => Math.min(i + 1, slashMenuTotalItems - 1));
-												} else if (isSkillMenuOpen) {
-													setSkillHighlightIndex((i) => Math.min(i + 1, filteredSkills.length - 1));
-												}
-												return;
-											}
-											if (e.key === 'ArrowUp') {
-												e.preventDefault();
-												if (isSlashMenuOpen) {
-													setSlashHighlightIndex((i) => Math.max(i - 1, 0));
-												} else if (isSkillMenuOpen) {
-													setSkillHighlightIndex((i) => Math.max(i - 1, 0));
-												}
-												return;
-											}
-											// Tab 键补全
-											if (e.key === 'Tab') {
-												e.preventDefault();
-												if (isSlashMenuOpen) {
-													if (slashHighlightIndex < filteredSlashCommands.length) {
-														const selected = filteredSlashCommands[slashHighlightIndex];
-														if (selected) {
-															setInput(`/${selected.cmd.id} `);
-															setIsSlashMenuOpen(false);
-															setSlashSearchQuery('');
-															textareaRef.current?.focus();
-														}
-													} else if (slashHighlightIndex < filteredSlashCommands.length + filteredPromptsForSlashMenu.length) {
-														const promptIdx = slashHighlightIndex - filteredSlashCommands.length;
-														const selected = filteredPromptsForSlashMenu[promptIdx];
-														if (selected) {
-															executePromptSelection(selected.prompt);
-														}
-													} else {
-														const skillIdx = slashHighlightIndex - filteredSlashCommands.length - filteredPromptsForSlashMenu.length;
-														const selected = filteredSkillsForSlashMenu[skillIdx];
-														if (selected) {
-															executeSkillSelection(selected.skill);
-														}
-													}
-												} else if (isSkillMenuOpen) {
-													const selected = filteredSkills[skillHighlightIndex];
-													if (selected) {
-														executeSkillSelection(selected.skill);
-													}
-												}
-												return;
-											}
-											// Enter 键执行
-											if (e.key === 'Enter') {
-												e.preventDefault();
-												if (isSlashMenuOpen) {
-													if (slashHighlightIndex < filteredSlashCommands.length) {
-														const selected = filteredSlashCommands[slashHighlightIndex];
-														if (selected) executeSlashCommand(selected.cmd.id);
-													} else if (slashHighlightIndex < filteredSlashCommands.length + filteredPromptsForSlashMenu.length) {
-														const promptIdx = slashHighlightIndex - filteredSlashCommands.length;
-														const selected = filteredPromptsForSlashMenu[promptIdx];
-														if (selected) {
-															executePromptSelection(selected.prompt);
-														}
-													} else {
-														const skillIdx = slashHighlightIndex - filteredSlashCommands.length - filteredPromptsForSlashMenu.length;
-														const selected = filteredSkillsForSlashMenu[skillIdx];
-														if (selected) {
-															executeSkillSelection(selected.skill);
-														}
-													}
-												} else if (isSkillMenuOpen) {
-													const selected = filteredSkills[skillHighlightIndex];
-													if (selected) executeSkillSelection(selected.skill);
-												}
-												return;
-											}
-											// Escape 键关闭菜单
-											if (e.key === 'Escape') {
-												e.preventDefault();
-												if (isSlashMenuOpen) {
-													setIsSlashMenuOpen(false);
-													setSlashSearchQuery('');
-												} else if (isSkillMenuOpen) {
-													setIsSkillMenuOpen(false);
-													setSkillSearchQuery('');
-												} else if (isAddContextOpen) {
-													setIsAddContextOpen(false);
-													setFileSearchQuery('');
-													setFileSearchResults([]);
-												}
-												textareaRef.current?.focus();
-												return;
-											}
-										}}
-										autoFocus
-									/>
-									{/* Content list */}
-									<div ref={menuListRef} className={MENU_STYLES.listContainer}>
-										{isSkillMenuOpen ? (
-											<SkillMenu
-												skills={skills}
-												filteredSkills={filteredSkills}
-												highlightIndex={skillHighlightIndex}
-												onHighlight={setSkillHighlightIndex}
-												onSelect={executeSkillSelection}
-											/>
-										) : isSlashMenuOpen ? (
-											<SlashCommandMenu
-												filteredCommands={filteredSlashCommands}
-												filteredPrompts={filteredPromptsForSlashMenu}
-												filteredSkills={filteredSkillsForSlashMenu}
-												highlightIndex={slashHighlightIndex}
-												onHighlight={setSlashHighlightIndex}
-												onSelectCommand={executeSlashCommand}
-												onSelectPrompt={executePromptSelection}
-												onSelectSkill={executeSkillSelection}
-											/>
-										) : (
-											// File search results
-											<>
-												{fileSearchResults.length > 0 ? (
-													fileSearchResults.map((f) => (
-														<button key={f.path} type="button" className={MENU_STYLES.popoverItem} onClick={() => void addFileAttachment(f)}>
-															{f.isDirectory ? (
-																<Folder className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-															) : (
-																<File className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-															)}
-															<span className="truncate">{f.path}</span>
-														</button>
-													))
-												) : fileSearchQuery ? (
-													<div className={`${MENU_STYLES.popoverItemDesc} px-2 py-1`}>No files found</div>
-												) : null}
 											</>
-										)}
-									</div>
-									{/* Add image option (only for + menu) */}
-									{isAddContextOpen ? (
-										<div className="mt-1.5 border-t border-border-menuDivider pt-1.5">
-											<button type="button" className={MENU_STYLES.popoverItem} onClick={() => fileInputRef.current?.click()}>
-												<Image className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-												<span>Add image</span>
-											</button>
+										) : null}
+
+										{/* Attachments display: files only (skill/prompt tags are inline with textarea) */}
+										{fileAttachments.length > 0 ? (
+											<div className="flex flex-wrap gap-1.5">
+												{/* File attachments */}
+												{fileAttachments.map((f) => (
+													<div key={f.path} className="inline-flex items-center gap-1.5 rounded-md bg-black/20 px-2 py-1 text-[11px]">
+														{f.content?.startsWith('data:image') ? <Image className="h-3 w-3 text-text-dim" /> : <File className="h-3 w-3 text-text-dim" />}
+														<span className="max-w-[120px] truncate">{f.name}</span>
+														<button type="button" className="rounded p-0.5 hover:bg-white/10" onClick={() => removeFileAttachment(f.path)}>
+															<X className="h-3 w-3" />
+														</button>
+													</div>
+												))}
+											</div>
+										) : null}
+
+										{/* Hidden file input for image upload */}
+										<input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+
+										{/* Input area with inline tags for skill/prompt */}
+										<div className="flex flex-wrap items-start gap-1.5">
+											{/* Selected prompt - inline tag */}
+											{selectedPrompt ? (
+												<div className="inline-flex shrink-0 items-center gap-1.5 rounded bg-blue-500/10 px-1.5 py-0.5 text-[11px] text-blue-400">
+													<FileText className="h-3 w-3" />
+													<span className="max-w-[160px] truncate">prompts:{selectedPrompt.name}</span>
+													<button type="button" className="rounded p-0.5 hover:bg-blue-500/20" onClick={() => setSelectedPrompt(null)}>
+														<X className="h-3 w-3" />
+													</button>
+												</div>
+											) : null}
+											{/* Selected skill - inline tag */}
+											{selectedSkill ? (
+												<div className="inline-flex shrink-0 items-center gap-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
+													<Zap className="h-3 w-3" />
+													<span className="max-w-[160px] truncate">{selectedSkill.name}</span>
+													<button type="button" className="rounded p-0.5 hover:bg-primary/20" onClick={() => setSelectedSkill(null)}>
+														<X className="h-3 w-3" />
+													</button>
+												</div>
+											) : null}
+											{/* Textarea */}
+											<textarea
+												ref={textareaRef}
+												rows={1}
+												className="m-0 h-5 min-w-[100px] flex-1 resize-none overflow-y-auto bg-transparent p-0 text-[13px] leading-5 outline-none placeholder:text-text-muted/40"
+												placeholder={selectedSkill || selectedPrompt ? '' : 'Ask for follow-up changes'}
+												value={input}
+												onChange={(e) => {
+													const newValue = e.target.value;
+													setInput(newValue);
+
+													// Auto-resize textarea
+													const textarea = e.target;
+													textarea.style.height = 'auto';
+													textarea.style.height = `${Math.min(textarea.scrollHeight, 264)}px`;
+												}}
+												onKeyDown={handleTextareaKeyDown}
+												disabled={sending}
+											/>
 										</div>
-									) : null}
-								</div>
-							</>
-						) : null}
 
-						{/* Attachments display: files only (skill/prompt tags are inline with textarea) */}
-						{fileAttachments.length > 0 ? (
-							<div className="mb-2 flex flex-wrap gap-1.5">
-								{/* File attachments */}
-								{fileAttachments.map((f) => (
-									<div key={f.path} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-bg-panelHover px-2 py-1 text-xs">
-										{f.content?.startsWith('data:image') ? <Image className="h-3.5 w-3.5 text-text-dim" /> : <File className="h-3.5 w-3.5 text-text-dim" />}
-										<span className="max-w-[120px] truncate">{f.name}</span>
-										<button type="button" className="rounded p-0.5 hover:bg-white/10" onClick={() => removeFileAttachment(f.path)}>
-											<X className="h-3 w-3" />
-										</button>
+										{/* Toolbar: + / AutoContext Send */}
+										<div className="flex items-center justify-between gap-2">
+											<div className="flex items-center gap-1">
+												{/* + Add Context Button */}
+												<button type="button" className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-white/10 hover:text-text-main" title="Add context (+)" onClick={() => setIsAddContextOpen((v) => !v)}>
+													<Plus className="h-4 w-4" />
+												</button>
+
+												{/* / Slash Commands Button */}
+												<button type="button" className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-white/10 hover:text-text-main" title="Commands (/)" onClick={() => setIsSlashMenuOpen((v) => !v)}>
+													<Slash className="h-4 w-4" />
+												</button>
+
+												{/* Auto context toggle */}
+												<button
+													type="button"
+													className={[
+														'ml-2 inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[11px] leading-none transition-colors',
+														autoContextEnabled
+															? 'bg-blue-600/30 text-blue-300'
+															: 'text-text-muted hover:bg-white/10',
+													].join(' ')}
+													onClick={() => setAutoContextEnabled((v) => !v)}
+													title={
+														autoContext
+															? `cwd: ${autoContext.cwd}\nRecent: ${autoContext.recentFiles.length} files\nGit: ${autoContext.gitStatus?.branch ?? 'N/A'}`
+															: 'Auto context'
+													}
+												>
+													<span className={autoContextEnabled ? 'text-blue-400' : 'text-text-muted'}>
+														{autoContextEnabled ? (
+															<svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+																<path d="M13 10V3L4 14H11V21L20 10H13Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+															</svg>
+														) : (
+															<svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+																<path d="M13 10V3L4 14H11V21L20 10H13Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+															</svg>
+														)}
+													</span>
+													<span>Auto context</span>
+												</button>
+											</div>
+
+											{/* Send/Stop button */}
+											{activeTurnId && selectedThreadId ? (
+												<button
+													type="button"
+													className="group flex h-7 w-7 items-center justify-center rounded-full bg-status-error/20 text-status-error hover:bg-status-error/30"
+													onClick={() => void apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId)}
+													title="Stop"
+												>
+													<div className="h-2.5 w-2.5 rounded-[1px] bg-current" />
+												</button>
+											) : (
+												<button
+													type="button"
+													className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-text-main hover:bg-white/20 disabled:opacity-30 transition-colors"
+													onClick={() => void sendMessage()}
+													disabled={sending || (input.trim().length === 0 && !selectedSkill && !selectedPrompt)}
+													title="Send (Ctrl/Cmd+Enter)"
+												>
+													<ArrowUp className="h-4 w-4" />
+												</button>
+											)}
+										</div>
 									</div>
-								))}
-							</div>
-						) : null}
 
-						{/* Hidden file input for image upload */}
-						<input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-
-						{/* Input area with inline tags for skill/prompt */}
-						<div className="flex flex-wrap items-start gap-1.5">
-							{/* Selected prompt - inline tag */}
-							{selectedPrompt ? (
-								<div className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs text-blue-400">
-									<FileText className="h-3.5 w-3.5" />
-									<span className="max-w-[160px] truncate">prompts:{selectedPrompt.name}</span>
-									<button type="button" className="rounded p-0.5 hover:bg-blue-500/20" onClick={() => setSelectedPrompt(null)}>
-										<X className="h-3 w-3" />
-									</button>
+									<StatusBar
+										openStatusPopover={openStatusPopover}
+										setOpenStatusPopover={setOpenStatusPopover}
+										clearStatusPopoverError={() => setStatusPopoverError(null)}
+										statusPopoverError={statusPopoverError}
+										approvalPolicy={approvalPolicy}
+										selectedModel={selectedModel}
+										selectedModelInfo={selectedModelInfo}
+										models={models}
+										modelsError={modelsError}
+										profiles={profiles}
+										selectedProfile={selectedProfile}
+										selectedEffort={selectedEffort}
+										effortOptions={effortOptions}
+										contextUsageLabel={contextUsageLabel}
+										applyApprovalPolicy={applyApprovalPolicy}
+										applyModel={applyModel}
+										applyProfile={applyProfile}
+										applyReasoningEffort={applyReasoningEffort}
+										isWorkbenchEnabled={isWorkbenchEnabled}
+									/>
 								</div>
-							) : null}
-							{/* Selected skill - inline tag */}
-							{selectedSkill ? (
-								<div className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs text-primary">
-									<Zap className="h-3.5 w-3.5" />
-									<span className="max-w-[160px] truncate">{selectedSkill.name}</span>
-									<button type="button" className="rounded p-0.5 hover:bg-primary/20" onClick={() => setSelectedSkill(null)}>
-										<X className="h-3 w-3" />
-									</button>
-								</div>
-							) : null}
-							{/* Textarea */}
-							<textarea
-								ref={textareaRef}
-								rows={1}
-								className="m-0 h-5 min-w-[100px] flex-1 resize-none overflow-y-auto bg-transparent p-0 text-sm leading-5 outline-none placeholder:text-text-dim"
-								placeholder={selectedSkill || selectedPrompt ? '' : 'Ask for follow-up changes'}
-								value={input}
-								onChange={(e) => {
-									const newValue = e.target.value;
-									setInput(newValue);
-
-									// Auto-resize textarea
-									const textarea = e.target;
-									textarea.style.height = 'auto';
-									textarea.style.height = `${Math.min(textarea.scrollHeight, 264)}px`;
-								}}
-								onKeyDown={handleTextareaKeyDown}
-								disabled={sending}
-							/>
-						</div>
-
-						{/* Bottom row: +, /, Auto context, Send */}
-						<div className="mt-2 flex items-center justify-between gap-2">
-							<div className="flex items-center gap-2">
-								{/* + Add Context Button */}
-								<button type="button" className="am-icon-button h-7 w-7" title="Add context" onClick={() => setIsAddContextOpen((v) => !v)}>
-									<Plus className="h-3.5 w-3.5" />
-								</button>
-
-								{/* / Slash Commands Button */}
-								<button type="button" className="am-icon-button h-7 w-7" title="Commands" onClick={() => setIsSlashMenuOpen((v) => !v)}>
-									<Slash className="h-3.5 w-3.5" />
-								</button>
-
-								{/* Auto context toggle */}
-								<button
-									type="button"
-									className={[
-										'inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] leading-none transition',
-										autoContextEnabled
-											? 'border-primary/40 bg-primary/10 text-primary'
-											: 'border-white/10 bg-bg-panelHover text-text-muted hover:border-white/20',
-									].join(' ')}
-									onClick={() => setAutoContextEnabled((v) => !v)}
-									title={
-										autoContext
-											? `cwd: ${autoContext.cwd}\nRecent: ${autoContext.recentFiles.length} files\nGit: ${autoContext.gitStatus?.branch ?? 'N/A'}`
-											: 'Auto context'
-									}
-								>
-									<span>Auto context</span>
-									{autoContext?.gitStatus ? (
-										<span className="rounded bg-white/10 px-1 py-0.5 text-[10px] leading-none">{autoContext.gitStatus.branch}</span>
-									) : null}
-								</button>
 							</div>
-
-							{/* Send/Stop button */}
-							{activeTurnId && selectedThreadId ? (
-								<button
-									type="button"
-									className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-									onClick={() => void apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId)}
-									title="Stop"
-								>
-									{/* Background circle */}
-									<div className="absolute inset-0 rounded-full bg-[#3a3a3a]" />
-									{/* Spinning ring - using SVG for better visibility */}
-									<svg className="absolute inset-0 h-full w-full animate-spin" viewBox="0 0 32 32">
-										<circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20" />
-										<circle
-											cx="16"
-											cy="16"
-											r="14"
-											fill="none"
-											stroke="currentColor"
-											strokeWidth="2"
-											strokeDasharray="22 66"
-											strokeLinecap="round"
-											className="text-white/70"
-										/>
-									</svg>
-									{/* Stop icon (red rounded square) */}
-									<div className="relative h-3 w-3 rounded-[3px] bg-[#ef4444]" />
-								</button>
+					</>
+					) : (
+					<div className="mt-3 min-h-0 flex-1 overflow-hidden">
+						<div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-white/10 bg-bg-panelHover/40 p-4">
+							{!activeFileTab ? (
+								<div className="text-sm text-text-muted">Select a file to preview.</div>
 							) : (
-								<button
-									type="button"
-									className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/80 text-bg-panel hover:bg-white disabled:bg-white/30 disabled:text-bg-panel/50"
-									onClick={() => void sendMessage()}
-									disabled={sending || (input.trim().length === 0 && !selectedSkill && !selectedPrompt)}
-									title="Send (Ctrl/Cmd+Enter)"
-								>
-									<ArrowUp className="h-5 w-5" />
-								</button>
+								<>
+									<div className="mb-3 flex items-center justify-between gap-3">
+										<div className="min-w-0">
+											<div className="truncate text-sm font-semibold">{activeFileTab.path}</div>
+											<div className="mt-1 text-xs text-text-muted">
+												{activeFileTab.loading ? 'Loading…' : activeFileTab.error ? 'Failed to load file' : ''}
+											</div>
+										</div>
+									</div>
+									{activeFileTab.error ? (
+										<div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{activeFileTab.error}</div>
+									) : activeFileTab.loading ? (
+										<div className="text-sm text-text-muted">Loading…</div>
+									) : activeFileTab.content ? (
+										renderTextPreview(activeFileTab.content, activeFileTab.path)
+									) : (
+										<div className="text-sm text-text-muted">No content.</div>
+									)}
+								</>
 							)}
 						</div>
 					</div>
-
-					<StatusBar
-						openStatusPopover={openStatusPopover}
-						setOpenStatusPopover={setOpenStatusPopover}
-						clearStatusPopoverError={() => setStatusPopoverError(null)}
-						statusPopoverError={statusPopoverError}
-						approvalPolicy={approvalPolicy}
-						selectedModel={selectedModel}
-						selectedModelInfo={selectedModelInfo}
-						models={models}
-						modelsError={modelsError}
-						profiles={profiles}
-						selectedProfile={selectedProfile}
-						selectedEffort={selectedEffort}
-						effortOptions={effortOptions}
-						contextUsageLabel={contextUsageLabel}
-						applyApprovalPolicy={applyApprovalPolicy}
-						applyModel={applyModel}
-						applyProfile={applyProfile}
-						applyReasoningEffort={applyReasoningEffort}
-					/>
-						</>
-					) : (
-						<div className="mt-3 min-h-0 flex-1 overflow-hidden">
-							<div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-white/10 bg-bg-panelHover/40 p-4">
-								{!activeFileTab ? (
-									<div className="text-sm text-text-muted">Select a file to preview.</div>
-								) : (
-									<>
-										<div className="mb-3 flex items-center justify-between gap-3">
-											<div className="min-w-0">
-												<div className="truncate text-sm font-semibold">{activeFileTab.path}</div>
-												<div className="mt-1 text-xs text-text-muted">
-													{activeFileTab.loading ? 'Loading…' : activeFileTab.error ? 'Failed to load file' : ''}
-												</div>
-											</div>
-										</div>
-										{activeFileTab.error ? (
-											<div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{activeFileTab.error}</div>
-										) : activeFileTab.loading ? (
-											<div className="text-sm text-text-muted">Loading…</div>
-										) : activeFileTab.content ? (
-											renderTextPreview(activeFileTab.content, activeFileTab.path)
-										) : (
-											<div className="text-sm text-text-muted">No content.</div>
-										)}
-									</>
-								)}
-							</div>
-						</div>
-					)}
+						)}
 
 					{isConfigOpen ? (
 						<div className="fixed inset-0 z-50 flex">
@@ -4966,9 +4958,9 @@ export function CodexChat() {
 						</div>
 					) : null}
 				</div>
-				</div>
 			</div>
 		</div>
+		</div >
 	);
 }
 

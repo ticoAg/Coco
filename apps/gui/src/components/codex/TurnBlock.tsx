@@ -556,28 +556,28 @@ export function TurnBlock({
 	const workingOpen = collapsedExplicit === undefined ? turn.status === 'inProgress' : !collapsedExplicit;
 	const hasWorking = turn.workingItemCount > 0;
 
-		return (
-			<div className="space-y-2">
-				{/* Turn title bar */}
-				<div className="group flex items-center justify-end px-1">
-					<div className="flex shrink-0 items-center gap-1.5">
+	return (
+		<div className="space-y-2">
+			{/* Turn title bar */}
+			<div className="group flex items-center justify-end px-1">
+				<div className="flex shrink-0 items-center gap-1.5">
+					<button
+						type="button"
+						className={[
+							'rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main',
+							userText ? '' : 'pointer-events-none opacity-40',
+						].join(' ')}
+						title="Copy user message"
+						onClick={(ev) => {
+							ev.stopPropagation();
+							copyUserText();
+						}}
+					>
+						{didCopyUser ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+					</button>
+					{onForkFromTurn ? (
 						<button
 							type="button"
-							className={[
-								'rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main',
-								userText ? '' : 'pointer-events-none opacity-40',
-							].join(' ')}
-							title="Copy user message"
-							onClick={(ev) => {
-								ev.stopPropagation();
-								copyUserText();
-							}}
-						>
-							{didCopyUser ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-						</button>
-						{onForkFromTurn ? (
-							<button
-								type="button"
 							className="rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main"
 							title="Fork from this turn"
 							onClick={(ev) => {
@@ -591,10 +591,10 @@ export function TurnBlock({
 				</div>
 			</div>
 
-			<div className="space-y-2">
+			<div className="space-y-4">
 				{turn.userEntries.map((e) => (
-					<div key={e.id} className="flex justify-end">
-						<div className="max-w-[77%] rounded-2xl bg-white/5 px-2.5 py-1.5 text-[11px] leading-[1.25] text-text-dim">
+					<div key={e.id} className="flex justify-end pl-12">
+						<div className="rounded-lg bg-primary/10 px-3 py-2 text-[12px] leading-relaxed text-text-main border border-primary/20">
 							{/* Attachments in message bubble */}
 							{e.attachments && e.attachments.length > 0 ? (
 								<div className="mb-2 flex flex-wrap gap-1">
@@ -622,32 +622,34 @@ export function TurnBlock({
 									))}
 								</div>
 							) : null}
-							<ChatMarkdown text={e.text} className="text-[11px] !leading-[1.25] text-text-dim" textClassName="text-text-dim" dense />
+							<ChatMarkdown text={e.text} className="text-[12px] !leading-relaxed text-text-main" textClassName="text-text-main" dense />
 						</div>
 					</div>
 				))}
 			</div>
 
 			{hasWorking ? (
-				<button
-					type="button"
-					className="inline-flex items-center gap-2 rounded-full border border-border-menuDivider bg-bg-panel/20 px-3 py-1 text-left text-[12px] text-text-muted transition-colors hover:bg-bg-panelHover/30 hover:text-text-main"
-					onClick={() => toggleTurnWorking(turn.id)}
-				>
-					<div className="flex items-center gap-2 text-[11px] text-text-muted">
-						<span className="truncate font-medium">
-							{turnStatusLabel(turn.status)}
-							{turn.id === pendingTurnId ? ' (pending)' : ''}
-						</span>
-						<span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-text-menuDesc">{turn.workingItemCount}</span>
-					</div>
-					<ChevronRight className={['h-3.5 w-3.5 text-text-menuDesc transition-transform duration-200', workingOpen ? 'rotate-90' : ''].join(' ')} />
-				</button>
+				<div className="px-1">
+					<button
+						type="button"
+						className="group flex w-full items-center gap-2 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-left text-[11px] text-text-muted transition-colors hover:bg-white/10 hover:text-text-main"
+						onClick={() => toggleTurnWorking(turn.id)}
+					>
+						<div className="flex flex-1 items-center gap-2">
+							<ChevronRight className={['h-3.5 w-3.5 transition-transform duration-200', workingOpen ? 'rotate-90' : ''].join(' ')} />
+							<span className="font-medium">
+								{turnStatusLabel(turn.status)}
+								{turn.id === pendingTurnId ? ' (pending)' : ''}
+							</span>
+							<span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] opacity-70 group-hover:opacity-100">{turn.workingItemCount} items</span>
+						</div>
+					</button>
+				</div>
 			) : null}
 
 			{hasWorking ? (
-				<Collapse open={workingOpen} innerClassName="pt-0.5">
-					<div className="space-y-1">
+				<Collapse open={workingOpen} innerClassName="pt-1 px-1">
+					<div className="space-y-1 border-l border-white/10 pl-3 ml-1.5">
 						{turn.workingItems.map((item) => {
 							if (item.kind === 'exploration') {
 								const { prefix, content } = formatExplorationHeader(item.status, item.uniqueFileCount);
@@ -676,49 +678,48 @@ export function TurnBlock({
 				</Collapse>
 			) : null}
 
-			<div className="space-y-2">
+			<div className="space-y-4">
 				{turn.assistantMessageEntries.map((e) => (
-					<div key={e.id} className="px-1 py-1">
-						<div className="rounded-xl border border-white/10 bg-bg-panelHover/30 px-3 py-2">
-							<div className="text-[11px] leading-[1.25] text-text-dim">
-								{e.renderPlaceholderWhileStreaming && !e.completed ? (
-									<div className="text-[12px] text-text-menuDesc">Generating…</div>
-								) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
-									<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
-								) : (
-									<ChatMarkdown text={e.text} className="text-[11px] !leading-[1.25] text-text-dim" textClassName="text-text-dim" dense />
-								)}
-							</div>
-							<div className="mt-2 flex items-center justify-end gap-1.5">
+					<div key={e.id} className="pr-8">
+						<div className="text-[12px] leading-relaxed text-text-main">
+							{e.renderPlaceholderWhileStreaming && !e.completed ? (
+								<div className="text-[12px] text-text-muted italic">Generating…</div>
+							) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
+								<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
+							) : (
+								<ChatMarkdown text={e.text} className="text-[12px] !leading-relaxed text-text-main" textClassName="text-text-main" dense />
+							)}
+						</div>
+						<div className="mt-1 flex items-center justify-start gap-2 opacity-0 transition-opacity group-hover/turn:opacity-100">
+							<button
+								type="button"
+								className={[
+									'rounded p-1 text-text-muted hover:bg-white/10 hover:text-text-main transition-colors',
+									e.text ? '' : 'pointer-events-none opacity-40',
+								].join(' ')}
+								title="Copy reply"
+								onClick={(ev) => {
+									ev.stopPropagation();
+									copyFinalAssistantText();
+								}}
+							>
+								{didCopyAssistant ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+							</button>
+							{onForkFromTurn ? (
 								<button
 									type="button"
-									className={[
-										'rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main',
-										e.text ? '' : 'pointer-events-none opacity-40',
-									].join(' ')}
-									title="Copy reply"
+									className="rounded p-1 text-text-muted hover:bg-white/10 hover:text-text-main transition-colors"
+									title="Fork from this turn"
 									onClick={(ev) => {
 										ev.stopPropagation();
-										copyFinalAssistantText();
+										onForkFromTurn(turn.id);
 									}}
 								>
-									{didCopyAssistant ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+									<GitBranch className="h-3 w-3" />
 								</button>
-								{onForkFromTurn ? (
-									<button
-										type="button"
-										className="rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main"
-										title="Fork from this turn"
-										onClick={(ev) => {
-											ev.stopPropagation();
-											onForkFromTurn(turn.id);
-										}}
-									>
-										<GitBranch className="h-3 w-3" />
-									</button>
-								) : null}
-							</div>
+							) : null}
 						</div>
+
 					</div>
 				))}
 			</div>

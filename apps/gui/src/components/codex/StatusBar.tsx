@@ -25,12 +25,13 @@ interface StatusBarProps {
 	applyModel: (model: string) => void | Promise<void>;
 	applyProfile: (profile: string) => void | Promise<void>;
 	applyReasoningEffort: (effort: ReasoningEffort) => void | Promise<void>;
+	isWorkbenchEnabled?: boolean;
 }
 
 function statusBarItemClass(active: boolean): string {
 	return [
-		'inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-border-menuDivider bg-bg-panel/30 px-2 text-[11px] transition-colors',
-		active ? 'bg-bg-panelHover text-text-main' : 'text-text-muted hover:bg-bg-panelHover hover:text-text-main',
+		'inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-transparent px-2 text-[11px] transition-colors',
+		active ? 'bg-white/10 text-text-main' : 'text-text-muted hover:bg-white/10 hover:text-text-main',
 	].join(' ');
 }
 
@@ -137,10 +138,11 @@ export function StatusBar({
 	applyModel,
 	applyProfile,
 	applyReasoningEffort,
+	isWorkbenchEnabled = false,
 }: StatusBarProps) {
 	return (
 		<>
-			<div className="-mx-8 mt-2 flex h-8 items-center justify-between gap-2 bg-bg-panel/40 px-4 text-xs text-text-muted">
+			<div className={`mt-2 flex h-8 items-center justify-between gap-2 bg-bg-panel/40 px-4 text-xs text-text-muted ${isWorkbenchEnabled ? '-ml-4 w-[calc(100%_+_1rem)]' : '-ml-8 w-[calc(100%_+_2rem)]'}`}>
 				<div className="flex min-w-0 flex-nowrap items-center gap-1">
 					{/* Switch mode dropdown */}
 					<div className="relative">
@@ -195,93 +197,92 @@ export function StatusBar({
 									<FileText className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 									<span>Custom (config.toml)</span>
 									<Check
-										className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${
-											approvalPolicy === 'on-request' || approvalPolicy === 'on-failure' ? '' : 'invisible'
-										}`}
+										className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${approvalPolicy === 'on-request' || approvalPolicy === 'on-failure' ? '' : 'invisible'
+											}`}
 									/>
 								</button>
 							</div>
 						) : null}
-					</div>
+						</div>
 
-					<div className="relative">
-						<button
-							type="button"
-							className={statusBarItemClass(openStatusPopover === 'model')}
-							onClick={() => {
-								clearStatusPopoverError();
-								setOpenStatusPopover((prev) => (prev === 'model' ? null : 'model'));
-							}}
-							title="model"
-						>
-							<Box className="h-3.5 w-3.5 text-text-menuLabel" />
-							<span className="truncate">{selectedModelInfo?.displayName ?? selectedModel ?? 'model'}</span>
-							<ChevronDown className="h-3 w-3" />
-						</button>
+						{profiles.length > 0 ? (
+							<div className="relative">
+								<button
+									type="button"
+									className={statusBarItemClass(openStatusPopover === 'config_profile')}
+									onClick={() => {
+										clearStatusPopoverError();
+										setOpenStatusPopover((prev) => (prev === 'config_profile' ? null : 'config_profile'));
+									}}
+									title="profile"
+								>
+									<span className="truncate">{selectedProfile ?? 'profile'}</span>
+									<ChevronDown className="h-3 w-3" />
+								</button>
 
-						{openStatusPopover === 'model' ? (
-							<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
-								<div className={MENU_STYLES.popoverTitle}>Select model</div>
-								<div className="max-h-[40vh] overflow-auto">
-									{models.length === 0 ? (
-										<div className="px-3 py-1.5 text-[12px] text-text-muted">(unavailable)</div>
-									) : (
-										models.map((m) => {
-											const selected = selectedModel === m.model;
-											return (
-												<button
-													key={m.id}
-													type="button"
-													className={MENU_STYLES.popoverItem}
-													onClick={() => void applyModel(m.model)}
-													title={translateModelDesc(m.description)}
-												>
-													<span>{m.displayName}</span>
-													<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
-												</button>
-											);
-										})
-									)}
-									{modelsError ? <div className="px-3 py-1 text-[11px] text-status-warning">{modelsError}</div> : null}
-								</div>
+								{openStatusPopover === 'config_profile' ? (
+									<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
+										<div className={MENU_STYLES.popoverTitle}>Select profile</div>
+										<div className="max-h-[40vh] overflow-auto">
+											{profiles.map((profile) => {
+												const selected = selectedProfile === profile;
+												return (
+													<button key={profile} type="button" className={MENU_STYLES.popoverItem} onClick={() => void applyProfile(profile)}>
+														<span>{profile}</span>
+														<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
+													</button>
+												);
+											})}
+											{statusPopoverError ? <div className="px-3 py-1 text-[11px] text-status-warning">{statusPopoverError}</div> : null}
+										</div>
+									</div>
+								) : null}
 							</div>
 						) : null}
-					</div>
 
-					{profiles.length > 0 ? (
 						<div className="relative">
 							<button
 								type="button"
-								className={statusBarItemClass(openStatusPopover === 'config_profile')}
+								className={statusBarItemClass(openStatusPopover === 'model')}
 								onClick={() => {
 									clearStatusPopoverError();
-									setOpenStatusPopover((prev) => (prev === 'config_profile' ? null : 'config_profile'));
+									setOpenStatusPopover((prev) => (prev === 'model' ? null : 'model'));
 								}}
-								title="profile"
+								title="model"
 							>
-								<span className="truncate">{selectedProfile ?? 'profile'}</span>
+								<Box className="h-3.5 w-3.5 text-text-menuLabel" />
+								<span className="truncate">{selectedModelInfo?.displayName ?? selectedModel ?? 'model'}</span>
 								<ChevronDown className="h-3 w-3" />
 							</button>
 
-							{openStatusPopover === 'config_profile' ? (
+							{openStatusPopover === 'model' ? (
 								<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${MENU_STYLES.popover}`}>
-									<div className={MENU_STYLES.popoverTitle}>Select profile</div>
+									<div className={MENU_STYLES.popoverTitle}>Select model</div>
 									<div className="max-h-[40vh] overflow-auto">
-										{profiles.map((profile) => {
-											const selected = selectedProfile === profile;
-											return (
-												<button key={profile} type="button" className={MENU_STYLES.popoverItem} onClick={() => void applyProfile(profile)}>
-													<span>{profile}</span>
-													<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
-												</button>
-											);
-										})}
-										{statusPopoverError ? <div className="px-3 py-1 text-[11px] text-status-warning">{statusPopoverError}</div> : null}
+										{models.length === 0 ? (
+											<div className="px-3 py-1.5 text-[12px] text-text-muted">(unavailable)</div>
+										) : (
+											models.map((m) => {
+												const selected = selectedModel === m.model;
+												return (
+													<button
+														key={m.id}
+														type="button"
+														className={MENU_STYLES.popoverItem}
+														onClick={() => void applyModel(m.model)}
+														title={translateModelDesc(m.description)}
+													>
+														<span>{m.displayName}</span>
+														<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
+													</button>
+												);
+											})
+										)}
+										{modelsError ? <div className="px-3 py-1 text-[11px] text-status-warning">{modelsError}</div> : null}
 									</div>
 								</div>
 							) : null}
 						</div>
-					) : null}
 
 					<div className="relative">
 						<button
