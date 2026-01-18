@@ -486,7 +486,7 @@ impl Orchestrator {
                 escape_markdown_inline(&t.title)
             ));
         }
-        managed.push_str("\n");
+        managed.push('\n');
 
         managed.push_str("## Key Artifacts\n\n");
         managed.push_str(&format!("- joinedSummaryMd: `{}`\n", JOINED_SUMMARY_MD_REL));
@@ -509,7 +509,7 @@ impl Orchestrator {
                 joined.joined_summary_json.to_string_lossy()
             ));
         }
-        managed.push_str("\n");
+        managed.push('\n');
 
         let next = upsert_managed_block(&fs::read_to_string(&state_board_path).ok(), &managed);
         fs::write(state_board_path, next)?;

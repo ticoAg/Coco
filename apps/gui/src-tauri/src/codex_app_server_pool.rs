@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::path::Path;
@@ -91,10 +91,7 @@ impl CodexAppServerPool {
         self.id_by_key.insert(key, app_server_id.clone());
         self.servers_by_id.insert(
             app_server_id.clone(),
-            CodexAppServerEntry {
-                server,
-                profile,
-            },
+            CodexAppServerEntry { server, profile },
         );
 
         Ok(app_server_id)

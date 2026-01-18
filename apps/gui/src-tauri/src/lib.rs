@@ -113,7 +113,6 @@ struct CodexThreadArchiveGuard {
     archived_at_ms: u64,
 }
 
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -455,7 +454,9 @@ fn derive_auto_thread_title_from_preview(preview: &str) -> Option<String> {
         trimmed
     };
 
-    let normalized = collapse_whitespace_to_single_spaces(extracted).trim().to_string();
+    let normalized = collapse_whitespace_to_single_spaces(extracted)
+        .trim()
+        .to_string();
     if normalized.is_empty() {
         return None;
     }
@@ -635,7 +636,10 @@ fn task_agents_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path
 }
 
 fn task_root_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path::PathBuf {
-    workspace_root.join(".agentmesh").join("tasks").join(task_id)
+    workspace_root
+        .join(".agentmesh")
+        .join("tasks")
+        .join(task_id)
 }
 
 fn task_shared_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path::PathBuf {
@@ -1159,7 +1163,10 @@ fn task_list_directory(
 }
 
 #[tauri::command]
-fn workspace_list_directory(cwd: String, relative_path: String) -> Result<Vec<TaskDirectoryEntry>, String> {
+fn workspace_list_directory(
+    cwd: String,
+    relative_path: String,
+) -> Result<Vec<TaskDirectoryEntry>, String> {
     if cwd.trim().is_empty() {
         return Err("cwd cannot be empty".to_string());
     }
@@ -1575,8 +1582,12 @@ async fn codex_thread_list(
         .to_path_buf();
 
     let codex_home = default_codex_home_dir()?;
-    let _ =
-        restore_recent_archived_sessions(&codex_home, &workspace_root, std::time::Duration::from_secs(3 * 60)).await;
+    let _ = restore_recent_archived_sessions(
+        &codex_home,
+        &workspace_root,
+        std::time::Duration::from_secs(3 * 60),
+    )
+    .await;
 
     let codex = get_or_start_codex(&state, app, app_server_id).await?;
     let params = serde_json::json!({
@@ -1693,7 +1704,9 @@ fn codex_thread_title_set(
         .to_path_buf();
 
     let collapsed = collapse_whitespace_to_single_spaces(title.trim());
-    let truncated = truncate_unicode_chars(collapsed.trim(), 50).trim().to_string();
+    let truncated = truncate_unicode_chars(collapsed.trim(), 50)
+        .trim()
+        .to_string();
     if truncated.is_empty() {
         return Err("title must not be empty".to_string());
     }

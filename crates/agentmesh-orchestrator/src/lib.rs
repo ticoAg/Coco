@@ -487,7 +487,7 @@ impl Orchestrator {
                     id: evidence_id.clone(),
                     kind: "runtime-event-range".to_string(),
                     title: format!("Worker {} runtime", w.agent_instance),
-                    summary: format!("[{}] {}", w.status, w.summary.trim().to_string())
+                    summary: format!("[{}] {}", w.status, w.summary.trim())
                         .trim()
                         .to_string(),
                     created_at: generated_at.to_rfc3339(),
