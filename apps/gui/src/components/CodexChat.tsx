@@ -1270,9 +1270,11 @@ export function CodexChat() {
 			}
 			setModels(nextModels);
 
-			const configuredModel = typeof config.model === 'string' ? config.model : null;
-			const configuredEffort = parseReasoningEffortValue(config.model_reasoning_effort);
-			const configuredApproval = parseApprovalPolicyValue(config.approval_policy);
+			// Read from the selected profile if one is active, otherwise use top-level config
+			const profileConfig = config.profile && config.profiles?.[config.profile] ? config.profiles[config.profile] : {};
+			const configuredModel = typeof profileConfig.model === 'string' ? profileConfig.model : (typeof config.model === 'string' ? config.model : null);
+			const configuredEffort = parseReasoningEffortValue(profileConfig.model_reasoning_effort ?? config.model_reasoning_effort);
+			const configuredApproval = parseApprovalPolicyValue(profileConfig.approval_policy ?? config.approval_policy);
 
 			if (configuredApproval) setApprovalPolicy(configuredApproval);
 
