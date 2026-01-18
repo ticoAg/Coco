@@ -22,7 +22,7 @@ export function FileChangeEntryCard({ change, isPending, defaultCollapsed }: Fil
 	return (
 		<div className={['am-block max-w-full', open ? 'am-block-open' : ''].join(' ')}>
 			<div
-				className="am-shell-header group"
+				className="am-shell-header am-row group text-left"
 				onClick={() => setOpen((prev) => !prev)}
 				role="button"
 				tabIndex={0}

@@ -44,6 +44,8 @@ export interface ActivityBlockProps {
 	onApprove?: (requestId: number, decision: 'accept' | 'decline') => void;
 	/** 左侧图标（可选） */
 	icon?: React.ReactNode;
+	/** 外层容器额外样式 */
+	containerClassName?: string;
 }
 
 export function ActivityBlock({
@@ -64,6 +66,7 @@ export function ActivityBlock({
 	approval,
 	onApprove,
 	icon,
+	containerClassName,
 }: ActivityBlockProps) {
 	const [summaryHover, setSummaryHover] = useState(false);
 	const [didCopy, setDidCopy] = useState(false);
@@ -85,7 +88,16 @@ export function ActivityBlock({
 	const showOpenBorder = collapsible && open;
 
 	return (
-		<div className={['min-w-0 max-w-full am-block', showOpenBorder ? 'am-block-open' : '', summaryHover ? 'am-block-hover' : ''].join(' ')}>
+		<div
+			className={[
+				'min-w-0 max-w-full am-block',
+				showOpenBorder ? 'am-block-open' : '',
+				summaryHover ? 'am-block-hover' : '',
+				containerClassName ?? '',
+			]
+				.filter(Boolean)
+				.join(' ')}
+		>
 			{/* Summary row (compact) */}
 			<div
 				className={['am-row group flex min-w-0 items-center justify-between gap-2', collapsible && onToggleCollapse ? 'cursor-pointer' : ''].join(' ')}
@@ -115,8 +127,10 @@ export function ActivityBlock({
 				<div className="min-w-0 flex-1 truncate text-[12px]">
 					<span className="inline-flex min-w-0 items-center gap-2">
 						{icon ? <span className="shrink-0 text-text-menuDesc">{icon}</span> : null}
-						<span className="shrink-0 font-medium text-text-muted">{titlePrefix}</span>
-						<span className={['am-row-title truncate text-text-muted', titleMono ? 'font-mono text-[11px]' : ''].join(' ')}>{titleContent}</span>
+						{titlePrefix ? <span className="shrink-0 font-medium text-text-muted">{titlePrefix}</span> : null}
+						{titleContent ? (
+							<span className={['am-row-title truncate text-text-muted', titleMono ? 'font-mono text-[11px]' : ''].join(' ')}>{titleContent}</span>
+						) : null}
 					</span>
 				</div>
 				<div className="flex shrink-0 items-center gap-1.5">

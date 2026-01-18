@@ -142,7 +142,7 @@ impl CodexAppServer {
     async fn initialize(&self) -> Result<(), String> {
         let params = json!({
             "clientInfo": {
-                "name": "agentmesh_gui",
+                "name": "codex_cli_rs",
                 "title": "AgentMesh GUI",
                 "version": env!("CARGO_PKG_VERSION"),
             }

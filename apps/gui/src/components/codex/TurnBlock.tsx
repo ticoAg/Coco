@@ -1,4 +1,4 @@
-import { BookOpen, Check, ChevronDown, ChevronRight, Copy, File, FileText, GitBranch, Search, Terminal, Wrench, Zap } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy, Eye, File, FileText, GitBranch, Pencil, Search, Wrench, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Collapse } from '../ui/Collapse';
 import { ActivityBlock } from './ActivityBlock';
@@ -40,6 +40,7 @@ interface TurnBlockProps {
 	toggleEntryCollapse: (entryId: string) => void;
 	approve: (requestId: number, decision: 'accept' | 'decline') => void;
 	onForkFromTurn?: (turnId: string) => void;
+	onEditUserEntry?: (entry: Extract<ChatEntry, { kind: 'user' }>) => void;
 }
 
 // ============================================================================
@@ -157,6 +158,10 @@ function ExplorationAccordion({
 				count += item.entries.length;
 				continue;
 			}
+			if (isReasoningGroup(item)) {
+				count += item.entries.length;
+				continue;
+			}
 			count += 1;
 		}
 		return count;
@@ -188,9 +193,9 @@ function ExplorationAccordion({
 	const prefix = exploring ? 'Exploring' : 'Explored';
 
 	return (
-		<div>
+		<div className={['am-block', open ? 'am-block-open' : ''].join(' ')}>
 			<div
-				className="group flex items-center gap-1.5 py-0.5 cursor-pointer select-none"
+				className="am-row group flex items-center gap-1.5 cursor-pointer select-none text-left"
 				onClick={() => setExpanded((v) => !v)}
 				role="button"
 				tabIndex={0}
@@ -214,23 +219,31 @@ function ExplorationAccordion({
 			</div>
 
 			<Collapse open={open} innerClassName="pt-0">
-				<div className="relative">
-					<div
-						ref={scrollRef}
-						className={[
-							'flex flex-col overflow-y-auto overflow-x-hidden min-w-0',
-							// Limit to roughly "10 rows" worth of items
-							'max-h-72',
-						].join(' ')}
-					>
-						{items.map((item) => {
-							const key = isReadingGroup(item) ? item.id : (item as ChatEntry).id;
-							return (
-								<div key={key} className="first:pt-0 last:mb-0 mb-0.5 [&>*]:py-0 min-w-0" onMouseDown={requestExpand} onFocusCapture={requestExpand}>
-									{renderItem(item)}
-								</div>
-							);
-						})}
+				<div className="am-shell min-w-0">
+					<div className="relative">
+						<div
+							ref={scrollRef}
+							className={[
+								'am-shell-scroll am-scroll-fade min-w-0',
+								'flex flex-col overflow-y-auto overflow-x-hidden',
+								// Limit to roughly "10 rows" worth of items
+								'max-h-72',
+							].join(' ')}
+						>
+							{items.map((item) => {
+								const key = isReadingGroup(item) ? item.id : (item as ChatEntry).id;
+								return (
+									<div
+										key={key}
+										className="first:pt-0 last:mb-0 mb-0.5 [&>*]:py-0 min-w-0"
+										onMouseDown={requestExpand}
+										onFocusCapture={requestExpand}
+									>
+										{renderItem(item)}
+									</div>
+								);
+							})}
+						</div>
 					</div>
 				</div>
 			</Collapse>
@@ -263,9 +276,13 @@ export function TurnBlock({
 	toggleEntryCollapse,
 	approve,
 	onForkFromTurn,
+	onEditUserEntry,
 }: TurnBlockProps) {
 	const [didCopyUser, setDidCopyUser] = useState(false);
 	const [didCopyAssistant, setDidCopyAssistant] = useState(false);
+	const [showRawUser, setShowRawUser] = useState(false);
+	const [rawAssistantById, setRawAssistantById] = useState<Record<string, boolean>>({});
+	const lastUserEntry = turn.userEntries.length > 0 ? turn.userEntries[turn.userEntries.length - 1] : null;
 
 	useEffect(() => {
 		if (!didCopyUser) return;
@@ -299,6 +316,10 @@ export function TurnBlock({
 		if (!finalAssistantText) return;
 		void navigator.clipboard.writeText(finalAssistantText);
 		setDidCopyAssistant(true);
+	};
+
+	const toggleAssistantRaw = (entryId: string) => {
+		setRawAssistantById((prev) => ({ ...prev, [entryId]: !prev[entryId] }));
 	};
 
 	const renderWorkingItem = (item: WorkingItem): JSX.Element | null => {
@@ -341,7 +362,6 @@ export function TurnBlock({
 					titleContent={title}
 					status={!isFinished ? 'in progress' : undefined}
 					copyContent={copyContent.replace(/\x1b\[[0-9;]*m/g, '')}
-					icon={<BookOpen className="h-3.5 w-3.5" />}
 					contentClassName="font-sans"
 					collapsible
 					collapsed={collapsed}
@@ -428,7 +448,7 @@ export function TurnBlock({
 			const showPlaceholder = !!e.renderPlaceholderWhileStreaming && !e.completed;
 			const structured = e.structuredOutput && e.structuredOutput.type === 'code-review' ? e.structuredOutput : null;
 			return (
-				<div key={e.id} className="px-2 py-0.5">
+				<div key={e.id} className="am-row text-left">
 					{showPlaceholder ? (
 						<div className="text-[11px] text-text-menuDesc">Generating…</div>
 					) : structured ? (
@@ -491,7 +511,7 @@ export function TurnBlock({
 					titleMono={useMono}
 					status={e.status !== 'completed' ? e.status : undefined}
 					copyContent={copyText}
-					icon={<Terminal className="h-3.5 w-3.5" />}
+					containerClassName="am-block-command"
 					contentVariant="ansi"
 					collapsible
 					collapsed={collapsed}
@@ -768,11 +788,39 @@ export function TurnBlock({
 					>
 						{didCopyUser ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
 					</button>
-					{onForkFromTurn ? (
-						<button
-							type="button"
-							className="rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main"
-							title="Fork from this turn"
+					<button
+						type="button"
+						className={[
+							'rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main',
+							userText ? '' : 'pointer-events-none opacity-40',
+							showRawUser ? 'text-text-main' : '',
+						].join(' ')}
+						title={showRawUser ? '隐藏原始文本' : '显示原始文本'}
+						onClick={(ev) => {
+							ev.stopPropagation();
+							setShowRawUser((prev) => !prev);
+						}}
+						>
+							<Eye className="h-3 w-3" />
+						</button>
+						{onEditUserEntry && lastUserEntry ? (
+							<button
+								type="button"
+								className="rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main"
+								title="编辑并重新运行"
+								onClick={(ev) => {
+									ev.stopPropagation();
+									onEditUserEntry(lastUserEntry);
+								}}
+							>
+								<Pencil className="h-3 w-3" />
+							</button>
+						) : null}
+						{onForkFromTurn ? (
+							<button
+								type="button"
+								className="rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main"
+								title="Fork from this turn"
 							onClick={(ev) => {
 								ev.stopPropagation();
 								onForkFromTurn(turn.id);
@@ -787,7 +835,7 @@ export function TurnBlock({
 			<div className="space-y-2">
 				{turn.userEntries.map((e) => (
 					<div key={e.id} className="flex justify-end pl-12">
-						<div className="bg-token-foreground/5 max-w-[77%] break-words rounded-2xl px-3 py-2 text-[12px] text-text-main">
+						<div className="group/user bg-token-foreground/5 max-w-[77%] break-words rounded-2xl px-3 py-2 text-[12px] text-text-main">
 							{/* Attachments in message bubble */}
 							{e.attachments && e.attachments.length > 0 ? (
 								<div className="mb-2 flex flex-wrap gap-1">
@@ -815,11 +863,17 @@ export function TurnBlock({
 									))}
 								</div>
 							) : null}
-							<ChatMarkdown text={e.text} className="text-[12px] text-text-main" textClassName="text-text-main" dense />
+							{showRawUser ? (
+								<pre className="whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 font-mono text-[12px] text-text-main">
+									{e.text}
+								</pre>
+								) : (
+									<ChatMarkdown text={e.text} className="text-[12px] text-text-main" textClassName="text-text-main" dense />
+								)}
+							</div>
 						</div>
-					</div>
-				))}
-			</div>
+					))}
+				</div>
 
 			{hasWorking ? (
 				<div className="px-1">
@@ -859,6 +913,10 @@ export function TurnBlock({
 						<div className="text-[12px] text-text-main">
 							{e.renderPlaceholderWhileStreaming && !e.completed ? (
 								<div className="text-[12px] text-text-muted italic">Generating…</div>
+							) : rawAssistantById[e.id] ? (
+								<pre className="whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 font-mono text-[12px] text-text-main">
+									{e.text}
+								</pre>
 							) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
 								<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
 							) : (
@@ -879,6 +937,21 @@ export function TurnBlock({
 								}}
 							>
 								{didCopyAssistant ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+							</button>
+							<button
+								type="button"
+								className={[
+									'rounded p-1 text-text-muted hover:bg-white/10 hover:text-text-main transition-colors',
+									e.text ? '' : 'pointer-events-none opacity-40',
+									rawAssistantById[e.id] ? 'text-text-main' : '',
+								].join(' ')}
+								title={rawAssistantById[e.id] ? '隐藏原始文本' : '显示原始文本'}
+								onClick={(ev) => {
+									ev.stopPropagation();
+									toggleAssistantRaw(e.id);
+								}}
+							>
+								<Eye className="h-3 w-3" />
 							</button>
 							{onForkFromTurn ? (
 								<button

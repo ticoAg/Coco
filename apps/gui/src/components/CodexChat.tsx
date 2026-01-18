@@ -340,26 +340,6 @@ function expandReasoningEntries(entries: ChatEntry[]): ChatEntry[] {
 	const expanded: ChatEntry[] = [];
 	for (const entry of entries) {
 		if (entry.kind === 'assistant' && entry.role === 'reasoning') {
-			const summaryParts = normalizeReasoningParts(entry.reasoningSummary);
-			const contentParts = normalizeReasoningParts(entry.reasoningContent);
-			const contentText = contentParts.filter(Boolean).join('\n').trim();
-
-			if (summaryParts.length === 0 && contentText) {
-				const last = expanded[expanded.length - 1];
-				if (last && last.kind === 'assistant' && last.role === 'reasoning') {
-					const mergedText = [last.text?.trim(), contentText].filter(Boolean).join('\n\n');
-					const mergedStreaming = !!last.streaming || !!entry.streaming;
-					const mergedCompleted = mergedStreaming ? false : !!last.completed && !!entry.completed;
-					expanded[expanded.length - 1] = {
-						...last,
-						text: mergedText,
-						streaming: mergedStreaming,
-						completed: mergedCompleted,
-					};
-					continue;
-				}
-			}
-
 			expanded.push(...buildReasoningSegments(entry));
 			continue;
 		}
@@ -389,24 +369,12 @@ function mergeReadingEntries(entries: ChatEntry[]): WorkingItem[] {
 }
 
 function mergeReasoningEntries(items: WorkingItem[]): WorkingItem[] {
-	const grouped: WorkingItem[] = [];
-	for (const item of items) {
-		if (isReasoningEntry(item)) {
-			const last = grouped[grouped.length - 1];
-			if (isReasoningGroup(last)) {
-				last.entries.push(item);
-				continue;
-			}
-			grouped.push({ kind: 'reasoningGroup', id: `reasoning-group-${item.id}`, entries: [item] });
-			continue;
-		}
-		grouped.push(item);
-	}
-	return grouped;
+	return items;
 }
 
 function isExplorationStarter(item: WorkingItem): boolean {
 	if (isReadingGroup(item)) return true;
+	if (isReasoningGroup(item) || isReasoningEntry(item)) return true;
 	if (item.kind === 'command') {
 		const parsed = resolveParsedCmd(item.command, item.commandActions);
 		return parsed.type === 'read' || parsed.type === 'search' || parsed.type === 'list_files';
@@ -415,7 +383,7 @@ function isExplorationStarter(item: WorkingItem): boolean {
 }
 
 function isExplorationContinuation(item: WorkingItem): boolean {
-	return isExplorationStarter(item) || isReasoningEntry(item);
+	return isExplorationStarter(item);
 }
 
 function getUniqueReadingCount(items: WorkingItem[]): number {
@@ -500,7 +468,15 @@ function segmentExplorationItems(items: WorkingItem[], isTurnInProgress: boolean
 
 function countWorkingItems(items: SegmentedWorkingItem[]): number {
 	return items.reduce((acc, item) => {
-		if (item.kind === 'exploration') return acc + item.items.length;
+		if (item.kind === 'exploration') {
+			return (
+				acc +
+				item.items.reduce((inner, innerItem) => {
+					if (isReasoningGroup(innerItem)) return inner + innerItem.entries.length;
+					return inner + 1;
+				}, 0)
+			);
+		}
 		if (item.kind === 'item' && isReasoningGroup(item.item)) return acc + item.item.entries.length;
 		return acc + 1;
 	}, 0);
@@ -520,6 +496,20 @@ function extractUserText(item: Extract<CodexThreadItem, { type: 'userMessage' }>
 	return parts.join('\n').trim();
 }
 
+function extractUserAttachments(item: Extract<CodexThreadItem, { type: 'userMessage' }>): AttachmentItem[] {
+	const out: AttachmentItem[] = [];
+	const seen = new Set<string>();
+	for (const content of item.content ?? []) {
+		if (content.type === 'skill' && typeof content.name === 'string') {
+			const key = `skill:${content.name}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push({ type: 'skill', name: content.name });
+		}
+	}
+	return out;
+}
+
 function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
 	const rawType = safeString((item as unknown as { type?: unknown })?.type);
 	// Backend payloads may use different naming conventions; normalize for compatibility.
@@ -528,7 +518,13 @@ function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
 	switch (typeKey) {
 		case 'usermessage': {
 			const it = item as Extract<CodexThreadItem, { type: 'userMessage' }>;
-			return { kind: 'user', id: it.id, text: extractUserText(it) };
+			const attachments = extractUserAttachments(it);
+			return {
+				kind: 'user',
+				id: it.id,
+				text: extractUserText(it),
+				attachments: attachments.length > 0 ? attachments : undefined,
+			};
 		}
 		case 'agentmessage': {
 			const it = item as Extract<CodexThreadItem, { type: 'agentMessage' }>;
@@ -644,6 +640,44 @@ function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
 }
 
 function mergeEntry(entries: ChatEntry[], next: ChatEntry): ChatEntry[] {
+	// When sending a turn we optimistically insert a local user entry (random id).
+	// The server later emits the persisted `userMessage` item (stable id). Deduplicate by text so
+	// the UI only shows the message that actually gets sent/persisted.
+	if (next.kind === 'user') {
+		const incoming = next as Extract<ChatEntry, { kind: 'user' }>;
+		const matchIdx = entries.findIndex(
+			(e): e is Extract<ChatEntry, { kind: 'user' }> => e.kind === 'user' && e.text === incoming.text
+		);
+		if (matchIdx !== -1) {
+			const prev = entries[matchIdx] as Extract<ChatEntry, { kind: 'user' }>;
+
+			const mergedAttachments = (() => {
+				const out: AttachmentItem[] = [];
+				const seen = new Set<string>();
+				for (const att of [...(prev.attachments ?? []), ...(incoming.attachments ?? [])]) {
+					const key =
+						att.type === 'file'
+							? `file:${att.path}`
+							: att.type === 'skill'
+								? `skill:${att.name}`
+								: `prompt:${att.name}`;
+					if (seen.has(key)) continue;
+					seen.add(key);
+					out.push(att);
+				}
+				return out;
+			})();
+
+			const copy = [...entries];
+			copy[matchIdx] = {
+				...prev,
+				...incoming,
+				attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined,
+			};
+			return copy;
+		}
+	}
+
 	const idx = entries.findIndex((e) => e.id === next.id && e.kind === next.kind);
 	if (idx === -1) return [...entries, next];
 	const copy = [...entries];
@@ -879,6 +913,10 @@ export function CodexChat() {
 	const [selectedSessionTreeNodeOverride, setSelectedSessionTreeNodeOverride] = useState<string | null>(null);
 	const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenuState | null>(null);
 	const [renameTaskDialog, setRenameTaskDialog] = useState<RenameTaskState | null>(null);
+	type RerunDialogState = {
+		entry: Extract<ChatEntry, { kind: 'user' }>;
+	};
+	const [rerunDialog, setRerunDialog] = useState<RerunDialogState | null>(null);
 	const [sessionTreeWidthPx, setSessionTreeWidthPx] = useState(() => loadSessionTreeWidth());
 	const autoRefreshTimerRef = useRef<number | null>(null);
 	const autoRefreshUntilRef = useRef<number>(0);
@@ -927,6 +965,8 @@ export function CodexChat() {
 
 	const [input, setInput] = useState('');
 	const [sending, setSending] = useState(false);
+	// Avoid accidental double-send (e.g. double click / key repeat) before `sending` state disables the UI.
+	const sendInFlightRef = useRef(false);
 
 	const [selectedModel, setSelectedModel] = useState<string | null>(null);
 	const [selectedEffort, setSelectedEffort] = useState<ReasoningEffort | null>(null);
@@ -990,6 +1030,17 @@ export function CodexChat() {
 	useEffect(() => {
 		setWorkspaceBasePathOverride(null);
 	}, [computedWorkspaceBasePath]);
+
+	const adjustTextareaHeight = useCallback(() => {
+		const textarea = textareaRef.current;
+		if (!textarea) return;
+		textarea.style.height = 'auto';
+		textarea.style.height = `${Math.min(textarea.scrollHeight, 264)}px`;
+	}, []);
+
+	useLayoutEffect(() => {
+		adjustTextareaHeight();
+	}, [adjustTextareaHeight, input]);
 
 	const showWorkspaceListToast = useCallback((message: string) => {
 		setWorkspaceListToast(message);
@@ -2078,6 +2129,7 @@ export function CodexChat() {
 		renameTaskInputRef.current?.select();
 	}, [renameTaskDialog]);
 
+
 	const handleSessionTreeContextMenu = useCallback(
 		(node: TreeNodeData, event: React.MouseEvent) => {
 			if (node.type !== 'task') return;
@@ -2608,20 +2660,24 @@ export function CodexChat() {
 		// Allow sending if there's text, or if a skill/prompt is selected
 		if (!trimmedInput && !selectedSkill && !selectedPrompt) return;
 
-		// Build attachments list for UI display
-		const attachments: AttachmentItem[] = [];
-		for (const f of fileAttachments) {
-			attachments.push({ type: 'file', path: f.path, name: f.name });
-		}
-		if (selectedSkill) {
-			attachments.push({ type: 'skill', name: selectedSkill.name });
-		}
-		if (selectedPrompt) {
-			attachments.push({ type: 'prompt', name: selectedPrompt.name });
-		}
-
+		// Prevent duplicate sends if the handler fires twice before React applies the disabled state.
+		if (sendInFlightRef.current) return;
+		sendInFlightRef.current = true;
 		setSending(true);
+
 		try {
+			// Build attachments list for UI display
+			const attachments: AttachmentItem[] = [];
+			for (const f of fileAttachments) {
+				attachments.push({ type: 'file', path: f.path, name: f.name });
+			}
+			if (selectedSkill) {
+				attachments.push({ type: 'skill', name: selectedSkill.name });
+			}
+			if (selectedPrompt) {
+				attachments.push({ type: 'prompt', name: selectedPrompt.name });
+			}
+
 			let threadId = selectedThreadId;
 			let currentRepoPath = activeThread?.cwd ?? null;
 			if (!threadId) {
@@ -2637,10 +2693,10 @@ export function CodexChat() {
 
 			const outgoingText = autoContextEnabled
 				? wrapUserInputWithRepoContext({
-					userInput,
-					currentRepoPath,
-					relatedRepoPaths,
-				})
+						userInput,
+						currentRepoPath,
+						relatedRepoPaths,
+					})
 				: userInput;
 
 			// Build CodexUserInput array for API
@@ -2658,7 +2714,7 @@ export function CodexChat() {
 			const userEntry: ChatEntry = {
 				kind: 'user',
 				id: `user-${crypto.randomUUID()}`,
-				text: trimmedInput,
+				text: outgoingText.trim(),
 				attachments: attachments.length > 0 ? attachments : undefined,
 			};
 
@@ -2706,6 +2762,7 @@ export function CodexChat() {
 				};
 			});
 		} finally {
+			sendInFlightRef.current = false;
 			setSending(false);
 		}
 	}, [
@@ -2722,6 +2779,150 @@ export function CodexChat() {
 		selectedSkill,
 		selectedPrompt,
 	]);
+
+	const resolveTurnIdForEntry = useCallback(
+		(entryId: string): string | null => {
+			const direct = itemToTurnRef.current[entryId];
+			if (direct) return direct;
+			for (const [turnId, turn] of Object.entries(turnsById)) {
+				if (turn.entries.some((entry) => entry.id === entryId)) return turnId;
+			}
+			return null;
+		},
+		[turnsById]
+	);
+
+	const normalizeRerunAttachments = useCallback(
+		(attachments: AttachmentItem[]): AttachmentItem[] => {
+			const out: AttachmentItem[] = [];
+			const seen = new Set<string>();
+			const hasSkillCatalog = skills.length > 0;
+			const hasPromptCatalog = prompts.length > 0;
+			for (const att of attachments) {
+				if (att.type === 'skill') {
+					if (hasSkillCatalog && !skills.some((skill) => skill.name === att.name)) continue;
+				}
+				if (att.type === 'prompt') {
+					if (hasPromptCatalog && !prompts.some((prompt) => prompt.name === att.name)) continue;
+				}
+				const key = att.type === 'file' ? `file:${att.path}` : `${att.type}:${att.name}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				out.push(att);
+			}
+			return out;
+		},
+		[prompts, skills]
+	);
+
+	const requestUserEntryRerun = useCallback(
+		async (entry: Extract<ChatEntry, { kind: 'user' }>, draft: { text: string; attachments: AttachmentItem[] }) => {
+			if (!selectedThreadId) {
+				await dialogMessage('请先选择一个会话。', { title: '重新运行', kind: 'error' });
+				return false;
+			}
+
+			const trimmedInput = draft.text.trim();
+			const normalizedAttachments = normalizeRerunAttachments(draft.attachments);
+			const hasSkill = normalizedAttachments.some((att) => att.type === 'skill');
+			const hasPrompt = normalizedAttachments.some((att) => att.type === 'prompt');
+			if (!trimmedInput && !hasSkill && !hasPrompt) {
+				await dialogMessage('消息为空。', { title: '重新运行', kind: 'error' });
+				return false;
+			}
+
+			const targetTurnId = resolveTurnIdForEntry(entry.id);
+			if (!targetTurnId) {
+				await dialogMessage('未能定位到目标回合。', { title: '重新运行', kind: 'error' });
+				return false;
+			}
+
+			const realTurnIds = turnOrder.filter((id) => id && id !== PENDING_TURN_ID);
+			const targetIdx = realTurnIds.indexOf(targetTurnId);
+			if (targetIdx < 0) {
+				await dialogMessage('未能在顺序中定位到目标回合。', { title: '重新运行', kind: 'error' });
+				return false;
+			}
+
+			const rollbackTurns = realTurnIds.length - targetIdx;
+			if (rollbackTurns <= 0) return false;
+
+			const isRunning = Boolean(runningThreadIds[selectedThreadId]);
+			if (isRunning && activeTurnId) {
+				try {
+					await apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId);
+				} catch {
+					// Best-effort; continue to attempt rollback.
+				}
+			}
+
+			try {
+				await apiClient.codexThreadRollback(selectedThreadId, rollbackTurns);
+				await selectSession(selectedThreadId);
+				await listSessions();
+			} catch (err) {
+				await dialogMessage(errorMessage(err, '从该消息重新运行失败'), { title: '重新运行', kind: 'error' });
+				return false;
+			}
+
+			const nextSkillName = normalizedAttachments.find((att) => att.type === 'skill')?.name ?? null;
+			const nextPromptName = normalizedAttachments.find((att) => att.type === 'prompt')?.name ?? null;
+			const nextSkill = nextSkillName ? skills.find((skill) => skill.name === nextSkillName) ?? null : null;
+			const nextPrompt = nextPromptName ? prompts.find((prompt) => prompt.name === nextPromptName) ?? null : null;
+
+			const isAbsolutePath = (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
+			const cwd = activeThread?.cwd ?? '.';
+			const fileItems = normalizedAttachments.filter((att) => att.type === 'file') as Extract<AttachmentItem, { type: 'file' }>[];
+			const fileResults = await Promise.all(
+				fileItems.map(async (att) => {
+					const fullPath = isAbsolutePath(att.path) ? att.path : `${cwd}/${att.path}`;
+					try {
+						const content = await apiClient.readFileContent(fullPath);
+						return { path: att.path, name: att.name, content };
+					} catch {
+						return null;
+					}
+				})
+			);
+
+			setInput(draft.text);
+			setSelectedSkill(nextSkill);
+			setSelectedPrompt(nextPrompt);
+			setFileAttachments(fileResults.filter(Boolean) as FileAttachment[]);
+			setTimeout(() => textareaRef.current?.focus(), 0);
+			return true;
+		},
+		[
+			activeThread?.cwd,
+			activeTurnId,
+			listSessions,
+			normalizeRerunAttachments,
+			prompts,
+			resolveTurnIdForEntry,
+			runningThreadIds,
+			selectedThreadId,
+			selectSession,
+			skills,
+			turnOrder,
+		]
+	);
+
+	const openRerunDialog = useCallback((entry: Extract<ChatEntry, { kind: 'user' }>) => {
+		setRerunDialog({ entry });
+	}, []);
+
+	const closeRerunDialog = useCallback(() => {
+		setRerunDialog(null);
+	}, []);
+
+	const submitRerunDialog = useCallback(async () => {
+		if (!rerunDialog) return;
+		const ok = await requestUserEntryRerun(rerunDialog.entry, {
+			text: rerunDialog.entry.text,
+			attachments: rerunDialog.entry.attachments ?? [],
+		});
+		if (ok) setRerunDialog(null);
+	}, [rerunDialog, requestUserEntryRerun]);
 
 	const approve = useCallback(async (requestId: number, decision: 'accept' | 'decline') => {
 		await apiClient.codexRespondApproval(requestId, decision);
@@ -4130,6 +4331,51 @@ export function CodexChat() {
 					</div>
 				) : null}
 
+				{rerunDialog ? (
+					<div
+						className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+						onMouseDown={(event) => {
+							if (event.target === event.currentTarget) closeRerunDialog();
+						}}
+					>
+						<div className="w-full max-w-lg rounded-xl border border-white/10 bg-bg-popover p-4 text-sm text-text-main">
+							<div className="mb-3 flex items-center justify-between gap-2">
+								<div className="text-sm font-semibold">确认重新运行</div>
+								<button
+									type="button"
+									className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-xs hover:border-white/20"
+									onClick={closeRerunDialog}
+								>
+									✕
+								</button>
+							</div>
+
+							<div className="text-xs text-text-muted">
+								{selectedThreadId && runningThreadIds[selectedThreadId]
+									? '当前有回合正在运行。重新运行会中断它，并移除该消息及其之后的所有消息。不会回滚代码改动。'
+									: '重新运行会移除该消息及其之后的所有消息。不会回滚代码改动。'}
+							</div>
+
+							<div className="mt-3 flex justify-end gap-2">
+								<button
+									type="button"
+									className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-1 text-xs hover:border-white/20"
+									onClick={closeRerunDialog}
+								>
+									取消
+								</button>
+								<button
+									type="button"
+									className="rounded-md border border-primary/40 bg-primary/20 px-3 py-1 text-xs text-text-main hover:bg-primary/30"
+									onClick={() => void submitRerunDialog()}
+								>
+									重新运行
+								</button>
+							</div>
+						</div>
+					</div>
+				) : null}
+
 				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col pb-0.5">
 					<div className="flex h-6 items-center justify-between border-b border-white/10 pr-3 py-0">
 						<div className="flex min-w-0 items-center overflow-x-auto">
@@ -4356,6 +4602,7 @@ export function CodexChat() {
 													toggleEntryCollapse={toggleEntryCollapse}
 													approve={approve}
 													onForkFromTurn={forkFromTurn}
+													onEditUserEntry={openRerunDialog}
 												/>
 											))}
 										</div>

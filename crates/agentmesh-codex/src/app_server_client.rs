@@ -426,7 +426,7 @@ impl CodexAppServerClient {
     async fn initialize(&self) -> Result<(), CodexAppServerError> {
         let params = json!({
             "clientInfo": {
-                "name": "agentmesh",
+                "name": "codex_cli_rs",
                 "title": "AgentMesh",
                 "version": env!("CARGO_PKG_VERSION"),
             }
