@@ -38,6 +38,9 @@ export default {
           menuDivider: "rgb(255 255 255 / var(--am-alpha-menu-divider))",
         },
         token: {
+          // Token foreground is used for "neutral grey" message surfaces (e.g. bg-token-foreground/5),
+          // matching VS Code Codex webview semantics.
+          foreground: rgb("--am-text-main"),
           inputBackground: rgb("--am-token-input-background"),
           border: rgb("--am-token-border"),
           borderStrong: rgb("--am-token-border-strong"),

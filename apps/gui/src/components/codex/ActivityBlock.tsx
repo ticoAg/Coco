@@ -85,7 +85,7 @@ export function ActivityBlock({
 	const showOpenBorder = collapsible && open;
 
 	return (
-		<div className={['min-w-0 am-block', showOpenBorder ? 'am-block-open' : '', summaryHover ? 'am-block-hover' : ''].join(' ')}>
+		<div className={['min-w-0 max-w-full am-block', showOpenBorder ? 'am-block-open' : '', summaryHover ? 'am-block-hover' : ''].join(' ')}>
 			{/* Summary row (compact) */}
 			<div
 				className={['am-row group flex min-w-0 items-center justify-between gap-2', collapsible && onToggleCollapse ? 'cursor-pointer' : ''].join(' ')}
@@ -112,11 +112,11 @@ export function ActivityBlock({
 					}
 				}}
 			>
-				<div className="min-w-0 flex-1 truncate text-[13px]">
+				<div className="min-w-0 flex-1 truncate text-[12px]">
 					<span className="inline-flex min-w-0 items-center gap-2">
 						{icon ? <span className="shrink-0 text-text-menuDesc">{icon}</span> : null}
-						<span className="shrink-0 font-medium text-text-menuLabel">{titlePrefix}</span>
-						<span className={['am-row-title truncate text-text-main/90', titleMono ? 'font-mono text-[12px]' : ''].join(' ')}>{titleContent}</span>
+						<span className="shrink-0 font-medium text-text-muted">{titlePrefix}</span>
+						<span className={['am-row-title truncate text-text-muted', titleMono ? 'font-mono text-[11px]' : ''].join(' ')}>{titleContent}</span>
 					</span>
 				</div>
 				<div className="flex shrink-0 items-center gap-1.5">
@@ -153,14 +153,14 @@ export function ActivityBlock({
 			{/* Details (only when expanded) */}
 			{children ? (
 				<Collapse open={open} innerClassName="pt-0">
-					<div className="am-shell">
+					<div className="am-shell min-w-0">
 						{detailHeader ? <div className="am-shell-header">{detailHeader}</div> : null}
-						<div className="am-shell-scroll am-scroll-fade">
+						<div className="am-shell-scroll am-scroll-fade min-w-0">
 							<div
 								className={[
 									'min-w-0 text-[12px] leading-[1.5] text-text-muted',
 									useMono ? 'font-mono font-medium' : 'font-sans',
-									effectiveVariant === 'markdown' ? 'whitespace-normal' : effectiveVariant === 'ansi' ? 'whitespace-pre' : 'whitespace-pre-wrap break-words',
+									effectiveVariant === 'markdown' ? 'whitespace-normal' : effectiveVariant === 'ansi' ? 'whitespace-pre-wrap break-words' : 'whitespace-pre-wrap break-words',
 									contentClassName ?? '',
 								].join(' ')}
 							>

@@ -1,5 +1,5 @@
-import { BookOpen, Brain, Check, ChevronRight, Copy, File, FileText, GitBranch, Search, Terminal, Wrench, Zap } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { BookOpen, Check, ChevronDown, ChevronRight, Copy, File, FileText, GitBranch, Search, Terminal, Wrench, Zap } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Collapse } from '../ui/Collapse';
 import { ActivityBlock } from './ActivityBlock';
 import { ChatMarkdown } from './ChatMarkdown';
@@ -18,7 +18,7 @@ import {
 	stringifyJsonSafe,
 } from './utils';
 import type { AssistantMessageEntry, ChatEntry, CodexChatSettings, TurnBlockStatus } from './types';
-import type { SegmentedWorkingItem, WorkingItem } from './types';
+import type { ReasoningGroup, SegmentedWorkingItem, WorkingItem } from './types';
 
 export type TurnBlockView = {
 	id: string;
@@ -94,11 +94,148 @@ function isReadingGroup(item: WorkingItem | undefined): item is Extract<WorkingI
 	return !!item && 'kind' in item && item.kind === 'readingGroup';
 }
 
-function formatExplorationHeader(status: 'exploring' | 'explored', uniqueFileCount: number): { prefix: string; content: string } {
-	const prefix = status === 'exploring' ? 'Exploring' : 'Explored';
-	if (!uniqueFileCount || uniqueFileCount <= 0) return { prefix, content: '' };
-	const unit = uniqueFileCount === 1 ? 'file' : 'files';
-	return { prefix, content: `${uniqueFileCount} ${unit}` };
+function isReasoningGroup(item: WorkingItem | undefined): item is ReasoningGroup {
+	return !!item && 'kind' in item && item.kind === 'reasoningGroup';
+}
+
+type ExplorationCounts = { uniqueReadFileCount: number; searchCount: number; listCount: number };
+
+function countExplorationCounts(items: WorkingItem[]): ExplorationCounts {
+	const files = new Set<string>();
+	let searchCount = 0;
+	let listCount = 0;
+
+	const visitCommand = (entry: Extract<ChatEntry, { kind: 'command' }>) => {
+		const parsed = resolveParsedCmd(entry.command, entry.commandActions);
+		if (parsed.type === 'read' && parsed.name) files.add(parsed.name);
+		if (parsed.type === 'search') searchCount += 1;
+		if (parsed.type === 'list_files') listCount += 1;
+	};
+
+	for (const item of items) {
+		if (isReadingGroup(item)) {
+			for (const entry of item.entries) visitCommand(entry);
+			continue;
+		}
+		if (item.kind === 'command') {
+			visitCommand(item);
+		}
+	}
+
+	return { uniqueReadFileCount: files.size, searchCount, listCount };
+}
+
+function formatExplorationCounts(counts: ExplorationCounts): string {
+	const parts: string[] = [];
+	if (counts.uniqueReadFileCount > 0) parts.push(`${counts.uniqueReadFileCount} ${counts.uniqueReadFileCount === 1 ? 'file' : 'files'}`);
+	if (counts.searchCount > 0) parts.push(`${counts.searchCount} ${counts.searchCount === 1 ? 'search' : 'searches'}`);
+	// Match VSCode Codex plugin: "N list" (no plural).
+	if (counts.listCount > 0) parts.push(`${counts.listCount} list`);
+	return parts.join(', ');
+}
+
+function ExplorationAccordion({
+	status,
+	items,
+	renderItem,
+}: {
+	status: 'exploring' | 'explored';
+	items: WorkingItem[];
+	renderItem: (item: WorkingItem) => JSX.Element | null;
+}) {
+	const exploring = status === 'exploring';
+	const [expanded, setExpanded] = useState(false);
+	const open = expanded || exploring;
+
+	const itemCount = useMemo(() => {
+		// `mergeReadingEntries` can turn multiple reads into a single `readingGroup`,
+		// but the VSCode plugin's accordion logic treats each underlying action as a row.
+		// We use this for parity in "hide counts when only one item" + auto-scroll triggers.
+		let count = 0;
+		for (const item of items) {
+			if (isReadingGroup(item)) {
+				count += item.entries.length;
+				continue;
+			}
+			count += 1;
+		}
+		return count;
+	}, [items]);
+
+	const countsText = useMemo(() => {
+		// Plugin parity: hide counts when there's only one item and still exploring.
+		if (exploring && itemCount === 1) return '';
+		return formatExplorationCounts(countExplorationCounts(items));
+	}, [exploring, itemCount, items]);
+
+	const scrollRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el) return;
+		el.scrollTop = el.scrollHeight;
+	}, [itemCount, open]);
+
+	const requestExpand = useCallback(() => {
+		if (!expanded) setExpanded(true);
+	}, [expanded]);
+
+	// Plugin parity: if there's only one exploration item and we're not exploring, show it directly (no accordion header).
+	if (itemCount === 1 && items.length === 1 && !exploring) {
+		return renderItem(items[0]);
+	}
+
+	const prefix = exploring ? 'Exploring' : 'Explored';
+
+	return (
+		<div>
+			<div
+				className="group flex items-center gap-1.5 py-0.5 cursor-pointer select-none"
+				onClick={() => setExpanded((v) => !v)}
+				role="button"
+				tabIndex={0}
+				onKeyDown={(e) => {
+					if (e.key !== 'Enter' && e.key !== ' ') return;
+					e.preventDefault();
+					setExpanded((v) => !v);
+				}}
+			>
+				<span className="min-w-0 flex-1 truncate text-[11px] text-text-main/80">
+					<span className="font-medium">{prefix}</span>
+					{countsText ? <span className="ml-1 text-text-muted">{countsText}</span> : null}
+				</span>
+				<ChevronDown
+					className={[
+						'h-3.5 w-3.5 shrink-0 transition-transform duration-200 text-text-muted',
+						expanded ? 'rotate-180' : '',
+						open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+					].join(' ')}
+				/>
+			</div>
+
+			<Collapse open={open} innerClassName="pt-0">
+				<div className="relative">
+					<div
+						ref={scrollRef}
+						className={[
+							'flex flex-col overflow-y-auto overflow-x-hidden min-w-0',
+							// Limit to roughly "10 rows" worth of items
+							'max-h-72',
+						].join(' ')}
+					>
+						{items.map((item) => {
+							const key = isReadingGroup(item) ? item.id : (item as ChatEntry).id;
+							return (
+								<div key={key} className="first:pt-0 last:mb-0 mb-0.5 [&>*]:py-0 min-w-0" onMouseDown={requestExpand} onFocusCapture={requestExpand}>
+									{renderItem(item)}
+								</div>
+							);
+						})}
+					</div>
+				</div>
+			</Collapse>
+		</div>
+	);
 }
 
 function turnStatusLabel(status: TurnBlockStatus): string {
@@ -226,12 +363,72 @@ export function TurnBlock({
 			);
 		}
 
+		if (isReasoningGroup(item)) {
+			const isStreaming = item.entries.some((entry) => entry.streaming);
+			const collapsed = isStreaming ? false : (collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails);
+
+			// Extract headings from all entries
+			const extractedEntries = item.entries.map((entry) => {
+				const { heading, body } = extractHeadingFromMarkdown(entry.text);
+				return { entry, heading, body };
+			});
+
+			// Build combined title from first entry with heading, or use default
+			const firstWithHeading = extractedEntries.find((e) => e.heading);
+			const prefix = isStreaming ? 'Thinking' : 'Thought';
+			const titleContent = firstWithHeading?.heading || '';
+			const count = item.entries.length;
+			const displayTitle = count > 1 ? `${titleContent} +${count - 1}` : titleContent;
+
+			// Combined copy content
+			const copyContent = item.entries.map((e) => e.text).join('\n\n');
+
+			// Combined body for display
+			const bodyParts = extractedEntries
+				.map(({ heading, body }) => (heading ? body : extractedEntries.find((e) => e.entry === extractedEntries[0]?.entry)?.entry.text || ''))
+				.filter((b) => b.trim());
+			const hasBody = bodyParts.length > 0;
+
+			return (
+				<ActivityBlock
+					key={item.id}
+					titlePrefix={prefix}
+					titleContent={displayTitle}
+					status={isStreaming ? 'Streaming…' : undefined}
+					copyContent={copyContent}
+					icon={null}
+					contentVariant="markdown"
+					collapsible={hasBody}
+					collapsed={hasBody ? collapsed : true}
+					onToggleCollapse={hasBody ? () => toggleEntryCollapse(item.id) : undefined}
+				>
+					{hasBody ? (
+						<div className="space-y-2">
+							{extractedEntries.map(({ entry, heading, body }) => {
+								const displayBody = heading ? body : entry.text;
+								const trimmedBody = displayBody.trim();
+								if (!trimmedBody) return null;
+								return (
+									<div key={entry.id}>
+										{heading && item.entries.length > 1 ? (
+											<div className="text-[10px] font-medium text-text-muted mb-1">{heading}</div>
+										) : null}
+										<ChatMarkdown text={displayBody} className="text-[11px] text-text-muted" dense />
+									</div>
+								);
+							})}
+						</div>
+					) : null}
+				</ActivityBlock>
+			);
+		}
+
 		const e = item as ChatEntry;
 		if (e.kind === 'assistant' && e.role === 'message') {
 			const showPlaceholder = !!e.renderPlaceholderWhileStreaming && !e.completed;
 			const structured = e.structuredOutput && e.structuredOutput.type === 'code-review' ? e.structuredOutput : null;
 			return (
-				<div key={e.id} className="px-2 py-1">
+				<div key={e.id} className="px-2 py-0.5">
 					{showPlaceholder ? (
 						<div className="text-[11px] text-text-menuDesc">Generating…</div>
 					) : structured ? (
@@ -409,12 +606,8 @@ export function TurnBlock({
 								</span>
 							</div>
 						) : null}
-						{e.prompt ? (
-							<div className="rounded-md bg-white/5 px-2 py-1 text-[10px] text-text-muted whitespace-pre-wrap break-words">{e.prompt}</div>
-						) : null}
-						<pre className="whitespace-pre-wrap break-words rounded-md bg-white/5 px-2 py-1 text-[10px] text-text-muted">
-							{stringifyJsonSafe(agentsStates)}
-						</pre>
+						{e.prompt ? <div className="rounded-md bg-white/5 px-2 py-1 text-[10px] text-text-muted whitespace-pre-wrap break-words">{e.prompt}</div> : null}
+						<pre className="whitespace-pre-wrap break-words rounded-md bg-white/5 px-2 py-1 text-[10px] text-text-muted">{stringifyJsonSafe(agentsStates)}</pre>
 					</div>
 				</ActivityBlock>
 			);
@@ -502,7 +695,7 @@ export function TurnBlock({
 						) : null
 					}
 					copyContent={e.text}
-					icon={<Brain className="h-3.5 w-3.5" />}
+					icon={null}
 					contentVariant="markdown"
 					collapsible={hasBody}
 					collapsed={hasBody ? collapsed : true}
@@ -557,7 +750,7 @@ export function TurnBlock({
 	const hasWorking = turn.workingItemCount > 0;
 
 	return (
-		<div className="space-y-2">
+		<div className="group/turn space-y-2 min-w-0 max-w-full">
 			{/* Turn title bar */}
 			<div className="group flex items-center justify-end px-1">
 				<div className="flex shrink-0 items-center gap-1.5">
@@ -591,10 +784,10 @@ export function TurnBlock({
 				</div>
 			</div>
 
-			<div className="space-y-4">
+			<div className="space-y-2">
 				{turn.userEntries.map((e) => (
 					<div key={e.id} className="flex justify-end pl-12">
-						<div className="rounded-lg bg-primary/10 px-3 py-2 text-[12px] leading-relaxed text-text-main border border-primary/20">
+						<div className="bg-token-foreground/5 max-w-[77%] break-words rounded-2xl px-3 py-2 text-[12px] text-text-main">
 							{/* Attachments in message bubble */}
 							{e.attachments && e.attachments.length > 0 ? (
 								<div className="mb-2 flex flex-wrap gap-1">
@@ -622,7 +815,7 @@ export function TurnBlock({
 									))}
 								</div>
 							) : null}
-							<ChatMarkdown text={e.text} className="text-[12px] !leading-relaxed text-text-main" textClassName="text-text-main" dense />
+							<ChatMarkdown text={e.text} className="text-[12px] text-text-main" textClassName="text-text-main" dense />
 						</div>
 					</div>
 				))}
@@ -649,28 +842,10 @@ export function TurnBlock({
 
 			{hasWorking ? (
 				<Collapse open={workingOpen} innerClassName="pt-1 px-1">
-					<div className="space-y-1 border-l border-white/10 pl-3 ml-1.5">
+					<div className="space-y-0 min-w-0">
 						{turn.workingItems.map((item) => {
 							if (item.kind === 'exploration') {
-								const { prefix, content } = formatExplorationHeader(item.status, item.uniqueFileCount);
-								const collapsed = item.status === 'exploring' ? false : (collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails);
-								const hasItems = item.items.length > 0;
-								const copyContent = content ? `${prefix} ${content}` : prefix;
-								return (
-									<ActivityBlock
-										key={item.id}
-										titlePrefix={prefix}
-										titleContent={content}
-										copyContent={copyContent}
-										icon={<BookOpen className="h-3.5 w-3.5" />}
-										contentClassName="space-y-1"
-										collapsible={hasItems}
-										collapsed={hasItems ? collapsed : true}
-										onToggleCollapse={hasItems ? () => toggleEntryCollapse(item.id) : undefined}
-									>
-										{item.items.map((child) => renderWorkingItem(child))}
-									</ActivityBlock>
-								);
+								return <ExplorationAccordion key={item.id} status={item.status} items={item.items} renderItem={renderWorkingItem} />;
 							}
 							return renderWorkingItem(item.item);
 						})}
@@ -678,16 +853,16 @@ export function TurnBlock({
 				</Collapse>
 			) : null}
 
-			<div className="space-y-4">
+			<div className="space-y-2">
 				{turn.assistantMessageEntries.map((e) => (
 					<div key={e.id} className="pr-8">
-						<div className="text-[12px] leading-relaxed text-text-main">
+						<div className="text-[12px] text-text-main">
 							{e.renderPlaceholderWhileStreaming && !e.completed ? (
 								<div className="text-[12px] text-text-muted italic">Generating…</div>
 							) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
 								<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
 							) : (
-								<ChatMarkdown text={e.text} className="text-[12px] !leading-relaxed text-text-main" textClassName="text-text-main" dense />
+								<ChatMarkdown text={e.text} className="text-[12px] text-text-main" textClassName="text-text-main" dense />
 							)}
 						</div>
 						<div className="mt-1 flex items-center justify-start gap-2 opacity-0 transition-opacity group-hover/turn:opacity-100">
@@ -719,7 +894,6 @@ export function TurnBlock({
 								</button>
 							) : null}
 						</div>
-
 					</div>
 				))}
 			</div>

@@ -11,6 +11,7 @@ import type {
 	ChatEntry,
 	CodexChatSettings,
 	ReadingGroup,
+	ReasoningGroup,
 	SegmentedWorkingItem,
 	TurnBlockData,
 	TurnBlockStatus,
@@ -258,39 +259,16 @@ function mergeModelOptions(base: CodexModelInfo[], extraModels: string[]): Codex
 	return merged;
 }
 
-function countEntryKinds(entries: ChatEntry[]): Record<string, number> {
-	const counts: Record<string, number> = {};
-	for (const entry of entries) {
-		counts[entry.kind] = (counts[entry.kind] ?? 0) + 1;
-	}
-	return counts;
-}
-
-function collectReadingGroupIds(entries: ChatEntry[]): string[] {
-	const ids: string[] = [];
-	let activeGroup = false;
-	for (const entry of entries) {
-		if (entry.kind === 'command') {
-			const parsed = resolveParsedCmd(entry.command, entry.commandActions);
-			if (parsed.type === 'read' && !entry.approval) {
-				if (!activeGroup) {
-					ids.push(`read-group-${entry.id}`);
-					activeGroup = true;
-				}
-				continue;
-			}
-		}
-		activeGroup = false;
-	}
-	return ids;
-}
-
 function isReadingGroup(item: WorkingItem | undefined): item is ReadingGroup {
 	return !!item && 'kind' in item && item.kind === 'readingGroup';
 }
 
+function isReasoningGroup(item: WorkingItem | undefined): item is ReasoningGroup {
+	return !!item && 'kind' in item && item.kind === 'reasoningGroup';
+}
+
 function isReasoningEntry(item: WorkingItem): item is Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }> {
-	return !isReadingGroup(item) && item.kind === 'assistant' && item.role === 'reasoning';
+	return !isReadingGroup(item) && !isReasoningGroup(item) && item.kind === 'assistant' && item.role === 'reasoning';
 }
 
 function coerceReasoningParts(value: unknown): string[] {
@@ -390,18 +368,6 @@ function expandReasoningEntries(entries: ChatEntry[]): ChatEntry[] {
 	return expanded;
 }
 
-function collectReasoningSegmentIds(entries: ChatEntry[]): string[] {
-	const ids: string[] = [];
-	for (const entry of entries) {
-		if (entry.kind === 'assistant' && entry.role === 'reasoning') {
-			for (const segment of buildReasoningSegments(entry)) {
-				ids.push(segment.id);
-			}
-		}
-	}
-	return ids;
-}
-
 function mergeReadingEntries(entries: ChatEntry[]): WorkingItem[] {
 	const grouped: WorkingItem[] = [];
 	for (const entry of entries) {
@@ -418,6 +384,23 @@ function mergeReadingEntries(entries: ChatEntry[]): WorkingItem[] {
 			}
 		}
 		grouped.push(entry);
+	}
+	return grouped;
+}
+
+function mergeReasoningEntries(items: WorkingItem[]): WorkingItem[] {
+	const grouped: WorkingItem[] = [];
+	for (const item of items) {
+		if (isReasoningEntry(item)) {
+			const last = grouped[grouped.length - 1];
+			if (isReasoningGroup(last)) {
+				last.entries.push(item);
+				continue;
+			}
+			grouped.push({ kind: 'reasoningGroup', id: `reasoning-group-${item.id}`, entries: [item] });
+			continue;
+		}
+		grouped.push(item);
 	}
 	return grouped;
 }
@@ -518,15 +501,14 @@ function segmentExplorationItems(items: WorkingItem[], isTurnInProgress: boolean
 function countWorkingItems(items: SegmentedWorkingItem[]): number {
 	return items.reduce((acc, item) => {
 		if (item.kind === 'exploration') return acc + item.items.length;
+		if (item.kind === 'item' && isReasoningGroup(item.item)) return acc + item.item.entries.length;
 		return acc + 1;
 	}, 0);
 }
 
 function countRenderedWorkingItems(items: SegmentedWorkingItem[]): number {
-	return items.reduce((acc, item) => {
-		if (item.kind === 'exploration') return acc + 1 + item.items.length;
-		return acc + 1;
-	}, 0);
+	// Each segmented item renders as a top-level block in the turn.
+	return items.length;
 }
 
 function isCodexTextInput(value: CodexUserInput): value is Extract<CodexUserInput, { type: 'text' }> {
@@ -1417,16 +1399,16 @@ export function CodexChat() {
 	);
 
 	const selectSession = useCallback(
-		async (threadId: string, options?: { setAsWorkbenchRoot?: boolean }) => {
-			setSelectedThreadId(threadId);
-			setTurnOrder([]);
-			setTurnsById({});
-			setThreadTokenUsage(null);
-			setCollapsedWorkingByTurnId({});
-			setCollapsedByEntryId({});
-			setItemToTurnId({});
-			itemToTurnRef.current = {};
-			setActiveThread(null);
+			async (threadId: string, options?: { setAsWorkbenchRoot?: boolean }) => {
+				setSelectedThreadId(threadId);
+				setTurnOrder([]);
+				setTurnsById({});
+				setThreadTokenUsage(null);
+				setCollapsedWorkingByTurnId({});
+				setCollapsedByEntryId({});
+				setItemToTurnId({});
+				itemToTurnRef.current = {};
+				setActiveThread(null);
 			setActiveTurnId(null);
 			if (options?.setAsWorkbenchRoot) {
 				setWorkbenchRootThreadId(threadId);
@@ -1475,14 +1457,12 @@ export function CodexChat() {
 				const nextTurns: Record<string, TurnBlockData> = {};
 				const nextEntryCollapse: Record<string, boolean> = {};
 				const nextItemToTurn: Record<string, string> = {};
-				const nextWorkingCollapsed: Record<string, boolean> = {};
 				const typeCounts: Record<string, number> = {};
 
 				for (const turn of thread.turns ?? []) {
 					const turnId = turn.id;
 					if (!turnId) continue;
 					nextOrder.push(turnId);
-					nextWorkingCollapsed[turnId] = true;
 
 					const turnEntries: ChatEntry[] = [];
 					const items = turn.items ?? [];
@@ -1524,7 +1504,6 @@ export function CodexChat() {
 				if (nextOrder.length === 0) {
 					const turnId = PENDING_TURN_ID;
 					nextOrder.push(turnId);
-					nextWorkingCollapsed[turnId] = true;
 					nextTurns[turnId] = { id: turnId, status: 'unknown', entries: [] };
 				}
 
@@ -1535,7 +1514,6 @@ export function CodexChat() {
 
 				setTurnOrder(nextOrder);
 				setTurnsById(nextTurns);
-				setCollapsedWorkingByTurnId(nextWorkingCollapsed);
 				setCollapsedByEntryId(nextEntryCollapse);
 				setItemToTurnId(nextItemToTurn);
 				itemToTurnRef.current = nextItemToTurn;
@@ -2194,15 +2172,15 @@ export function CodexChat() {
 					}
 				}
 
-				if (selectedThreadId && threadIds.includes(selectedThreadId)) {
-					setTurnOrder([]);
-					setTurnsById({});
-					setThreadTokenUsage(null);
-					setCollapsedWorkingByTurnId({});
-					setItemToTurnId({});
-					itemToTurnRef.current = {};
-					setCollapsedByEntryId({});
-					setActiveThread(null);
+					if (selectedThreadId && threadIds.includes(selectedThreadId)) {
+						setTurnOrder([]);
+						setTurnsById({});
+						setThreadTokenUsage(null);
+						setCollapsedWorkingByTurnId({});
+						setItemToTurnId({});
+						itemToTurnRef.current = {};
+						setCollapsedByEntryId({});
+						setActiveThread(null);
 					setActiveTurnId(null);
 					setSelectedThreadId(null);
 					setSelectedSessionTreeNodeOverride(null);
@@ -2763,61 +2741,15 @@ export function CodexChat() {
 		(turnId: string) => {
 			skipAutoScrollRef.current = true;
 			const turn = turnsById[turnId];
-			const collapsedExplicit = collapsedWorkingByTurnId[turnId];
-			const currentOpen = collapsedExplicit === undefined ? turn?.status === 'inProgress' : !collapsedExplicit;
-			const nextOpen = !currentOpen;
-			const nextCollapsedExplicit = !nextOpen;
-
-			if (turn && turn.status !== 'inProgress' && nextOpen) {
-				const visible = settings.showReasoning ? turn.entries : turn.entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning');
-				const assistantMessages = visible.filter(
-					(e): e is Extract<ChatEntry, { kind: 'assistant'; role: 'message' }> => e.kind === 'assistant' && e.role === 'message'
-				);
-				const lastAssistantMessageId = assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1]?.id : null;
-				const workingEntries = visible.filter((e) => {
-					if (isActivityEntry(e)) return true;
-					if (e.kind === 'system') return true;
-					if (e.kind === 'assistant' && e.role === 'reasoning') return true;
-					if (e.kind === 'assistant' && e.role === 'message') return e.id !== lastAssistantMessageId;
-					return false;
-				});
-				const explorationGroupIds = segmentExplorationItems(mergeReadingEntries(expandReasoningEntries(workingEntries)), false).flatMap((item) =>
-					item.kind === 'exploration' ? [item.id] : []
-				);
-
-				// 每次展开 "Finished working" 时，内部所有可折叠 block 强制折叠。
-				// 这样 AI 过程性输出再多，也不会默认铺开占高度。
-				setCollapsedByEntryId((prev) => {
-					const next = { ...prev };
-					for (const entry of turn.entries) {
-						if (isActivityEntry(entry)) next[entry.id] = true;
-						if (entry.kind === 'assistant' && entry.role === 'reasoning') next[entry.id] = true;
-					}
-					for (const groupId of collectReadingGroupIds(turn.entries)) {
-						next[groupId] = true;
-					}
-					for (const segmentId of collectReasoningSegmentIds(turn.entries)) {
-						next[segmentId] = true;
-					}
-					for (const explorationId of explorationGroupIds) {
-						next[explorationId] = true;
-					}
-					return next;
-				});
-			}
-
-			if (import.meta.env.DEV && turn && nextOpen) {
-				const counts = countEntryKinds(turn.entries);
-				// eslint-disable-next-line no-console
-				console.info('[CodexChat] Expand turn:', {
-					turnId,
-					entryKinds: counts,
-				});
-			}
-
-			setCollapsedWorkingByTurnId((prev) => ({ ...prev, [turnId]: nextCollapsedExplicit }));
+			setCollapsedWorkingByTurnId((prev) => {
+				const collapsedExplicit = prev[turnId];
+				const currentOpen = collapsedExplicit === undefined ? turn?.status === 'inProgress' : !collapsedExplicit;
+				const nextOpen = !currentOpen;
+				const nextCollapsedExplicit = !nextOpen;
+				return { ...prev, [turnId]: nextCollapsedExplicit };
+			});
 		},
-		[collapsedWorkingByTurnId, settings.showReasoning, turnsById]
+		[turnsById]
 	);
 
 	// Context management callbacks
@@ -3169,6 +3101,7 @@ export function CodexChat() {
 				case 'clear':
 					setTurnOrder([]);
 					setTurnsById({});
+					setCollapsedWorkingByTurnId({});
 					setCollapsedByEntryId({});
 					break;
 				case 'context':
@@ -3781,32 +3714,34 @@ export function CodexChat() {
 				// Plugin parity: earlier assistant-messages stay in Working; only the last one is the final reply.
 				if (e.kind === 'assistant' && e.role === 'message') return e.id !== lastAssistantMessageId;
 				return false;
-			});
-			const expandedWorkingEntries = expandReasoningEntries(workingEntries);
-			const mergedWorkingItems = mergeReadingEntries(expandedWorkingEntries);
-			const workingItems = segmentExplorationItems(mergedWorkingItems, turn.status === 'inProgress');
-			const workingItemCount = countWorkingItems(workingItems);
-			const workingRenderCount = countRenderedWorkingItems(workingItems);
+				});
+				const expandedWorkingEntries = expandReasoningEntries(workingEntries);
+				const mergedReadingItems = mergeReadingEntries(expandedWorkingEntries);
+				const mergedWorkingItems = mergeReasoningEntries(mergedReadingItems);
+				const workingItems = segmentExplorationItems(mergedWorkingItems, turn.status === 'inProgress');
+				const workingItemCount = countWorkingItems(workingItems);
+				const workingRenderCount = countRenderedWorkingItems(workingItems);
 
 			return {
 				id: turn.id,
 				status: turn.status,
-				userEntries,
-				assistantMessageEntries,
-				workingItems,
-				workingItemCount,
-				workingRenderCount,
-			};
-		});
-	}, [settings.showReasoning, turnBlocks]);
+					userEntries,
+					assistantMessageEntries,
+					workingItems,
+					workingItemCount,
+					workingRenderCount,
+				};
+			});
+		}, [settings.showReasoning, turnBlocks]);
 
 	const renderCount = useMemo(() => {
 		return renderTurns.reduce((acc, t) => {
 			const collapsedExplicit = collapsedWorkingByTurnId[t.id];
 			const workingOpen = collapsedExplicit === undefined ? t.status === 'inProgress' : !collapsedExplicit;
-			const workingHeaderCount = t.workingItemCount > 0 ? 1 : 0;
-			const visibleWorkingCount = workingOpen ? t.workingRenderCount : 0;
-			return acc + t.userEntries.length + workingHeaderCount + visibleWorkingCount + t.assistantMessageEntries.length;
+			const hasWorking = t.workingItemCount > 0;
+			const workingHeaderCount = hasWorking ? 1 : 0;
+			const workingDetailsCount = hasWorking && workingOpen ? t.workingRenderCount : 0;
+			return acc + t.userEntries.length + workingHeaderCount + workingDetailsCount + t.assistantMessageEntries.length;
 		}, 0);
 	}, [collapsedWorkingByTurnId, renderTurns]);
 
@@ -4408,7 +4343,7 @@ export function CodexChat() {
 											</div>
 										) : null}
 
-										<div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4">
+										<div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden pb-4 min-w-0">
 											{renderTurns.map((turn) => (
 												<TurnBlock
 													key={turn.id}

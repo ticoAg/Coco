@@ -6,7 +6,13 @@ export type ReadingGroup = {
 	entries: Extract<ChatEntry, { kind: 'command' }>[];
 };
 
-export type WorkingItem = ChatEntry | ReadingGroup;
+export type ReasoningGroup = {
+	kind: 'reasoningGroup';
+	id: string;
+	entries: Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>[];
+};
+
+export type WorkingItem = ChatEntry | ReadingGroup | ReasoningGroup;
 
 export type SegmentedWorkingItem =
 	| {

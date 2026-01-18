@@ -68,6 +68,7 @@
 		border: 0;
 		background-color: transparent;
 		overflow: hidden;
+		width: 100%;
 	}
 
 	.am-block-open {
@@ -117,9 +118,23 @@
 		color: rgb(var(--am-text-muted));
 	}
 
+	/* VSCode Codex plugin-like scroll fade mask (supports custom edge distance via --edge-fade-distance) */
+	.vertical-scroll-fade-mask {
+		--edge-fade-distance: 12px;
+		-webkit-mask-image: linear-gradient(
+			to bottom,
+			transparent 0,
+			black var(--edge-fade-distance),
+			black calc(100% - var(--edge-fade-distance)),
+			transparent 100%
+		);
+		mask-image: linear-gradient(to bottom, transparent 0, black var(--edge-fade-distance), black calc(100% - var(--edge-fade-distance)), transparent 100%);
+	}
+
 	.am-shell {
 		overflow: hidden;
 		border-top: 1px solid rgb(255 255 255 / 0.06);
+		width: 100%;
 	}
 
 	.am-shell-header {
@@ -130,6 +145,7 @@
 		padding: 4px 8px;
 		color: rgb(var(--am-text-muted));
 		font-size: 12px;
+		width: 100%;
 	}
 
 	.am-shell-scroll {
@@ -137,6 +153,7 @@
 		overflow-x: auto;
 		overflow-y: auto;
 		padding: 8px;
+		width: 100%;
 	}
 
 	.am-shell-scroll::-webkit-scrollbar {

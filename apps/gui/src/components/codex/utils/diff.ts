@@ -77,7 +77,7 @@ export function parseUnifiedDiff(diff: string): ParsedDiff {
 
 	for (const raw of rawLines) {
 		const line = raw.replace(/\r$/, '');
-		const hunkMatch = line.match(/^@@\s*-(\d+)(?:,\\d+)?\s+\+(\d+)(?:,\\d+)?\s*@@/);
+		const hunkMatch = line.match(/^@@\s*-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s*@@/);
 		if (hunkMatch) {
 			if (sawHunk) {
 				pushLine('ellipsis', '⋮');

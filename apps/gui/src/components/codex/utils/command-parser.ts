@@ -109,11 +109,11 @@ function parseCommandSingle(cmdString: string): ParsedCmd {
 
 	// Pattern: cat/head/tail/less/more (read file)
 	if (/^(cat|head|tail|less|more|bat)\s/.test(lowerCmd)) {
-		const match = cmd.match(/^(?:cat|head|tail|less|more|bat)\s+(?:-[^\s]+\s+)*(.+)$/i);
-		if (match) {
-			const name = match[1].split(/\s+/)[0]; // first argument as filename
-			return { type: 'read', cmd, name };
-		}
+		// Many of these commands accept options with values (e.g. `head -c 400 file`),
+		// so "first arg after flags" is often not the filename. Prefer the last
+		// non-flag token as a best-effort path.
+		const name = extractLastPathArg(cmd);
+		if (name) return { type: 'read', cmd, name };
 		return { type: 'read', cmd };
 	}
 
