@@ -54,8 +54,41 @@ import type { TaskDirectoryEntry, TreeNodeData } from '../types/sidebar';
 
 const SETTINGS_STORAGE_KEY = 'agentmesh.codexChat.settings.v2';
 const SESSION_TREE_WIDTH_STORAGE_KEY = 'agentmesh.codexChat.sessionTreeWidth.v1';
+const PINNED_INPUT_ITEMS_STORAGE_KEY = 'agentmesh.codexChat.pinnedInputItems.v1';
 const SESSION_TREE_MIN_WIDTH_PX = 200;
 const SESSION_TREE_MAX_WIDTH_PX = 520;
+
+type PinnedInputItem = { type: 'prompt' | 'skill'; name: string };
+
+function loadPinnedInputItems(): PinnedInputItem[] {
+	if (typeof window === 'undefined') return [];
+	try {
+		const raw = window.localStorage.getItem(PINNED_INPUT_ITEMS_STORAGE_KEY);
+		if (!raw) return [];
+		const parsed = JSON.parse(raw) as unknown;
+		if (!Array.isArray(parsed)) return [];
+		const out: PinnedInputItem[] = [];
+		for (const item of parsed) {
+			if (!item || typeof item !== 'object') continue;
+			const type = safeString((item as any).type);
+			const name = safeString((item as any).name);
+			if ((type === 'prompt' || type === 'skill') && name) {
+				out.push({ type, name });
+			}
+		}
+		return out;
+	} catch {
+		return [];
+	}
+}
+
+function persistPinnedInputItems(items: PinnedInputItem[]) {
+	try {
+		window.localStorage.setItem(PINNED_INPUT_ITEMS_STORAGE_KEY, JSON.stringify(items));
+	} catch {
+		// ignore
+	}
+}
 
 function loadCodexChatSettings(): CodexChatSettings {
 	const defaults: CodexChatSettings = {
@@ -1017,30 +1050,79 @@ export function CodexChat() {
 	const [skillSearchQuery, setSkillSearchQuery] = useState('');
 	const [skillHighlightIndex, setSkillHighlightIndex] = useState(0);
 	const [selectedSkill, setSelectedSkill] = useState<SkillMetadata | null>(null);
-	// Prompts state
-	const [prompts, setPrompts] = useState<CustomPrompt[]>([]);
-	const [selectedPrompt, setSelectedPrompt] = useState<CustomPrompt | null>(null);
-	const fileInputRef = useRef<HTMLInputElement>(null);
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const menuListRef = useRef<HTMLDivElement>(null);
-	const computedWorkspaceBasePath = activeThread?.cwd ?? workspaceRoot ?? null;
-	const workspaceBasePath = workspaceBasePathOverride ?? computedWorkspaceBasePath;
+		// Prompts state
+		const [prompts, setPrompts] = useState<CustomPrompt[]>([]);
+		const [selectedPrompt, setSelectedPrompt] = useState<CustomPrompt | null>(null);
+		// Slash menu pins (skill/prompt only)
+		const [pinnedInputItems, setPinnedInputItems] = useState<PinnedInputItem[]>(() => loadPinnedInputItems());
+		const fileInputRef = useRef<HTMLInputElement>(null);
+		const textareaRef = useRef<HTMLTextAreaElement>(null);
+		const menuListRef = useRef<HTMLDivElement>(null);
+		const computedWorkspaceBasePath = activeThread?.cwd ?? workspaceRoot ?? null;
+		const workspaceBasePath = workspaceBasePathOverride ?? computedWorkspaceBasePath;
 
 	// Reset the override when the source base path changes (e.g. switching sessions / selecting a new project).
-	useEffect(() => {
-		setWorkspaceBasePathOverride(null);
-	}, [computedWorkspaceBasePath]);
+		useEffect(() => {
+			setWorkspaceBasePathOverride(null);
+		}, [computedWorkspaceBasePath]);
 
-	const adjustTextareaHeight = useCallback(() => {
-		const textarea = textareaRef.current;
-		if (!textarea) return;
-		textarea.style.height = 'auto';
-		textarea.style.height = `${Math.min(textarea.scrollHeight, 264)}px`;
-	}, []);
+		useEffect(() => {
+			persistPinnedInputItems(pinnedInputItems);
+		}, [pinnedInputItems]);
 
-	useLayoutEffect(() => {
-		adjustTextareaHeight();
-	}, [adjustTextareaHeight, input]);
+		const adjustTextareaHeight = useCallback(() => {
+			const textarea = textareaRef.current;
+			if (!textarea) return;
+			textarea.style.height = 'auto';
+			textarea.style.height = `${Math.min(textarea.scrollHeight, 264)}px`;
+		}, []);
+
+		const pinnedPromptNames = useMemo(() => {
+			return new Set(pinnedInputItems.filter((item) => item.type === 'prompt').map((item) => item.name));
+		}, [pinnedInputItems]);
+
+		const pinnedSkillNames = useMemo(() => {
+			return new Set(pinnedInputItems.filter((item) => item.type === 'skill').map((item) => item.name));
+		}, [pinnedInputItems]);
+
+		const togglePinnedPromptName = useCallback((promptName: string) => {
+			setPinnedInputItems((prev) => {
+				const idx = prev.findIndex((item) => item.type === 'prompt' && item.name === promptName);
+				if (idx >= 0) return prev.filter((_, i) => i !== idx);
+				return [{ type: 'prompt', name: promptName }, ...prev];
+			});
+		}, []);
+
+		const togglePinnedSkillName = useCallback((skillName: string) => {
+			setPinnedInputItems((prev) => {
+				const idx = prev.findIndex((item) => item.type === 'skill' && item.name === skillName);
+				if (idx >= 0) return prev.filter((_, i) => i !== idx);
+				return [{ type: 'skill', name: skillName }, ...prev];
+			});
+		}, []);
+
+		const pinnedResolvedItems = useMemo(() => {
+			const out: Array<
+				| { type: 'prompt'; prompt: CustomPrompt }
+				| { type: 'skill'; skill: SkillMetadata }
+			> = [];
+			for (const item of pinnedInputItems) {
+				if (item.type === 'prompt') {
+					const prompt = prompts.find((p) => p.name === item.name);
+					if (prompt) out.push({ type: 'prompt', prompt });
+					continue;
+				}
+				if (item.type === 'skill') {
+					const skill = skills.find((s) => s.name === item.name);
+					if (skill) out.push({ type: 'skill', skill });
+				}
+			}
+			return out;
+		}, [pinnedInputItems, prompts, skills]);
+
+		useLayoutEffect(() => {
+			adjustTextareaHeight();
+		}, [adjustTextareaHeight, input]);
 
 	const showWorkspaceListToast = useCallback((message: string) => {
 		setWorkspaceListToast(message);
@@ -3069,14 +3151,17 @@ export function CodexChat() {
 
 		for (const cmd of SLASH_COMMANDS) {
 			// 匹配 id 或 label
-			const matchId = fuzzyMatch(cmd.id, query);
-			const matchLabel = fuzzyMatch(cmd.label, query);
+			const matchLabel = fuzzyMatch(query, cmd.label);
+			const matchId = fuzzyMatch(query, cmd.id);
 
-			// 取最佳匹配
-			const candidates = [matchId, matchLabel].filter((m): m is NonNullable<typeof m> => m !== null);
-			if (candidates.length > 0) {
-				const best = candidates.sort((a, b) => a.score - b.score)[0];
-				results.push({ cmd, indices: best.indices, score: best.score });
+			// 优先使用 label 匹配（也是实际展示的字段），避免高亮索引错位。
+			if (matchLabel) {
+				results.push({ cmd, indices: matchLabel.indices, score: matchLabel.score });
+				continue;
+			}
+			// id 仅用于兜底检索：展示时不高亮 label，且排序略靠后。
+			if (matchId) {
+				results.push({ cmd, indices: null, score: matchId.score + 10_000 });
 			}
 		}
 
@@ -3094,14 +3179,9 @@ export function CodexChat() {
 		const results: FilteredSkill[] = [];
 
 		for (const skill of skills) {
-			const matchName = fuzzyMatch(skill.name, query);
-			const matchDesc = fuzzyMatch(skill.description, query);
-
-			const candidates = [matchName, matchDesc].filter((m): m is NonNullable<typeof m> => m !== null);
-			if (candidates.length > 0) {
-				const best = candidates.sort((a, b) => a.score - b.score)[0];
-				results.push({ skill, indices: best.indices, score: best.score });
-			}
+			const matchName = fuzzyMatch(query, skill.name);
+			if (!matchName) continue;
+			results.push({ skill, indices: matchName.indices, score: matchName.score });
 		}
 
 		return results.sort((a, b) => a.score - b.score);
@@ -3120,20 +3200,23 @@ export function CodexChat() {
 			return prompts.map((prompt) => ({ prompt, indices: null, score: 0 }));
 		}
 
+		const PROMPT_PREFIX = 'prompts:';
+		const normalizedQuery = query.toLowerCase().startsWith(PROMPT_PREFIX) ? query.slice(PROMPT_PREFIX.length) : query;
+		if (!normalizedQuery.trim()) {
+			return prompts.map((prompt) => ({ prompt, indices: null, score: 0 }));
+		}
+
 		const results: FilteredPrompt[] = [];
 
 		for (const prompt of prompts) {
-			// Match against "prompts:name" format or just "name"
-			const displayName = `prompts:${prompt.name}`;
-			const matchDisplay = fuzzyMatch(displayName, query);
-			const matchName = fuzzyMatch(prompt.name, query);
-			const matchDesc = prompt.description ? fuzzyMatch(prompt.description, query) : null;
-
-			const candidates = [matchDisplay, matchName, matchDesc].filter((m): m is NonNullable<typeof m> => m !== null);
-			if (candidates.length > 0) {
-				const best = candidates.sort((a, b) => a.score - b.score)[0];
-				results.push({ prompt, indices: best.indices, score: best.score });
-			}
+			// 仅匹配 prompt.name（不匹配 description），展示时仍以 "prompts:name" 形式显示。
+			const matchName = fuzzyMatch(normalizedQuery, prompt.name);
+			if (!matchName) continue;
+			results.push({
+				prompt,
+				indices: matchName.indices.map((idx) => idx + PROMPT_PREFIX.length),
+				score: matchName.score,
+			});
 		}
 
 		return results.sort((a, b) => a.score - b.score);
@@ -3158,14 +3241,9 @@ export function CodexChat() {
 		const results: FilteredSkill[] = [];
 
 		for (const skill of skills) {
-			const matchName = fuzzyMatch(skill.name, query);
-			const matchDesc = fuzzyMatch(skill.description, query);
-
-			const candidates = [matchName, matchDesc].filter((m): m is NonNullable<typeof m> => m !== null);
-			if (candidates.length > 0) {
-				const best = candidates.sort((a, b) => a.score - b.score)[0];
-				results.push({ skill, indices: best.indices, score: best.score });
-			}
+			const matchName = fuzzyMatch(query, skill.name);
+			if (!matchName) continue;
+			results.push({ skill, indices: matchName.indices, score: matchName.score });
 		}
 
 		return results.sort((a, b) => a.score - b.score);
@@ -3414,6 +3492,25 @@ export function CodexChat() {
 				}
 			}
 
+			// Backspace 删除已选中的 prompt/skill（像删除文本一样）
+			if (e.key === 'Backspace') {
+				const target = e.target as HTMLTextAreaElement;
+				const cursorPos = target.selectionStart ?? 0;
+				const cursorEnd = target.selectionEnd ?? 0;
+				if (cursorPos === 0 && cursorEnd === 0) {
+					if (selectedSkill) {
+						e.preventDefault();
+						setSelectedSkill(null);
+						return;
+					}
+					if (selectedPrompt) {
+						e.preventDefault();
+						setSelectedPrompt(null);
+						return;
+					}
+				}
+			}
+
 			// Open slash menu when typing / (隐藏 / 字符，直接打开搜索框)
 			if (e.key === '/') {
 				const target = e.target as HTMLTextAreaElement;
@@ -3459,6 +3556,8 @@ export function CodexChat() {
 			input,
 			isSlashMenuOpen,
 			isSkillMenuOpen,
+			selectedPrompt,
+			selectedSkill,
 			sendMessage,
 			slashHighlightIndex,
 			skillHighlightIndex,
@@ -4759,18 +4858,22 @@ export function CodexChat() {
 																onHighlight={setSkillHighlightIndex}
 																onSelect={executeSkillSelection}
 															/>
-														) : isSlashMenuOpen ? (
-															<SlashCommandMenu
-																filteredCommands={filteredSlashCommands}
-																filteredPrompts={filteredPromptsForSlashMenu}
-																filteredSkills={filteredSkillsForSlashMenu}
-																highlightIndex={slashHighlightIndex}
-																onHighlight={setSlashHighlightIndex}
-																onSelectCommand={executeSlashCommand}
-																onSelectPrompt={executePromptSelection}
-																onSelectSkill={executeSkillSelection}
-															/>
-														) : (
+															) : isSlashMenuOpen ? (
+																<SlashCommandMenu
+																	filteredCommands={filteredSlashCommands}
+																	filteredPrompts={filteredPromptsForSlashMenu}
+																	filteredSkills={filteredSkillsForSlashMenu}
+																	pinnedPromptNames={pinnedPromptNames}
+																	pinnedSkillNames={pinnedSkillNames}
+																	highlightIndex={slashHighlightIndex}
+																	onHighlight={setSlashHighlightIndex}
+																	onSelectCommand={executeSlashCommand}
+																	onSelectPrompt={executePromptSelection}
+																	onSelectSkill={executeSkillSelection}
+																	onTogglePromptPin={togglePinnedPromptName}
+																	onToggleSkillPin={togglePinnedSkillName}
+																/>
+															) : (
 															// File search results
 															<>
 																{fileSearchResults.length > 0 ? (
@@ -4819,19 +4922,47 @@ export function CodexChat() {
 											</div>
 										) : null}
 
-										{/* Hidden file input for image upload */}
-										<input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+											{/* Hidden file input for image upload */}
+											<input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
 
-										{/* Input area with inline tags for skill/prompt */}
-										<div className="flex flex-wrap items-start gap-1.5">
-											{/* Selected prompt - inline tag */}
-											{selectedPrompt ? (
+											{/* Pinned prompt/skill shortcuts */}
+											{pinnedResolvedItems.length > 0 ? (
+												<div className="flex flex-wrap gap-1.5">
+													{pinnedResolvedItems.map((item) =>
+														item.type === 'prompt' ? (
+															<button
+																key={`prompt:${item.prompt.name}`}
+																type="button"
+																className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-[11px] text-text-muted hover:bg-white/10 hover:text-text-main"
+																onClick={() => executePromptSelection(item.prompt)}
+																title={`prompts:${item.prompt.name}`}
+															>
+																<FileText className="h-3 w-3 text-text-menuLabel" />
+																<span className="max-w-[200px] truncate">{`prompts:${item.prompt.name}`}</span>
+															</button>
+														) : (
+															<button
+																key={`skill:${item.skill.name}`}
+																type="button"
+																className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-[11px] text-text-muted hover:bg-white/10 hover:text-text-main"
+																onClick={() => executeSkillSelection(item.skill)}
+																title={item.skill.name}
+															>
+																<Zap className="h-3 w-3 text-text-menuLabel" />
+																<span className="max-w-[200px] truncate">{item.skill.name}</span>
+															</button>
+														)
+													)}
+												</div>
+											) : null}
+
+											{/* Input area with inline tags for skill/prompt */}
+											<div className="flex flex-wrap items-start gap-1.5">
+												{/* Selected prompt - inline tag */}
+												{selectedPrompt ? (
 												<div className="inline-flex shrink-0 items-center gap-1.5 rounded bg-blue-500/10 px-1.5 py-0.5 text-[11px] text-blue-400">
 													<FileText className="h-3 w-3" />
 													<span className="max-w-[160px] truncate">prompts:{selectedPrompt.name}</span>
-													<button type="button" className="rounded p-0.5 hover:bg-blue-500/20" onClick={() => setSelectedPrompt(null)}>
-														<X className="h-3 w-3" />
-													</button>
 												</div>
 											) : null}
 											{/* Selected skill - inline tag */}
@@ -4839,9 +4970,6 @@ export function CodexChat() {
 												<div className="inline-flex shrink-0 items-center gap-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
 													<Zap className="h-3 w-3" />
 													<span className="max-w-[160px] truncate">{selectedSkill.name}</span>
-													<button type="button" className="rounded p-0.5 hover:bg-primary/20" onClick={() => setSelectedSkill(null)}>
-														<X className="h-3 w-3" />
-													</button>
 												</div>
 											) : null}
 											{/* Textarea */}

@@ -8,6 +8,7 @@ import {
 	LogOut,
 	Minimize2,
 	Paperclip,
+	Pin,
 	Play,
 	Plus,
 	Search,
@@ -41,11 +42,15 @@ interface SlashCommandMenuProps {
 	filteredCommands: FilteredSlashCommand[];
 	filteredPrompts: FilteredPrompt[];
 	filteredSkills: FilteredSkill[];
+	pinnedPromptNames: Set<string>;
+	pinnedSkillNames: Set<string>;
 	highlightIndex: number;
 	onHighlight: (index: number) => void;
 	onSelectCommand: (id: string) => void;
 	onSelectPrompt: (prompt: CustomPrompt) => void;
 	onSelectSkill: (skill: SkillMetadata) => void;
+	onTogglePromptPin: (promptName: string) => void;
+	onToggleSkillPin: (skillName: string) => void;
 }
 
 function iconForCommand(icon: SlashCommand['icon']) {
@@ -93,11 +98,15 @@ export function SlashCommandMenu({
 	filteredCommands,
 	filteredPrompts,
 	filteredSkills,
+	pinnedPromptNames,
+	pinnedSkillNames,
 	highlightIndex,
 	onHighlight,
 	onSelectCommand,
 	onSelectPrompt,
 	onSelectSkill,
+	onTogglePromptPin,
+	onToggleSkillPin,
 }: SlashCommandMenuProps) {
 	return (
 		<>
@@ -132,6 +141,7 @@ export function SlashCommandMenu({
 					<div className={`${MENU_STYLES.popoverTitle} ${filteredCommands.length > 0 ? 'mt-2 border-t border-border-menuDivider pt-2' : ''}`}>Prompts</div>
 					{filteredPrompts.map(({ prompt, indices }, idx) => {
 						const globalIdx = filteredCommands.length + idx;
+						const isPinned = pinnedPromptNames.has(prompt.name);
 						return (
 							<button
 								key={prompt.name}
@@ -142,9 +152,24 @@ export function SlashCommandMenu({
 								onMouseEnter={() => onHighlight(globalIdx)}
 							>
 								<FileText className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-								<span>{indices && indices.length > 0 ? highlightMatches(`prompts:${prompt.name}`, indices) : `prompts:${prompt.name}`}</span>
+								<span className="min-w-0 flex-1 truncate">{indices && indices.length > 0 ? highlightMatches(`prompts:${prompt.name}`, indices) : `prompts:${prompt.name}`}</span>
 								<span className={MENU_STYLES.popoverItemDesc} title={prompt.description || 'send saved prompt'}>
 									{prompt.description || 'send saved prompt'}
+								</span>
+								<span
+									role="button"
+									aria-label={isPinned ? '取消固定 prompt' : '固定 prompt'}
+									className={[
+										'ml-2 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded',
+										isPinned ? 'text-primary' : 'text-text-menuLabel hover:bg-white/10 hover:text-text-main',
+									].join(' ')}
+									onClick={(e) => {
+										e.preventDefault();
+										e.stopPropagation();
+										onTogglePromptPin(prompt.name);
+									}}
+								>
+									<Pin className="h-3.5 w-3.5" />
 								</span>
 							</button>
 						);
@@ -163,6 +188,7 @@ export function SlashCommandMenu({
 					</div>
 					{filteredSkills.map(({ skill, indices }, idx) => {
 						const globalIdx = filteredCommands.length + filteredPrompts.length + idx;
+						const isPinned = pinnedSkillNames.has(skill.name);
 						return (
 							<button
 								key={skill.name}
@@ -173,9 +199,24 @@ export function SlashCommandMenu({
 								onMouseEnter={() => onHighlight(globalIdx)}
 							>
 								<Zap className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-								<span>{indices && indices.length > 0 ? highlightMatches(skill.name, indices) : skill.name}</span>
+								<span className="min-w-0 flex-1 truncate">{indices && indices.length > 0 ? highlightMatches(skill.name, indices) : skill.name}</span>
 								<span className={MENU_STYLES.popoverItemDesc} title={skill.shortDescription || skill.description}>
 									{skill.shortDescription || skill.description}
+								</span>
+								<span
+									role="button"
+									aria-label={isPinned ? '取消固定 skill' : '固定 skill'}
+									className={[
+										'ml-2 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded',
+										isPinned ? 'text-primary' : 'text-text-menuLabel hover:bg-white/10 hover:text-text-main',
+									].join(' ')}
+									onClick={(e) => {
+										e.preventDefault();
+										e.stopPropagation();
+										onToggleSkillPin(skill.name);
+									}}
+								>
+									<Pin className="h-3.5 w-3.5" />
 								</span>
 							</button>
 						);
