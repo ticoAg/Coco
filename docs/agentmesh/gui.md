@@ -84,6 +84,7 @@ macOS-only 的 `.app` 里可以包含：
 - 会话树交互轮数：左侧会话树的 task/orchestrator/worker 节点用“用户输入 + AI 输出”累计轮数替代图标显示（每个 user message +1，AI 每轮 +1）。
 - 工作目录（workspace root）：GUI 顶部提供主入口（Current/Recent/Open Project/New Window/About/Updates）可切换工作目录与相关操作；切换后会重启 `codex app-server` 并默认开启新会话。工作目录与最近项目（最多 5 条）都会持久化到 App Data（默认优先级低于环境变量 `AGENTMESH_WORKSPACE_ROOT`）。
 - 输入区覆盖：仅提供 `model` 与 `model_reasoning_effort` 的快捷选择（其余配置从 `~/.codex/config.toml` 读取）；`model` 选项来自 `model/list`，若存在 profiles 则合并 `profiles.*.model` 并去重，空集则回退 `gpt-5.2` / `gpt-5.2-codex`。
+- 图片输入：支持通过 `+` 选择图片、或在输入框中粘贴图片；一次可发送多张，单张最大 5MB；消息气泡中显示缩略图。
 - Profile 选择：当 `config.toml` 定义 `profiles` 时，底部状态栏展示 profile 下拉；切换仅影响当前 GUI 会话，会重启 app-server 并恢复当前 session（若当前 turn 进行中需确认）。
 - Fork/Rollback（增强）：在 Codex Chat 中暴露 `thread/fork` 与 `thread/rollback`，用于验证 fork 继承与“清理主线程历史”的交互边界（注意：rollback 只回滚历史，不回滚文件修改）。
 - Auto context（轻量 repo 包装）：当开启 Auto context 时，GUI 会在发送给 Codex 的文本前追加一个固定格式的 header（包含当前 repo 与最多 3 个 related repo 的绝对路径），以便模型自行按路径读取/定位相关文件；聊天区展示实际发送给 Codex 的文本；GUI 顶部 repo selector 仅显示 repo 名称，悬停显示绝对路径，related repo 悬停右侧出现红色 `-` 可移除（会话级，new session 重置）。

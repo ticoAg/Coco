@@ -1,8 +1,13 @@
 import type { CommandAction, McpToolCallError, McpToolCallResult } from '../../../types/codex';
 import type { parseCodeReviewStructuredOutputFromMessage } from '../assistantMessage';
 
-/** 附加内容类型 */
-export type AttachmentItem = { type: 'file'; path: string; name: string } | { type: 'skill'; name: string } | { type: 'prompt'; name: string };
+/** 附加内容类型（用于消息气泡展示与 rerun） */
+export type AttachmentItem =
+	| { type: 'file'; path: string; name: string }
+	| { type: 'image'; url: string; name: string }
+	| { type: 'localImage'; path: string; name: string }
+	| { type: 'skill'; name: string }
+	| { type: 'prompt'; name: string };
 
 export type CollabAgentState = {
 	status: 'pendingInit' | 'running' | 'completed' | 'errored' | 'shutdown' | 'notFound';

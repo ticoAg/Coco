@@ -57,6 +57,7 @@ const SESSION_TREE_WIDTH_STORAGE_KEY = 'agentmesh.codexChat.sessionTreeWidth.v1'
 const PINNED_INPUT_ITEMS_STORAGE_KEY = 'agentmesh.codexChat.pinnedInputItems.v1';
 const SESSION_TREE_MIN_WIDTH_PX = 200;
 const SESSION_TREE_MAX_WIDTH_PX = 520;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 type PinnedInputItem = { type: 'prompt' | 'skill'; name: string };
 
@@ -529,15 +530,82 @@ function extractUserText(item: Extract<CodexThreadItem, { type: 'userMessage' }>
 	return parts.join('\n').trim();
 }
 
+function isImageDataUrl(value: string): boolean {
+	return value.startsWith('data:image');
+}
+
+function basenameFromPath(value: string): string {
+	const normalized = value.replace(/\\/g, '/');
+	const parts = normalized.split('/');
+	return parts[parts.length - 1] || value;
+}
+
+function guessImageNameFromDataUrl(url: string): string {
+	const match = url.match(/^data:(image\/[^;]+);base64,/);
+	if (!match) return 'image';
+	const mime = match[1] ?? '';
+	let ext = mime.split('/')[1] ?? '';
+	ext = ext.toLowerCase().replace('jpeg', 'jpg');
+	ext = ext.split('+')[0] ?? ext;
+	return ext ? `image.${ext}` : 'image';
+}
+
+function imageUrlDedupKey(url: string): string {
+	// Avoid using the whole base64 string as a Set key (can be very large).
+	const head = url.slice(0, 24);
+	const tail = url.slice(-24);
+	return `image:${url.length}:${head}:${tail}`;
+}
+
+function attachmentDedupKey(att: AttachmentItem): string {
+	switch (att.type) {
+		case 'file':
+			return `file:${att.path}`;
+		case 'skill':
+			return `skill:${att.name}`;
+		case 'prompt':
+			return `prompt:${att.name}`;
+		case 'image':
+			return imageUrlDedupKey(att.url);
+		case 'localImage':
+			return `localImage:${att.path}`;
+		default:
+			return `${(att as any)?.type ?? 'unknown'}`;
+	}
+}
+
 function extractUserAttachments(item: Extract<CodexThreadItem, { type: 'userMessage' }>): AttachmentItem[] {
 	const out: AttachmentItem[] = [];
 	const seen = new Set<string>();
 	for (const content of item.content ?? []) {
 		if (content.type === 'skill' && typeof content.name === 'string') {
-			const key = `skill:${content.name}`;
+			const att: AttachmentItem = { type: 'skill', name: content.name };
+			const key = attachmentDedupKey(att);
 			if (seen.has(key)) continue;
 			seen.add(key);
-			out.push({ type: 'skill', name: content.name });
+			out.push(att);
+			continue;
+		}
+
+		if (content.type === 'image' && typeof (content as { url?: unknown }).url === 'string') {
+			const url = (content as { url: string }).url;
+			const name = guessImageNameFromDataUrl(url);
+			const att: AttachmentItem = { type: 'image', url, name };
+			const key = attachmentDedupKey(att);
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(att);
+			continue;
+		}
+
+		if (content.type === 'localImage' && typeof (content as { path?: unknown }).path === 'string') {
+			const path = (content as { path: string }).path;
+			const name = basenameFromPath(path);
+			const att: AttachmentItem = { type: 'localImage', path, name };
+			const key = attachmentDedupKey(att);
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(att);
 		}
 	}
 	return out;
@@ -684,22 +752,17 @@ function mergeEntry(entries: ChatEntry[], next: ChatEntry): ChatEntry[] {
 		if (matchIdx !== -1) {
 			const prev = entries[matchIdx] as Extract<ChatEntry, { kind: 'user' }>;
 
-			const mergedAttachments = (() => {
-				const out: AttachmentItem[] = [];
-				const seen = new Set<string>();
-				for (const att of [...(prev.attachments ?? []), ...(incoming.attachments ?? [])]) {
-					const key =
-						att.type === 'file'
-							? `file:${att.path}`
-							: att.type === 'skill'
-								? `skill:${att.name}`
-								: `prompt:${att.name}`;
-					if (seen.has(key)) continue;
-					seen.add(key);
-					out.push(att);
-				}
-				return out;
-			})();
+				const mergedAttachments = (() => {
+					const out: AttachmentItem[] = [];
+					const seen = new Set<string>();
+					for (const att of [...(prev.attachments ?? []), ...(incoming.attachments ?? [])]) {
+						const key = attachmentDedupKey(att);
+						if (seen.has(key)) continue;
+						seen.add(key);
+						out.push(att);
+					}
+					return out;
+				})();
 
 			const copy = [...entries];
 			copy[matchIdx] = {
@@ -2739,23 +2802,34 @@ export function CodexChat() {
 	const sendMessage = useCallback(async () => {
 		const userInput = input;
 		const trimmedInput = userInput.trim();
-		// Allow sending if there's text, or if a skill/prompt is selected
-		if (!trimmedInput && !selectedSkill && !selectedPrompt) return;
+		const hasImageAttachments = fileAttachments.some((att) => att.kind === 'image' || att.kind === 'localImage');
+		// Allow sending if there's text, or if a skill/prompt is selected, or if images are attached.
+		if (!trimmedInput && !selectedSkill && !selectedPrompt && !hasImageAttachments) return;
 
 		// Prevent duplicate sends if the handler fires twice before React applies the disabled state.
 		if (sendInFlightRef.current) return;
 		sendInFlightRef.current = true;
 		setSending(true);
 
-		try {
-			// Build attachments list for UI display
-			const attachments: AttachmentItem[] = [];
-			for (const f of fileAttachments) {
-				attachments.push({ type: 'file', path: f.path, name: f.name });
-			}
-			if (selectedSkill) {
-				attachments.push({ type: 'skill', name: selectedSkill.name });
-			}
+			try {
+				// Build attachments list for UI display
+				const attachments: AttachmentItem[] = [];
+				for (const f of fileAttachments) {
+					if (f.kind === 'file') {
+						attachments.push({ type: 'file', path: f.path, name: f.name });
+						continue;
+					}
+					if (f.kind === 'image') {
+						attachments.push({ type: 'image', url: f.dataUrl, name: f.name });
+						continue;
+					}
+					if (f.kind === 'localImage') {
+						attachments.push({ type: 'localImage', path: f.path, name: f.name });
+					}
+				}
+				if (selectedSkill) {
+					attachments.push({ type: 'skill', name: selectedSkill.name });
+				}
 			if (selectedPrompt) {
 				attachments.push({ type: 'prompt', name: selectedPrompt.name });
 			}
@@ -2781,16 +2855,25 @@ export function CodexChat() {
 					})
 				: userInput;
 
-			// Build CodexUserInput array for API
-			const codexInput: CodexUserInput[] = [];
+				// Build CodexUserInput array for API
+				const codexInput: CodexUserInput[] = [];
 
-			// Add text input
-			codexInput.push({ type: 'text', text: outgoingText });
+				// Add images first (TUI parity).
+				for (const att of fileAttachments) {
+					if (att.kind === 'image') {
+						codexInput.push({ type: 'image', url: att.dataUrl });
+					} else if (att.kind === 'localImage') {
+						codexInput.push({ type: 'localImage', path: att.path });
+					}
+				}
 
-			// Add skill with name and path
-			if (selectedSkill) {
-				codexInput.push({ type: 'skill', name: selectedSkill.name, path: selectedSkill.path });
-			}
+				// Add text input (keep old behavior: always include text, even if empty).
+				codexInput.push({ type: 'text', text: outgoingText });
+
+				// Add skill with name and path
+				if (selectedSkill) {
+					codexInput.push({ type: 'skill', name: selectedSkill.name, path: selectedSkill.path });
+				}
 
 			// Create user entry with attachments
 			const userEntry: ChatEntry = {
@@ -2819,6 +2902,7 @@ export function CodexChat() {
 			setInput('');
 			setSelectedSkill(null);
 			setSelectedPrompt(null);
+			setFileAttachments([]);
 			await apiClient.codexTurnStart(threadId, codexInput, selectedModel, selectedEffort, approvalPolicy);
 		} catch (err) {
 			const systemEntry: ChatEntry = {
@@ -2880,18 +2964,18 @@ export function CodexChat() {
 			const seen = new Set<string>();
 			const hasSkillCatalog = skills.length > 0;
 			const hasPromptCatalog = prompts.length > 0;
-			for (const att of attachments) {
-				if (att.type === 'skill') {
-					if (hasSkillCatalog && !skills.some((skill) => skill.name === att.name)) continue;
+				for (const att of attachments) {
+					if (att.type === 'skill') {
+						if (hasSkillCatalog && !skills.some((skill) => skill.name === att.name)) continue;
+					}
+					if (att.type === 'prompt') {
+						if (hasPromptCatalog && !prompts.some((prompt) => prompt.name === att.name)) continue;
+					}
+					const key = attachmentDedupKey(att);
+					if (seen.has(key)) continue;
+					seen.add(key);
+					out.push(att);
 				}
-				if (att.type === 'prompt') {
-					if (hasPromptCatalog && !prompts.some((prompt) => prompt.name === att.name)) continue;
-				}
-				const key = att.type === 'file' ? `file:${att.path}` : `${att.type}:${att.name}`;
-				if (seen.has(key)) continue;
-				seen.add(key);
-				out.push(att);
-			}
 			return out;
 		},
 		[prompts, skills]
@@ -2904,14 +2988,15 @@ export function CodexChat() {
 				return false;
 			}
 
-			const trimmedInput = draft.text.trim();
-			const normalizedAttachments = normalizeRerunAttachments(draft.attachments);
-			const hasSkill = normalizedAttachments.some((att) => att.type === 'skill');
-			const hasPrompt = normalizedAttachments.some((att) => att.type === 'prompt');
-			if (!trimmedInput && !hasSkill && !hasPrompt) {
-				await dialogMessage('消息为空。', { title: '重新运行', kind: 'error' });
-				return false;
-			}
+				const trimmedInput = draft.text.trim();
+				const normalizedAttachments = normalizeRerunAttachments(draft.attachments);
+				const hasSkill = normalizedAttachments.some((att) => att.type === 'skill');
+				const hasPrompt = normalizedAttachments.some((att) => att.type === 'prompt');
+				const hasImage = normalizedAttachments.some((att) => att.type === 'image' || att.type === 'localImage');
+				if (!trimmedInput && !hasSkill && !hasPrompt && !hasImage) {
+					await dialogMessage('消息为空。', { title: '重新运行', kind: 'error' });
+					return false;
+				}
 
 			const targetTurnId = resolveTurnIdForEntry(entry.id);
 			if (!targetTurnId) {
@@ -2947,33 +3032,66 @@ export function CodexChat() {
 				return false;
 			}
 
-			const nextSkillName = normalizedAttachments.find((att) => att.type === 'skill')?.name ?? null;
-			const nextPromptName = normalizedAttachments.find((att) => att.type === 'prompt')?.name ?? null;
-			const nextSkill = nextSkillName ? skills.find((skill) => skill.name === nextSkillName) ?? null : null;
-			const nextPrompt = nextPromptName ? prompts.find((prompt) => prompt.name === nextPromptName) ?? null : null;
+				const nextSkillName = normalizedAttachments.find((att) => att.type === 'skill')?.name ?? null;
+				const nextPromptName = normalizedAttachments.find((att) => att.type === 'prompt')?.name ?? null;
+				const nextSkill = nextSkillName ? skills.find((skill) => skill.name === nextSkillName) ?? null : null;
+				const nextPrompt = nextPromptName ? prompts.find((prompt) => prompt.name === nextPromptName) ?? null : null;
 
-			const isAbsolutePath = (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
-			const cwd = activeThread?.cwd ?? '.';
-			const fileItems = normalizedAttachments.filter((att) => att.type === 'file') as Extract<AttachmentItem, { type: 'file' }>[];
-			const fileResults = await Promise.all(
-				fileItems.map(async (att) => {
-					const fullPath = isAbsolutePath(att.path) ? att.path : `${cwd}/${att.path}`;
-					try {
-						const content = await apiClient.readFileContent(fullPath);
-						return { path: att.path, name: att.name, content };
-					} catch {
-						return null;
-					}
-				})
-			);
+				const isAbsolutePath = (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
+				const cwd = activeThread?.cwd ?? '.';
+				const fileItems = normalizedAttachments.filter((att) => att.type === 'file') as Extract<AttachmentItem, { type: 'file' }>[];
+				const imageItems = normalizedAttachments.filter((att) => att.type === 'image') as Extract<AttachmentItem, { type: 'image' }>[];
+				const localImageItems = normalizedAttachments.filter((att) => att.type === 'localImage') as Extract<AttachmentItem, { type: 'localImage' }>[];
 
-			setInput(draft.text);
-			setSelectedSkill(nextSkill);
-			setSelectedPrompt(nextPrompt);
-			setFileAttachments(fileResults.filter(Boolean) as FileAttachment[]);
-			setTimeout(() => textareaRef.current?.focus(), 0);
-			return true;
-		},
+				const fileResults = await Promise.all(
+					fileItems.map(async (att) => {
+						const fullPath = isAbsolutePath(att.path) ? att.path : `${cwd}/${att.path}`;
+						try {
+							const content = await apiClient.readFileContent(fullPath);
+							return {
+								kind: 'file' as const,
+								id: att.path,
+								path: att.path,
+								name: att.name,
+								content,
+							};
+						} catch {
+							return null;
+						}
+					})
+				);
+
+					const imageResults: FileAttachment[] = imageItems.map((att) => {
+						const mimeMatch = att.url.match(/^data:(image\/[^;]+);base64,/);
+						const mimeType = mimeMatch?.[1] ?? 'image/*';
+						return {
+							kind: 'image',
+						id: attachmentDedupKey(att),
+						name: att.name || guessImageNameFromDataUrl(att.url),
+						sizeBytes: 0,
+						mimeType,
+						dataUrl: att.url,
+					};
+				});
+
+				const localImageResults: FileAttachment[] = localImageItems.map((att) => ({
+					kind: 'localImage',
+					id: attachmentDedupKey(att),
+					name: att.name || basenameFromPath(att.path),
+					path: att.path,
+				}));
+
+				setInput(draft.text);
+				setSelectedSkill(nextSkill);
+				setSelectedPrompt(nextPrompt);
+				setFileAttachments([
+					...((fileResults.filter(Boolean) as FileAttachment[]) ?? []),
+					...imageResults,
+					...localImageResults,
+				]);
+				setTimeout(() => textareaRef.current?.focus(), 0);
+				return true;
+			},
 		[
 			activeThread?.cwd,
 			activeTurnId,
@@ -3110,8 +3228,17 @@ export function CodexChat() {
 				const fullPath = file.path.startsWith('/') ? file.path : `${cwd}/${file.path}`;
 				const content = await apiClient.readFileContent(fullPath);
 				setFileAttachments((prev) => {
-					if (prev.some((f) => f.path === file.path)) return prev;
-					return [...prev, { path: file.path, name: file.name, content }];
+					if (prev.some((f) => f.kind === 'file' && f.path === file.path)) return prev;
+					return [
+						...prev,
+						{
+							kind: 'file',
+							id: file.path,
+							path: file.path,
+							name: file.name,
+							content,
+						},
+					];
 				});
 				setIsAddContextOpen(false);
 				setFileSearchQuery('');
@@ -3123,22 +3250,97 @@ export function CodexChat() {
 		[activeThread?.cwd]
 	);
 
-	const removeFileAttachment = useCallback((path: string) => {
-		setFileAttachments((prev) => prev.filter((f) => f.path !== path));
+	const removeFileAttachment = useCallback((id: string) => {
+		setFileAttachments((prev) => prev.filter((f) => f.id !== id));
 	}, []);
 
-	const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-		const file = e.target.files?.[0];
-		if (!file) return;
-		const reader = new FileReader();
-		reader.onload = () => {
-			const base64 = reader.result as string;
-			setFileAttachments((prev) => [...prev, { path: file.name, name: file.name, content: base64 }]);
-		};
-		reader.readAsDataURL(file);
-		setIsAddContextOpen(false);
-		if (fileInputRef.current) fileInputRef.current.value = '';
+	const addImagesFromFiles = useCallback(async (files: File[]) => {
+		if (files.length === 0) return;
+
+		const skipped: string[] = [];
+		const additions: FileAttachment[] = [];
+
+		const readAsDataUrl = (file: File) =>
+			new Promise<string>((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onload = () => resolve(String(reader.result ?? ''));
+				reader.onerror = () => reject(new Error('read failed'));
+				reader.readAsDataURL(file);
+			});
+
+		for (const file of files) {
+			if (!file) continue;
+			if (!file.type?.startsWith('image/')) continue;
+			if (file.size > MAX_IMAGE_BYTES) {
+				skipped.push(file.name || 'image');
+				continue;
+			}
+			try {
+				const dataUrl = await readAsDataUrl(file);
+				if (!isImageDataUrl(dataUrl)) {
+					skipped.push(file.name || 'image');
+					continue;
+				}
+				const id = `image:${file.name}:${file.size}:${file.lastModified}`;
+				additions.push({
+					kind: 'image',
+					id,
+					name: file.name || guessImageNameFromDataUrl(dataUrl),
+					sizeBytes: file.size,
+					mimeType: file.type || 'image/*',
+					dataUrl,
+				});
+			} catch {
+				skipped.push(file.name || 'image');
+			}
+		}
+
+		if (additions.length > 0) {
+			setFileAttachments((prev) => {
+				const seen = new Set(prev.map((att) => att.id));
+				const next = [...prev];
+				for (const att of additions) {
+					if (seen.has(att.id)) continue;
+					seen.add(att.id);
+					next.push(att);
+				}
+				return next;
+			});
+		}
+
+		if (skipped.length > 0) {
+			const list = skipped.slice(0, 8).map((n) => `- ${n}`).join('\n');
+			const more = skipped.length > 8 ? `\n... 以及另外 ${skipped.length - 8} 个` : '';
+			await dialogMessage(`以下图片未添加（仅支持 image/* 且单张最大 5MB）：\n${list}${more}`, { title: '图片上传', kind: 'warning' });
+		}
 	}, []);
+
+	const handleImageUpload = useCallback(
+		(e: React.ChangeEvent<HTMLInputElement>) => {
+			const files = Array.from(e.target.files ?? []);
+			if (files.length === 0) return;
+			void addImagesFromFiles(files);
+			setIsAddContextOpen(false);
+			if (fileInputRef.current) fileInputRef.current.value = '';
+		},
+		[addImagesFromFiles]
+	);
+
+	const handleTextareaPaste = useCallback(
+		(e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+			const items = Array.from(e.clipboardData?.items ?? []);
+			const files: File[] = [];
+			for (const item of items) {
+				if (item.kind !== 'file') continue;
+				const file = item.getAsFile();
+				if (file) files.push(file);
+			}
+			if (files.length > 0) {
+				void addImagesFromFiles(files);
+			}
+		},
+		[addImagesFromFiles]
+	);
 
 	const filteredSlashCommands: FilteredSlashCommand[] = useMemo(() => {
 		// 去掉前导斜杠和空白
@@ -4906,24 +5108,23 @@ export function CodexChat() {
 											</>
 										) : null}
 
-										{/* Attachments display: files only (skill/prompt tags are inline with textarea) */}
-										{fileAttachments.length > 0 ? (
-											<div className="flex flex-wrap gap-1.5">
-												{/* File attachments */}
-												{fileAttachments.map((f) => (
-													<div key={f.path} className="inline-flex items-center gap-1.5 rounded-md bg-black/20 px-2 py-1 text-[11px]">
-														{f.content?.startsWith('data:image') ? <Image className="h-3 w-3 text-text-dim" /> : <File className="h-3 w-3 text-text-dim" />}
-														<span className="max-w-[120px] truncate">{f.name}</span>
-														<button type="button" className="rounded p-0.5 hover:bg-white/10" onClick={() => removeFileAttachment(f.path)}>
-															<X className="h-3 w-3" />
-														</button>
-													</div>
-												))}
-											</div>
-										) : null}
+											{/* Attachments display (skill/prompt tags are inline with textarea) */}
+											{fileAttachments.length > 0 ? (
+												<div className="flex flex-wrap gap-1.5">
+													{fileAttachments.map((f) => (
+														<div key={f.id} className="inline-flex items-center gap-1.5 rounded-md bg-black/20 px-2 py-1 text-[11px]">
+															{f.kind === 'image' || f.kind === 'localImage' ? <Image className="h-3 w-3 text-text-dim" /> : <File className="h-3 w-3 text-text-dim" />}
+															<span className="max-w-[120px] truncate">{f.name}</span>
+															<button type="button" className="rounded p-0.5 hover:bg-white/10" onClick={() => removeFileAttachment(f.id)}>
+																<X className="h-3 w-3" />
+															</button>
+														</div>
+													))}
+												</div>
+											) : null}
 
-											{/* Hidden file input for image upload */}
-											<input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+												{/* Hidden file input for image upload */}
+												<input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} />
 
 											{/* Pinned prompt/skill shortcuts */}
 											{pinnedResolvedItems.length > 0 ? (
@@ -4979,18 +5180,19 @@ export function CodexChat() {
 												className="m-0 h-5 min-w-[100px] flex-1 resize-none overflow-y-auto bg-transparent p-0 text-[13px] leading-5 outline-none placeholder:text-text-muted/40"
 												placeholder={selectedSkill || selectedPrompt ? '' : 'Ask for follow-up changes'}
 												value={input}
-												onChange={(e) => {
-													const newValue = e.target.value;
-													setInput(newValue);
+													onChange={(e) => {
+														const newValue = e.target.value;
+														setInput(newValue);
 
 													// Auto-resize textarea
 													const textarea = e.target;
 													textarea.style.height = 'auto';
 													textarea.style.height = `${Math.min(textarea.scrollHeight, 264)}px`;
-												}}
-												onKeyDown={handleTextareaKeyDown}
-												disabled={sending}
-											/>
+													}}
+													onPaste={handleTextareaPaste}
+													onKeyDown={handleTextareaKeyDown}
+													disabled={sending}
+												/>
 										</div>
 
 										{/* Toolbar: + / AutoContext Send */}
@@ -5048,15 +5250,21 @@ export function CodexChat() {
 													<div className="h-2.5 w-2.5 rounded-[1px] bg-current" />
 												</button>
 											) : (
-												<button
-													type="button"
-													className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-text-main hover:bg-white/20 disabled:opacity-30 transition-colors"
-													onClick={() => void sendMessage()}
-													disabled={sending || (input.trim().length === 0 && !selectedSkill && !selectedPrompt)}
-													title="Send (Ctrl/Cmd+Enter)"
-												>
-													<ArrowUp className="h-4 w-4" />
-												</button>
+													<button
+														type="button"
+														className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-text-main hover:bg-white/20 disabled:opacity-30 transition-colors"
+														onClick={() => void sendMessage()}
+														disabled={
+															sending ||
+															(input.trim().length === 0 &&
+																!selectedSkill &&
+																!selectedPrompt &&
+																!fileAttachments.some((att) => att.kind === 'image' || att.kind === 'localImage'))
+														}
+														title="Send (Ctrl/Cmd+Enter)"
+													>
+														<ArrowUp className="h-4 w-4" />
+													</button>
 											)}
 										</div>
 									</div>

@@ -1,3 +1,4 @@
+import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { Check, ChevronDown, ChevronRight, Copy, Eye, File, FileText, GitBranch, Pencil, Search, Wrench, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Collapse } from '../ui/Collapse';
@@ -833,40 +834,74 @@ export function TurnBlock({
 			</div>
 
 			<div className="space-y-2">
-				{turn.userEntries.map((e) => (
-					<div key={e.id} className="flex justify-end pl-12">
-						<div className="group/user bg-token-foreground/5 max-w-[77%] break-words rounded-2xl px-3 py-2 text-[12px] text-text-main">
-							{/* Attachments in message bubble */}
-							{e.attachments && e.attachments.length > 0 ? (
-								<div className="mb-2 flex flex-wrap gap-1">
-									{e.attachments.map((att, idx) => (
-										<div
-											key={`${e.id}-att-${idx}`}
-											className={[
-												'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]',
-												att.type === 'file'
-													? 'bg-white/10 text-text-muted'
-													: att.type === 'skill'
-														? 'bg-primary/20 text-primary'
-														: 'bg-blue-500/20 text-blue-400',
-											].join(' ')}
-										>
-											{att.type === 'file' ? (
-												<File className="h-3 w-3" />
-											) : att.type === 'skill' ? (
-												<Zap className="h-3 w-3" />
-											) : (
-												<FileText className="h-3 w-3" />
-											)}
-											<span className="max-w-[100px] truncate">{att.type === 'prompt' ? `prompts:${att.name}` : att.name}</span>
-										</div>
-									))}
-								</div>
-							) : null}
-							{showRawUser ? (
-								<pre className="whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 font-mono text-[12px] text-text-main">
-									{e.text}
-								</pre>
+					{turn.userEntries.map((e) => (
+						<div key={e.id} className="flex justify-end pl-12">
+							<div className="group/user bg-token-foreground/5 max-w-[77%] break-words rounded-2xl px-3 py-2 text-[12px] text-text-main">
+								{/* Attachments in message bubble */}
+								{e.attachments && e.attachments.length > 0 ? (
+									(() => {
+										const imageAtts = e.attachments.filter((att) => att.type === 'image' || att.type === 'localImage');
+										const labelAtts = e.attachments.filter((att) => att.type !== 'image' && att.type !== 'localImage');
+
+										return (
+											<div className="mb-2 space-y-2">
+												{imageAtts.length > 0 ? (
+													<div className="flex flex-wrap gap-2">
+														{imageAtts.map((att, idx) => {
+															const src =
+																att.type === 'image'
+																	? att.url
+																	: isTauri()
+																		? convertFileSrc(att.path)
+																		: null;
+															if (!src) return null;
+															return (
+																<img
+																	key={`${e.id}-img-${idx}`}
+																	src={src}
+																	alt={att.name}
+																	loading="lazy"
+																	className="h-20 w-20 rounded-md bg-black/20 object-cover"
+																/>
+															);
+														})}
+													</div>
+												) : null}
+
+												{labelAtts.length > 0 ? (
+													<div className="flex flex-wrap gap-1">
+														{labelAtts.map((att, idx) => (
+															<div
+																key={`${e.id}-att-${idx}`}
+																className={[
+																	'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]',
+																	att.type === 'file'
+																		? 'bg-white/10 text-text-muted'
+																		: att.type === 'skill'
+																			? 'bg-primary/20 text-primary'
+																			: 'bg-blue-500/20 text-blue-400',
+																].join(' ')}
+															>
+																{att.type === 'file' ? (
+																	<File className="h-3 w-3" />
+																) : att.type === 'skill' ? (
+																	<Zap className="h-3 w-3" />
+																) : (
+																	<FileText className="h-3 w-3" />
+																)}
+																<span className="max-w-[100px] truncate">{att.type === 'prompt' ? `prompts:${att.name}` : att.name}</span>
+															</div>
+														))}
+													</div>
+												) : null}
+											</div>
+										);
+									})()
+								) : null}
+								{showRawUser ? (
+									<pre className="whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 font-mono text-[12px] text-text-main">
+										{e.text}
+									</pre>
 								) : (
 									<ChatMarkdown text={e.text} className="text-[12px] text-text-main" textClassName="text-text-main" dense />
 								)}

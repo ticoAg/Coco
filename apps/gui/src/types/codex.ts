@@ -194,11 +194,35 @@ export interface AutoContextInfo {
 	gitStatus: GitStatus | null;
 }
 
-export interface FileAttachment {
-	path: string;
-	name: string;
-	content?: string;
-}
+export type FileAttachment =
+	| {
+			kind: 'file';
+			/** Stable key for React lists / removal (typically the same as `path`). */
+			id: string;
+			/** Workspace-relative or absolute file path. */
+			path: string;
+			name: string;
+			/** Text content loaded from disk (best-effort). */
+			content: string;
+	  }
+	| {
+			kind: 'image';
+			/** Stable key for React lists / removal. */
+			id: string;
+			name: string;
+			sizeBytes: number;
+			mimeType: string;
+			/** Data URL: `data:image/...;base64,...` */
+			dataUrl: string;
+	  }
+	| {
+			kind: 'localImage';
+			/** Stable key for React lists / removal (typically the same as `path`). */
+			id: string;
+			name: string;
+			/** Absolute path to an image on disk. */
+			path: string;
+	  };
 
 // Skills types
 export interface SkillMetadata {
