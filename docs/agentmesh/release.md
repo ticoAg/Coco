@@ -124,7 +124,7 @@ npm run tauri:build -- --target universal-apple-darwin --bundles dmg --no-sign -
 
 产物目录通常在：
 
-`apps/gui/src-tauri/target/**/bundle/dmg/*.dmg`
+`target/**/bundle/dmg/*.dmg`
 
 ## 本地构建 DEB（排查用）
 
@@ -140,4 +140,4 @@ npm run tauri:build -- --bundles deb --no-sign --ci
 
 产物目录通常在：
 
-`apps/gui/src-tauri/target/**/bundle/deb/*.deb`
+`target/**/bundle/deb/*.deb`
