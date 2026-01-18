@@ -27,6 +27,11 @@
 - 跳过 pre-push：`SKIP_RUST_PREFLIGHT=1 git push`
 - 手动预检：`scripts/release/preflight.sh`
 
+额外：项目也提供 `pre-commit` hook（提交前快速质检：Rust fmt/clippy + GUI build（按改动范围触发））。如需临时跳过：
+
+- `SKIP_PREFLIGHT=1 git commit ...`
+- 或 `git commit --no-verify`
+
 默认策略：
 
 - push `main` / push `vX.Y.Z` tag：跑 **完整预检**（Rust + GUI build + macOS Tauri build；tag 会额外校验版本号一致性）
