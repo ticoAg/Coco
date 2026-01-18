@@ -157,7 +157,7 @@ export function parseUnifiedDiff(diff: string): ParsedDiff {
 }
 
 export function diffHasLineNumbers(diff: string): boolean {
-	return /^@@\s*-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s*@@/m.test(diff);
+	return /^@@\s*-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s*@@/m.test(diff);
 }
 
 export function stripDiffLineNumbers(parsed: ParsedDiff): ParsedDiff {
