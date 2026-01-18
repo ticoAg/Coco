@@ -61,6 +61,12 @@ Release workflow 会校验 tag 版本与以下文件一致（不一致会直接�
 node scripts/check-version.mjs --expected 1.0.2
 ```
 
+项目提供一键 bump 脚本（同时更新 Rust crates + GUI + lockfiles）：
+
+```bash
+just bump-version 1.1.0
+```
+
 ### 2) 生成 release 提案（推荐）
 
 ```bash

@@ -109,3 +109,21 @@ lint: be-lint fe-lint
 
 # 运行完整 CI 检查（含 GUI 构建）
 ci: fmt check lint test build
+
+# ==========================================
+# 🏷️ Release helpers
+# ==========================================
+
+# 统一 bump 版本号（同时更新 Rust crates + GUI + lockfiles）
+# 用法：just bump-version 1.1.0
+bump-version VERSION:
+    node scripts/bump-version.mjs --to {{VERSION}}
+
+# ==========================================
+# 🏷️ Release helpers
+# ==========================================
+
+# 统一 bump 版本号（同时更新 Rust crates + GUI + lockfiles）
+# 用法：just bump-version 1.1.0
+bump-version VERSION:
+    node scripts/bump-version.mjs --to {{VERSION}}
