@@ -23,9 +23,6 @@ type Props = {
 	showUpdates: () => void;
 	openSettings: () => void;
 	openConfig: () => void;
-	createNewSession: () => void;
-	forkSession: () => void;
-	rollbackSession: () => void;
 };
 
 export function CodexChatHeader({
@@ -48,9 +45,6 @@ export function CodexChatHeader({
 	showUpdates,
 	openSettings,
 	openConfig,
-	createNewSession,
-	forkSession,
-	rollbackSession,
 }: Props) {
 	const currentWorkspace = activeThreadCwd ?? workspaceRoot ?? '';
 	const currentWorkspaceLabel = currentWorkspace ? repoNameFromPath(currentWorkspace) : 'Select Project';
@@ -204,16 +198,6 @@ export function CodexChatHeader({
 								className={MENU_STYLES.popoverItem}
 								onClick={() => {
 									setIsSettingsMenuOpen(false);
-									openWorkspaceDialog();
-								}}
-							>
-								Switch workspace…
-							</button>
-							<button
-								type="button"
-								className={MENU_STYLES.popoverItem}
-								onClick={() => {
-									setIsSettingsMenuOpen(false);
 									openSettings();
 								}}
 							>
@@ -229,34 +213,6 @@ export function CodexChatHeader({
 							>
 								Edit config.toml
 							</button>
-							<button
-								type="button"
-								className={MENU_STYLES.popoverItem}
-								onClick={() => {
-									setIsSettingsMenuOpen(false);
-									createNewSession();
-								}}
-							>
-								New session
-							</button>
-							<button
-								type="button"
-								className={[MENU_STYLES.popoverItem, !selectedThreadId ? 'pointer-events-none opacity-50' : ''].join(' ')}
-								onClick={() => forkSession()}
-								disabled={!selectedThreadId}
-								title={selectedThreadId ? 'Fork the current session' : 'Select a session first'}
-							>
-								Fork session
-							</button>
-							<button
-								type="button"
-								className={[MENU_STYLES.popoverItem, !selectedThreadId ? 'pointer-events-none opacity-50' : ''].join(' ')}
-								onClick={() => rollbackSession()}
-								disabled={!selectedThreadId}
-								title={selectedThreadId ? 'Rollback last turn (history only)' : 'Select a session first'}
-							>
-								Rollback last turn
-							</button>
 						</div>
 					</>
 				) : null}
@@ -264,4 +220,3 @@ export function CodexChatHeader({
 		</div>
 	);
 }
-
