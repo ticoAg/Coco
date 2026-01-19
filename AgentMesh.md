@@ -5,7 +5,7 @@
 ## 你现在可能在找什么？
 
 - **想快速理解执行闭环**（推荐起点）
-  - `docs/agentmesh/execution.md`
+  - `./docs/agentmesh/execution.md`
 - **想看任务目录（Task Directory）与可复盘产物（Artifacts）规范**
   - `docs/agentmesh/artifacts.md`
   - 规范真源（可 validate）：`openspec/specs/task-directory/spec.md`
