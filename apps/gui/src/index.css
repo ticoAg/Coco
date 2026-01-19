@@ -205,6 +205,32 @@
 		color: rgb(var(--am-text-muted));
 	}
 
+	.am-row-scroll {
+		max-width: 100%;
+		min-width: 0;
+		overflow-x: auto;
+		overflow-y: hidden;
+		white-space: nowrap;
+	}
+
+	.am-row-scroll::-webkit-scrollbar {
+		height: 4px;
+	}
+
+	.am-row-scroll::-webkit-scrollbar-thumb {
+		background-color: rgb(255 255 255 / 0.16);
+		border-radius: 999px;
+	}
+
+	.am-row-scroll::-webkit-scrollbar-track {
+		background-color: transparent;
+	}
+
+	.am-row-scroll {
+		scrollbar-width: thin;
+		scrollbar-color: rgb(255 255 255 / 0.16) transparent;
+	}
+
 	.am-row-hover:hover .am-row-title {
 		color: rgb(var(--am-text-main) / 0.86);
 	}

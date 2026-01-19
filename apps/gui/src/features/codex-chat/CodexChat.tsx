@@ -3925,7 +3925,7 @@ export function CodexChat() {
 										forkThreadLatest={forkThreadLatest}
 									/>
 
-									<div className="min-h-0 flex-1 flex flex-col">
+									<div className="min-h-0 flex-1 flex flex-col min-w-0">
 										<CodexChatWorkbenchThreadChips
 											enabled={isWorkbenchEnabled}
 											workbenchGraph={workbenchGraph}

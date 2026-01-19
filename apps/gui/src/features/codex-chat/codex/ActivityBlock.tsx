@@ -124,14 +124,16 @@ export function ActivityBlock({
 					}
 				}}
 			>
-				<div className="min-w-0 flex-1 truncate text-[12px]">
-					<span className="inline-flex min-w-0 items-center gap-2">
-						{icon ? <span className="shrink-0 text-text-menuDesc">{icon}</span> : null}
-						{titlePrefix ? <span className="shrink-0 font-medium text-text-muted">{titlePrefix}</span> : null}
-						{titleContent ? (
-							<span className={['am-row-title truncate text-text-muted', titleMono ? 'font-mono text-[11px]' : ''].join(' ')}>{titleContent}</span>
-						) : null}
-					</span>
+				<div className="min-w-0 flex-1 text-[12px]">
+					<div className="am-row-scroll">
+						<span className="inline-flex min-w-0 items-center gap-2">
+							{icon ? <span className="shrink-0 text-text-menuDesc">{icon}</span> : null}
+							{titlePrefix ? <span className="shrink-0 font-medium text-text-muted">{titlePrefix}</span> : null}
+							{titleContent ? (
+								<span className={['am-row-title text-text-muted', titleMono ? 'font-mono text-[11px]' : ''].join(' ')}>{titleContent}</span>
+							) : null}
+						</span>
+					</div>
 				</div>
 				<div className="flex shrink-0 items-center gap-1.5">
 					{showStatus ? <span className="text-[10px] text-text-menuDesc opacity-80">{status}</span> : null}

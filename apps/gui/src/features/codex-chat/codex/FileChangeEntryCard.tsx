@@ -33,10 +33,14 @@ export function FileChangeEntryCard({ change, isPending, defaultCollapsed }: Fil
 					}
 				}}
 			>
-				<div className="min-w-0 flex items-center gap-2 text-text-main/90">
-					<span className="shrink-0 text-text-menuLabel">{verb}</span>
-					<span className="truncate font-mono text-[12px]">{label}</span>
-					<DiffCountBadge added={change.parsed.added} removed={change.parsed.removed} />
+				<div className="min-w-0 flex-1 text-text-main/90">
+					<div className="am-row-scroll">
+						<div className="inline-flex min-w-0 items-center gap-2">
+							<span className="shrink-0 text-text-menuLabel">{verb}</span>
+							<span className="font-mono text-[12px]">{label}</span>
+							<DiffCountBadge added={change.parsed.added} removed={change.parsed.removed} />
+						</div>
+					</div>
 				</div>
 				<div className="flex items-center gap-1">
 					{copyText ? (
