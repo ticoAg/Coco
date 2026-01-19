@@ -4,7 +4,7 @@
 实现 subagents 的 join 汇总与 gates（input-required）机制：把多个 worker 的结构化最终输出汇总为共享报告，并在遇到阻塞/审批点时将任务置为 `input-required`，等待人工介入。
 
 ## Why
-并发执行只是手段；真正可交付的是“可审计的汇总产物 + 明确的人工介入点”。[`docs/agentmesh/artifacts.md`](../../../../docs/agentmesh/artifacts.md) 与 [`docs/agentmesh/roadmap.md`](../../../../docs/agentmesh/roadmap.md) 都把 join 与 gates 视为 Phase 1 的核心闭环。
+并发执行只是手段；真正可交付的是“可审计的汇总产物 + 明确的人工介入点”。[`docs/coco/artifacts.md`](../../../../docs/coco/artifacts.md) 与 [`docs/coco/roadmap.md`](../../../../docs/coco/roadmap.md) 都把 join 与 gates 视为 Phase 1 的核心闭环。
 
 ## What Changes
 - 基于 `agents/*/artifacts/final.json` 生成 `shared/reports/joined-summary.md`（以及可选的 joined json）。
@@ -19,4 +19,4 @@
 
 ## Impact
 - Specs（新增）：`subagent-join-gates`
-- 受影响代码（实现阶段）：[`crates/agentmesh-orchestrator`](../../../../crates/agentmesh-orchestrator)、[`crates/agentmesh-core`](../../../../crates/agentmesh-core)（gates 状态/事件）、模板/报告生成器
+- 受影响代码（实现阶段）：[`crates/coco-orchestrator`](../../../../crates/coco-orchestrator)、[`crates/coco-core`](../../../../crates/coco-core)（gates 状态/事件）、模板/报告生成器

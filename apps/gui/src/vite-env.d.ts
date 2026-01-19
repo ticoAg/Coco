@@ -2,7 +2,7 @@
 
 interface ImportMetaEnv {
 	readonly VITE_API_BASE_URL?: string;
-	readonly VITE_AGENTMESH_ENABLE_TASK_AUTHORING?: string;
+	readonly VITE_COCO_ENABLE_TASK_AUTHORING?: string;
 }
 
 interface ImportMeta {

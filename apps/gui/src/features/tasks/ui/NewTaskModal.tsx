@@ -95,7 +95,7 @@ export function NewTaskModal({ isOpen, onClose, onSubmit, loading = false }: New
 				<div className="mb-5 flex items-start justify-between gap-4">
 					<div>
 						<h2 className="text-lg font-semibold">Create Task</h2>
-						<p className="mt-1 text-sm text-text-muted">Creates a new `.agentmesh/tasks/*` entry.</p>
+						<p className="mt-1 text-sm text-text-muted">Creates a new `.coco/tasks/*` entry.</p>
 					</div>
 					<button
 						type="button"

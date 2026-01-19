@@ -12,4 +12,4 @@ Users want a lightweight Auto context flow in the GUI that only wraps the outgoi
 ## Impact
 - Affected specs: `gui-codex-chat` (new requirements for repo selector + message wrapping).
 - Affected code: [`apps/gui/src/components/CodexChat.tsx`](../../../../apps/gui/src/components/CodexChat.tsx), [`apps/gui/src-tauri/src/lib.rs`](../../../../apps/gui/src-tauri/src/lib.rs), [`apps/gui/src-tauri/Cargo.toml`](../../../../apps/gui/src-tauri/Cargo.toml), [`apps/gui/package.json`](../../../../apps/gui/package.json) (dialog plugin).
-- Docs: update [`docs/agentmesh/gui.md`](../../../../docs/agentmesh/gui.md) to reflect Auto context wrapper UX and repo selector behavior.
+- Docs: update [`docs/coco/gui.md`](../../../../docs/coco/gui.md) to reflect Auto context wrapper UX and repo selector behavior.

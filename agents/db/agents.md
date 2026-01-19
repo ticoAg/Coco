@@ -2,7 +2,7 @@
 title: "DB Agent Spec"
 purpose: "Define the DB agent: database diagnostics, query analysis, migrations, and evidence collection."
 owner: "db"
-tags: ["agentmesh", "preset", "swarm", "database", "debug"]
+tags: ["coco", "preset", "swarm", "database", "debug"]
 ---
 
 # DB Agent

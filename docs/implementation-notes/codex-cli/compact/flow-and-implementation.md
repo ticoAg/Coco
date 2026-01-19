@@ -1,6 +1,6 @@
 # /compact 流程与实现（tui2 / core）
 
-> 目标：沉淀 Codex CLI（`github:openai/codex/codex-rs`）里 `/compact` 的端到端实现路径，精确到关键文件与行号，便于 AgentMesh GUI 复刻同等行为。
+> 目标：沉淀 Codex CLI（`github:openai/codex/codex-rs`）里 `/compact` 的端到端实现路径，精确到关键文件与行号，便于 Coco GUI 复刻同等行为。
 >
 > 注意：本文聚焦 “手动触发的 `/compact`”。自动触发的 auto-compact 属于同一机制的变体，放在文末附录。
 
@@ -313,7 +313,7 @@ core 完成 compaction 后会发送 `EventMsg::ContextCompacted`，tui2 的处�
 
 也就是说：tui2 并不会在 UI 层显式“重建消息列表”；history 的重写发生在 core 内部，后续 turn 的请求自然会基于新 history 继续。
 
-对 AgentMesh GUI 的启示：
+对 Coco GUI 的启示：
 
 - 如果 GUI 维护的“消息列表”只是事件流渲染（类似 tui2），那么 `ContextCompacted` 只需要展示提示即可。
 - 如果 GUI 维护一个“可回放的完整对话副本”，则需要你定义：`ContextCompacted` 后 UI 应该展示什么（例如：只展示 summary + 最近 N 条用户消息，还是保留原始记录但标记已压缩）。

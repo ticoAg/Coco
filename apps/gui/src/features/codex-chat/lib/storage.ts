@@ -1,8 +1,8 @@
 import type { CodexChatSettings } from '../codex/types';
 
-const SETTINGS_STORAGE_KEY = 'agentmesh.codexChat.settings.v2';
-const SESSION_TREE_WIDTH_STORAGE_KEY = 'agentmesh.codexChat.sessionTreeWidth.v1';
-const PINNED_INPUT_ITEMS_STORAGE_KEY = 'agentmesh.codexChat.pinnedInputItems.v1';
+const SETTINGS_STORAGE_KEY = 'coco.codexChat.settings.v2';
+const SESSION_TREE_WIDTH_STORAGE_KEY = 'coco.codexChat.sessionTreeWidth.v1';
+const PINNED_INPUT_ITEMS_STORAGE_KEY = 'coco.codexChat.pinnedInputItems.v1';
 
 export const SESSION_TREE_MIN_WIDTH_PX = 200;
 export const SESSION_TREE_MAX_WIDTH_PX = 520;

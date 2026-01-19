@@ -5,7 +5,7 @@ GUI SHALL support displaying a per-thread session title (`title`) in the Codex C
 
 Because codex app-server `thread/list` primarily exposes `preview` (and does not provide a stable AI-generated title), the system SHALL persist a local sidecar title per workspace at:
 
-- `<workspace_root>/.agentmesh/codex/threads/<thread_id>.json`
+- `<workspace_root>/.coco/codex/threads/<thread_id>.json`
 
 The sidecar MUST include:
 - `title` (string)

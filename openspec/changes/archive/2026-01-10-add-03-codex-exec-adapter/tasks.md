@@ -5,10 +5,10 @@
 - [x] 定义 `session.json` 的最小字段集合（threadId/cwd/codexHome/recording paths）。
 
 ## 2. Implementation (apply 阶段执行)
-- [x] 在 [`crates/agentmesh-codex`](../../../../crates/agentmesh-codex) 实现 `codex exec --json` runner（spawn/kill、stdout JSONL 落盘、stderr 落盘）。
+- [x] 在 [`crates/coco-codex`](../../../../crates/coco-codex) 实现 `codex exec --json` runner（spawn/kill、stdout JSONL 落盘、stderr 落盘）。
 - [x] 记录 `thread_id` 并写入 `session.json`，为后续 resume 做准备。
 - [x] 支持 `--output-schema schemas/worker-output.schema.json` 与 `--output-last-message` 落盘到 `artifacts/final.json`。
 
 ## 3. Validation
 - [x] `openspec validate add-03-codex-exec-adapter --strict`
-- [x] `cargo test -p agentmesh-codex`
+- [x] `cargo test -p coco-codex`

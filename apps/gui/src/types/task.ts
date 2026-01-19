@@ -1,4 +1,4 @@
-// Types mirrored from `agentmesh-core` (Rust) for Tauri IPC.
+// Types mirrored from `coco-core` (Rust) for Tauri IPC.
 
 export type TaskTopology = 'swarm' | 'squad';
 

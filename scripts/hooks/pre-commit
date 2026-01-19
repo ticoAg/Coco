@@ -40,8 +40,8 @@ if [[ "$has_rust" -eq 1 ]]; then
   cargo fmt --check
 
   # Keep this hook opinionated: CI runs clippy with -D warnings, so we do too.
-  echo "[pre-commit] Rust: cargo clippy --workspace --exclude agentmesh-app -- -D warnings"
-  cargo clippy --workspace --exclude agentmesh-app -- -D warnings
+  echo "[pre-commit] Rust: cargo clippy --workspace --exclude coco-app -- -D warnings"
+  cargo clippy --workspace --exclude coco-app -- -D warnings
 fi
 
 if [[ "$has_gui" -eq 1 ]]; then

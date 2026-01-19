@@ -1,0 +1,16 @@
+[package]
+name = "coco-cli"
+version = "1.1.1"
+edition = "2021"
+
+[[bin]]
+name = "coco"
+path = "src/main.rs"
+
+[dependencies]
+coco-core = { path = "../coco-core" }
+coco-orchestrator = { path = "../coco-orchestrator" }
+clap = { version = "4.5.28", features = ["derive"] }
+directories = "5.0.1"
+serde_json = "1.0.138"
+thiserror = "2.0.11"

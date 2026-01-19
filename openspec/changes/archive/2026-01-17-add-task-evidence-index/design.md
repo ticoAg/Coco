@@ -1,7 +1,7 @@
 # Design: add-task-evidence-index
 
 ## Context
-AgentMesh 的核心原则是 artifacts-first：任务目录是事实来源。为了让 multi/subagent 的执行过程“可复盘、可审计、可引用”，需要把关键证据从 runtime 事件流中抽取出来，形成结构化索引。
+Coco 的核心原则是 artifacts-first：任务目录是事实来源。为了让 multi/subagent 的执行过程“可复盘、可审计、可引用”，需要把关键证据从 runtime 事件流中抽取出来，形成结构化索引。
 
 ## Goals / Non-Goals
 - Goals

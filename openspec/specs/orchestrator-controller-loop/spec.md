@@ -52,7 +52,7 @@ TBD - created by archiving change add-orchestrator-controller-loop. Update Purpo
 
 #### Scenario: Subtask workspace is created
 - **WHEN** Controller dispatch 一个 task
-- **THEN** `.agentmesh/tasks/<task_id>/agents/<agent_instance>/` 目录存在
+- **THEN** `.coco/tasks/<task_id>/agents/<agent_instance>/` 目录存在
 - **AND** `task.yaml.roster[]` 包含该 `agent instance`
 
 ### Requirement: Fork vs Spawn Dispatch Policy

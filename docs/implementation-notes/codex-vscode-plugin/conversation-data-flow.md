@@ -1,4 +1,4 @@
-# 会话数据流与聚合逻辑（Codex VSCode 插件 ↔ AgentMesh GUI 对照）
+# 会话数据流与聚合逻辑（Codex VSCode 插件 ↔ Coco GUI 对照）
 
 > 目标：梳理“原始事件/数据 → 结构化 item → 聚合/分组 → UI 展示”的路径，并标注关键函数/变量定位，便于对齐 VSCode 插件的行为。
 
@@ -36,7 +36,7 @@
 
 ---
 
-## 2. AgentMesh GUI 侧（当前实现）
+## 2. Coco GUI 侧（当前实现）
 
 ### 2.1 数据获取（thread/resume + rollout restore）
 - `codex_thread_resume`（`apps/gui/src-tauri/src/lib.rs:946`）

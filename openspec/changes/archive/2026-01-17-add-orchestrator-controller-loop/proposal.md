@@ -3,7 +3,7 @@
 ## Summary
 新增 `orchestrator-controller-loop` capability：定义“模型 Orchestrator 主控 + 程序 Controller 状态机执行”的闭环协议。
 
-该闭环把 **规划/分解/验收**交给模型，把 **并发调度/落盘/证据链/权限隔离/可恢复**交给程序，并与 AgentMesh 的 Task Directory（artifacts-first）模型对齐。
+该闭环把 **规划/分解/验收**交给模型，把 **并发调度/落盘/证据链/权限隔离/可恢复**交给程序，并与 Coco 的 Task Directory（artifacts-first）模型对齐。
 
 ## Why
 - 纯对话流 agent 的上下文会快速被过程噪声填满；需要把过程收敛为可验证产物与状态看板（StateBoard）。
@@ -25,4 +25,4 @@
 ## Impact
 - New spec: `orchestrator-controller-loop`
 - Related specs (referenced): `task-directory`, `subagent-orchestration`, `subagent-join-gates`, `codex-exec-adapter`, `codex-app-server-adapter`（新增）。
-- Affected code (implementation stage): [`crates/agentmesh-orchestrator`](../../../../crates/agentmesh-orchestrator)（controller 状态机）、[`crates/agentmesh-core`](../../../../crates/agentmesh-core)（落盘/事件）、[`crates/agentmesh-codex`](../../../../crates/agentmesh-codex)（adapter）。
+- Affected code (implementation stage): [`crates/coco-orchestrator`](../../../../crates/coco-orchestrator)（controller 状态机）、[`crates/coco-core`](../../../../crates/coco-core)（落盘/事件）、[`crates/coco-codex`](../../../../crates/coco-codex)（adapter）。

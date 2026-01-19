@@ -122,7 +122,7 @@ function bumpCargoLockPackageVersions(raw, packageNames, from, to) {
   }
 
   if (changed === 0) {
-    throw new Error("No matching agentmesh packages found in Cargo.lock");
+    throw new Error("No matching coco packages found in Cargo.lock");
   }
   return lines.join("\n");
 }
@@ -171,10 +171,10 @@ async function main() {
   // 3) Cargo.toml package versions
   const cargoTomls = [
     path.join(repoRoot, "apps/gui/src-tauri/Cargo.toml"),
-    path.join(repoRoot, "crates/agentmesh-core/Cargo.toml"),
-    path.join(repoRoot, "crates/agentmesh-codex/Cargo.toml"),
-    path.join(repoRoot, "crates/agentmesh-orchestrator/Cargo.toml"),
-    path.join(repoRoot, "crates/agentmesh-cli/Cargo.toml"),
+    path.join(repoRoot, "crates/coco-core/Cargo.toml"),
+    path.join(repoRoot, "crates/coco-codex/Cargo.toml"),
+    path.join(repoRoot, "crates/coco-orchestrator/Cargo.toml"),
+    path.join(repoRoot, "crates/coco-cli/Cargo.toml"),
   ];
 
   for (const p of cargoTomls) {
@@ -187,11 +187,11 @@ async function main() {
   const cargoLockPath = path.join(repoRoot, "Cargo.lock");
   const lockRaw = await fs.readFile(cargoLockPath, "utf8");
   const names = new Set([
-    "agentmesh-core",
-    "agentmesh-codex",
-    "agentmesh-orchestrator",
-    "agentmesh-cli",
-    "agentmesh-app",
+    "coco-core",
+    "coco-codex",
+    "coco-orchestrator",
+    "coco-cli",
+    "coco-app",
   ]);
   const lockNext = bumpCargoLockPackageVersions(lockRaw, names, from, to);
   await fs.writeFile(cargoLockPath, lockNext, "utf8");

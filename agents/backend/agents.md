@@ -2,7 +2,7 @@
 title: "Backend Agent Spec"
 purpose: "Define the Backend agent: API design/implementation, contracts, and integration support."
 owner: "backend"
-tags: ["agentmesh", "preset", "squad", "backend", "implementation"]
+tags: ["coco", "preset", "squad", "backend", "implementation"]
 ---
 
 # Backend Agent

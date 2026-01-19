@@ -4,7 +4,7 @@
 实现 subagents 的最小生命周期编排能力（spawn/list/wait-any/cancel），以 Task Directory 为事实来源落盘状态与事件，为 fork/join 与 GUI 状态展示打基础。
 
 ## Why
-[`docs/agentmesh/roadmap.md`](../../../../docs/agentmesh/roadmap.md) Phase 1 明确要求一个最小 orchestrator：可并发、可暂停/可恢复、可把关键状态落盘，并在 “任意一个完成” 时能通知/返回。
+[`docs/coco/roadmap.md`](../../../../docs/coco/roadmap.md) Phase 1 明确要求一个最小 orchestrator：可并发、可暂停/可恢复、可把关键状态落盘，并在 “任意一个完成” 时能通知/返回。
 
 ## What Changes
 - 为 subagent 引入明确的生命周期状态与事件写入（running/completed/failed/blocked/cancelled）。
@@ -17,4 +17,4 @@
 
 ## Impact
 - Specs（新增）：`subagent-orchestration`
-- 受影响代码（实现阶段）：[`crates/agentmesh-orchestrator`](../../../../crates/agentmesh-orchestrator)、[`crates/agentmesh-core`](../../../../crates/agentmesh-core)（事件/状态落盘）
+- 受影响代码（实现阶段）：[`crates/coco-orchestrator`](../../../../crates/coco-orchestrator)、[`crates/coco-core`](../../../../crates/coco-core)（事件/状态落盘）

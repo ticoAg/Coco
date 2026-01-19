@@ -44,7 +44,7 @@ EXCLUDE_DIRS = {
 # Some top-level directories are intentionally referenced as repo-root paths in docs.
 # For single-segment directory refs like `openspec/`, only linkify if it is in this allowlist.
 TOP_LEVEL_DIR_ALLOWLIST = {
-    ".agentmesh/",
+    ".coco/",
     "apps/",
     "crates/",
     "docs/",

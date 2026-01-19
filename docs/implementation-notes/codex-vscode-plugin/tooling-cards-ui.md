@@ -40,9 +40,9 @@
 
 溯源：`ExecItemContent`（`plugin-index.js:275608`），`CmdSummaryText`（`plugin-index.js:275850`），`ACCORDION_TRANSITION`（`plugin-index.js:64525`）。
 
-## AgentMesh 对齐实现（Shell 结构统一）
+## Coco 对齐实现（Shell 结构统一）
 
-为对齐 VSCode 插件的 Shell 结构，AgentMesh 的 `ActivityBlock` 详情区统一改为 Shell 风格滚动容器：
+为对齐 VSCode 插件的 Shell 结构，Coco 的 `ActivityBlock` 详情区统一改为 Shell 风格滚动容器：
 
 - 统一使用 `am-shell` / `am-shell-scroll`（[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx) + [`apps/gui/src/index.css`](../../../apps/gui/src/index.css)）。
 - 视觉参数对齐：`max-height: 176px`，`padding: 8px`，`font-mono font-medium`（仅在需要等宽时），`overflow-x/overflow-y: auto`。

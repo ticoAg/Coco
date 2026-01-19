@@ -27,10 +27,10 @@ use crate::codex_patch_diff;
 
 const EVENT_NAME: &str = "codex_app_server";
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
-const CODEX_BIN_ENV: &str = "AGENTMESH_CODEX_BIN";
+const CODEX_BIN_ENV: &str = "COCO_CODEX_BIN";
 const SHELL_ENV_TIMEOUT_SECS: u64 = 2;
-const ENV_BEGIN_SENTINEL: &[u8] = b"__AGENTMESH_ENV_BEGIN__\0";
-const ENV_END_SENTINEL: &[u8] = b"__AGENTMESH_ENV_END__\0";
+const ENV_BEGIN_SENTINEL: &[u8] = b"__COCO_ENV_BEGIN__\0";
+const ENV_END_SENTINEL: &[u8] = b"__COCO_ENV_END__\0";
 
 static SHELL_ENV_CACHE: OnceCell<ShellEnvSnapshot> = OnceCell::const_new();
 
@@ -99,7 +99,7 @@ impl CodexAppServer {
             .stderr(Stdio::piped())
             .env_clear()
             .envs(env)
-            .env("AGENTMESH_CODEX_ENV_SOURCE", env_source)
+            .env("COCO_CODEX_ENV_SOURCE", env_source)
             .current_dir(cwd);
 
         if let Some(home) = codex_home {
@@ -143,7 +143,7 @@ impl CodexAppServer {
         let params = json!({
             "clientInfo": {
                 "name": "codex_cli_rs",
-                "title": "AgentMesh GUI",
+                "title": "Coco GUI",
                 "version": env!("CARGO_PKG_VERSION"),
             }
         });
@@ -329,7 +329,7 @@ async fn compute_shell_env_snapshot() -> Result<ShellEnvSnapshot, String> {
     // Use NUL-separated output so values are unambiguous. Surround with sentinels so we can
     // ignore any stray stdout from shell init plugins.
     let cmd =
-        "printf '__AGENTMESH_ENV_BEGIN__\\0'; /usr/bin/env -0; printf '__AGENTMESH_ENV_END__\\0'"
+        "printf '__COCO_ENV_BEGIN__\\0'; /usr/bin/env -0; printf '__COCO_ENV_END__\\0'"
             .to_string();
 
     let mut proc = Command::new(&shell);

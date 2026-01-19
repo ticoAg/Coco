@@ -1,6 +1,6 @@
 # Skills 实现机制
 
-本文档记录 Codex CLI（TUI2）中 Skills 的选择、发送和注入机制，便于 AgentMesh GUI 对齐实现。
+本文档记录 Codex CLI（TUI2）中 Skills 的选择、发送和注入机制，便于 Coco GUI 对齐实现。
 
 ## 概述
 
@@ -192,7 +192,7 @@ pub const SKILL_INSTRUCTIONS_PREFIX: &str = "<skill";
 
 ## 与 TUI2 的对比
 
-| 特性 | TUI2 | AgentMesh GUI |
+| 特性 | TUI2 | Coco GUI |
 |------|------|---------------|
 | 触发方式 | `$skill-name` 文本检测 | `$` 键打开菜单选择 |
 | 选择后行为 | 文本中保留 `$skill-name` | 显示为标签，不插入文本 |

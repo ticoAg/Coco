@@ -1,15 +1,15 @@
 # task-directory Specification
 
 ## Purpose
-定义 AgentMesh 的 Task Directory（`.agentmesh/tasks/<task_id>/`）作为任务的唯一事实来源：承载任务状态、事件流、共享产物与人工介入入口，使任务可追踪、可复盘、可迁移，并支持 GUI 以 artifacts-first 的方式“只读”消费任务结果。
+定义 Coco 的 Task Directory（`.coco/tasks/<task_id>/`）作为任务的唯一事实来源：承载任务状态、事件流、共享产物与人工介入入口，使任务可追踪、可复盘、可迁移，并支持 GUI 以 artifacts-first 的方式“只读”消费任务结果。
 ## Requirements
 ### Requirement: Task Directory Location
-系统 SHALL 将每个任务落盘在工作区根目录下的 `.agentmesh/tasks/<task_id>/`。
+系统 SHALL 将每个任务落盘在工作区根目录下的 `.coco/tasks/<task_id>/`。
 
 #### Scenario: Create task directory under workspace
 - **GIVEN** 工作区根目录存在（或可创建）
 - **WHEN** 用户创建一个新任务
-- **THEN** 系统在 `.agentmesh/tasks/<task_id>/` 创建对应任务目录
+- **THEN** 系统在 `.coco/tasks/<task_id>/` 创建对应任务目录
 
 ### Requirement: Task Directory Skeleton
 系统 SHALL 创建以下最小目录骨架：
@@ -25,7 +25,7 @@
 
 #### Scenario: README exists with minimal fields
 - **WHEN** 创建任务
-- **THEN** `.agentmesh/tasks/<task_id>/README.md` 存在
+- **THEN** `.coco/tasks/<task_id>/README.md` 存在
 - **AND** README 中可定位到 `id/topology/state` 三个字段
 
 ### Requirement: Task File (`task.yaml`)
@@ -34,7 +34,7 @@
 - 至少包含：`id`、`title`、`topology`、`state`
 
 #### Scenario: Task file is readable after creation
-- **WHEN** 创建任务后读取 `.agentmesh/tasks/<task_id>/task.yaml`
+- **WHEN** 创建任务后读取 `.coco/tasks/<task_id>/task.yaml`
 - **THEN** 能解析得到 `TaskFile`
 - **AND** `id/title/topology/state` 非空
 
@@ -46,7 +46,7 @@
 
 #### Scenario: Task created event is appended
 - **WHEN** 创建任务成功
-- **THEN** `.agentmesh/tasks/<task_id>/events.jsonl` 至少包含一条 `type = "task.created"` 的事件
+- **THEN** `.coco/tasks/<task_id>/events.jsonl` 至少包含一条 `type = "task.created"` 的事件
 
 ### Requirement: Human-in-the-loop Files (MVP)
 系统 SHALL 在 `shared/` 下提供用于“人工介入”的落盘入口文件，并至少包含：

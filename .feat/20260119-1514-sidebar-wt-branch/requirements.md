@@ -5,7 +5,7 @@ slug: "sidebar-wt-branch"
 notes_dir: ".feat/20260119-1514-sidebar-wt-branch"
 base_branch: "dev"
 feature_branch: "feat/sidebar-wt-branch"
-worktree: "../AgentMesh-feat-sidebar-wt-branch"
+worktree: "../Coco-feat-sidebar-wt-branch"
 created_at_utc: "2026-01-19T15:14:07Z"
 status: "vFinal"
 ---
@@ -15,7 +15,7 @@ status: "vFinal"
 - Current: vFinal (confirmed)
 - Base branch: dev
 - Feature branch: feat/sidebar-wt-branch
-- Worktree: ../AgentMesh-feat-sidebar-wt-branch
+- Worktree: ../Coco-feat-sidebar-wt-branch
 - Created (UTC): 2026-01-19T15:14:07Z
 
 ## v0 (draft) - 2026-01-19T15:14:07Z

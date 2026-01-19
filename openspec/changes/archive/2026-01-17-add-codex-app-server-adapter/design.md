@@ -1,7 +1,7 @@
 # Design: add-codex-app-server-adapter
 
 ## Context
-AgentMesh 的 Codex-first 路线需要一个稳定的底层接口：不解析 TUI/ANSI，而是直接消费结构化事件流。`codex app-server` 提供 thread/turn/item 的模型，非常适合做 adapter。
+Coco 的 Codex-first 路线需要一个稳定的底层接口：不解析 TUI/ANSI，而是直接消费结构化事件流。`codex app-server` 提供 thread/turn/item 的模型，非常适合做 adapter。
 
 ## Goals / Non-Goals
 - Goals
@@ -29,7 +29,7 @@ Codex app-server 协议可能存在版本差异（字段/方法参数变化）�
 
 ## Risks / Trade-offs
 - 长驻 app-server 进程需要处理 crash/restart；需要将“进程生命周期事件”也落盘。
-- 若用户从 Finder 启动 GUI，PATH 可能缺失，需要支持显式 `AGENTMESH_CODEX_BIN`。
+- 若用户从 Finder 启动 GUI，PATH 可能缺失，需要支持显式 `COCO_CODEX_BIN`。
 
 ## Open Questions
 - 是否需要支持“复用 GUI 的 app-server 进程”给 orchestrator（单例共享）？

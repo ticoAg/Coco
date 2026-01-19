@@ -9,71 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "agentmesh-app"
-version = "1.1.1"
-dependencies = [
- "agentmesh-core",
- "agentmesh-orchestrator",
- "log",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tokio",
-]
-
-[[package]]
-name = "agentmesh-cli"
-version = "1.1.1"
-dependencies = [
- "agentmesh-core",
- "agentmesh-orchestrator",
- "clap",
- "directories",
- "serde_json",
- "thiserror 2.0.17",
-]
-
-[[package]]
-name = "agentmesh-codex"
-version = "1.1.1"
-dependencies = [
- "agentmesh-core",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tokio",
-]
-
-[[package]]
-name = "agentmesh-core"
-version = "1.1.1"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 2.0.17",
- "uuid",
-]
-
-[[package]]
-name = "agentmesh-orchestrator"
-version = "1.1.1"
-dependencies = [
- "agentmesh-codex",
- "agentmesh-core",
- "chrono",
- "libc",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tokio",
-]
-
-[[package]]
 name = "ahash"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -562,6 +497,71 @@ name = "clap_lex"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3e64b0cc0439b12df2fa678eae89a1c56a529fd067a9115f7827f1fffd22b32"
+
+[[package]]
+name = "coco-app"
+version = "1.1.1"
+dependencies = [
+ "coco-core",
+ "coco-orchestrator",
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tokio",
+]
+
+[[package]]
+name = "coco-cli"
+version = "1.1.1"
+dependencies = [
+ "clap",
+ "coco-core",
+ "coco-orchestrator",
+ "directories",
+ "serde_json",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "coco-codex"
+version = "1.1.1"
+dependencies = [
+ "coco-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+]
+
+[[package]]
+name = "coco-core"
+version = "1.1.1"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 2.0.17",
+ "uuid",
+]
+
+[[package]]
+name = "coco-orchestrator"
+version = "1.1.1"
+dependencies = [
+ "chrono",
+ "coco-codex",
+ "coco-core",
+ "libc",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+]
 
 [[package]]
 name = "colorchoice"

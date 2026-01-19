@@ -107,20 +107,20 @@ target/
 .output/
 
 ############################
-# AgentMesh Specific
+# Coco Specific
 ############################
 # Runtime task directories (generated data)
-.agentmesh/tasks/*
-!.agentmesh/tasks/.gitkeep
+.coco/tasks/*
+!.coco/tasks/.gitkeep
 
 # Codex Chat session title sidecars (workspace-local data)
-.agentmesh/codex/
+.coco/codex/
 
 # Local logs
-.agentmesh/logs/
+.coco/logs/
 
 # Local registry caches
-.agentmesh/registry/
+.coco/registry/
 
 # Codex repository (now in sibling directory ../codex, not inside this repo)
 # /codex/

@@ -130,7 +130,7 @@ export function CodexChatHeader({
 
 								<button type="button" className={MENU_STYLES.popoverItem} onClick={showAbout}>
 									<Info className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
-									<span>About AgentMesh</span>
+									<span>About Coco</span>
 								</button>
 
 								<button type="button" className={MENU_STYLES.popoverItem} onClick={showUpdates}>

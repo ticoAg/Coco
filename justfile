@@ -46,7 +46,7 @@ dev: ensure-gui-deps
 dev-app: ensure-gui-deps
     #!/usr/bin/env zsh
     set -e
-    APP_PATH="target/release/bundle/macos/AgentMesh.app"
+    APP_PATH="target/release/bundle/macos/Coco.app"
     if [ ! -d "$APP_PATH" ]; then
         echo "[just] App not found, building first..."
         just build
@@ -55,7 +55,7 @@ dev-app: ensure-gui-deps
     cd apps/gui && npm run dev &
     VITE_PID=$!
     sleep 2
-    echo "[just] Launching AgentMesh.app..."
+    echo "[just] Launching Coco.app..."
     open "$APP_PATH"
     trap "kill $VITE_PID 2>/dev/null" EXIT
     wait $VITE_PID

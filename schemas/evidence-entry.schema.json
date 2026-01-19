@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://agentmesh.dev/schemas/evidence-entry.schema.json",
-  "title": "AgentMesh Evidence Entry",
+  "$id": "https://coco.dev/schemas/evidence-entry.schema.json",
+  "title": "Coco Evidence Entry",
   "description": "Task evidence entry referenced by `evidence:<id>` tokens in task reports/decisions.",
   "type": "object",
   "required": ["id", "kind", "title", "summary", "createdAt", "sources"],

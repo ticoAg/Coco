@@ -3,7 +3,7 @@
 ## Summary
 为 `codex-app-server-adapter` 补齐 **pool 模式**：支持同时维护多个 `codex app-server` 进程实例（按 `CODEX_HOME` 维度隔离/复用），并为上层（GUI/Controller）提供可路由的 `appServerId` 句柄（避免与 Codex 协议中的 MCP `server` 概念混淆）。
 
-> 背景：我们不修改 `./codex` 源码，只在 AgentMesh 侧实现 adaptor / manager。
+> 背景：我们不修改 `./codex` 源码，只在 Coco 侧实现 adaptor / manager。
 
 ## Why
 - 目前 GUI 的 Codex Chat 默认只启动**单一** `codex app-server`，且默认使用 `~/.codex` 作为数据目录。  
@@ -26,8 +26,8 @@
 ## Impact
 - Affected spec: `codex-app-server-adapter`
 - Related docs:
-  - [`docs/agentmesh/execution.md`](../../../../docs/agentmesh/execution.md)
-  - [`docs/agentmesh/gui.md`](../../../../docs/agentmesh/gui.md)（2.3 Codex Chat / 3.1 Subagents）
+  - [`docs/coco/execution.md`](../../../../docs/coco/execution.md)
+  - [`docs/coco/gui.md`](../../../../docs/coco/gui.md)（2.3 Codex Chat / 3.1 Subagents）
   - [`docs/implementation-notes/codex-cli/app-server-api.md`](../../../../docs/implementation-notes/codex-cli/app-server-api.md)
 - Likely code modules (implementation stage):
   - [`apps/gui/src-tauri/src/codex_app_server.rs`](../../../../apps/gui/src-tauri/src/codex_app_server.rs)（spawn / events）

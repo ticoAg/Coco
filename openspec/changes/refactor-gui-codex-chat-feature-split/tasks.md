@@ -17,7 +17,7 @@
 - [x] 2.5 收敛跨模块 import：
   - App/其他 feature 仅从 `@/features/codex-chat`（Facade）导入
   - 迁移期必要时保留旧路径薄 shim（re-export），并在本 change 末尾尽量清理
-- [x] 2.6 同步更新文档硬编码路径引用（至少覆盖 [`docs/implementation-notes/agentmesh-gui-codex-style/README.md`](../../../docs/implementation-notes/agentmesh-gui-codex-style/README.md)）。
+- [x] 2.6 同步更新文档硬编码路径引用（至少覆盖 [`docs/implementation-notes/coco-gui-codex-style/README.md`](../../../docs/implementation-notes/coco-gui-codex-style/README.md)）。
 
 ## 3. Validation
 - [x] 3.1 `openspec validate refactor-gui-codex-chat-feature-split --strict`

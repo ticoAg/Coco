@@ -1,7 +1,7 @@
 # Change: update-gui-codex-chat-fork-rollback
 
 ## Summary
-在 AgentMesh GUI 的 Codex Chat 中接入 `thread/fork` 与 `thread/rollback`：
+在 Coco GUI 的 Codex Chat 中接入 `thread/fork` 与 `thread/rollback`：
 
 - fork：从当前会话派生新 thread，用于探索不同方向（fork 模式也可作为 subagent 的基础能力验证）。
 - rollback：回退最近 N 个 turn 的会话历史，用于“减少主 thread 上下文污染”（注意：不回滚文件修改）。

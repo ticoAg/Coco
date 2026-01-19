@@ -184,7 +184,7 @@ pub fn run() {
             let workspace_root = resolve_workspace_root(app.handle())?;
             let _ = update_recent_workspaces(app.handle(), &workspace_root);
             app.manage(AppState {
-                orchestrator: std::sync::Mutex::new(agentmesh_orchestrator::Orchestrator::new(
+                orchestrator: std::sync::Mutex::new(coco_orchestrator::Orchestrator::new(
                     workspace_root,
                 )),
                 codex_pool: TokioMutex::new(CodexAppServerPool::new(CODEX_APP_SERVER_POOL_MAX)),
@@ -205,7 +205,7 @@ pub fn run() {
 }
 
 struct AppState {
-    orchestrator: std::sync::Mutex<agentmesh_orchestrator::Orchestrator>,
+    orchestrator: std::sync::Mutex<coco_orchestrator::Orchestrator>,
     codex_pool: TokioMutex<CodexAppServerPool>,
     codex_profile: TokioMutex<Option<String>>,
 }
@@ -215,7 +215,7 @@ static NEXT_WINDOW_ID: AtomicU32 = AtomicU32::new(2);
 fn resolve_workspace_root<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> tauri::Result<std::path::PathBuf> {
-    if let Ok(root) = std::env::var("AGENTMESH_WORKSPACE_ROOT") {
+    if let Ok(root) = std::env::var("COCO_WORKSPACE_ROOT") {
         let path = std::path::PathBuf::from(root);
         std::fs::create_dir_all(&path)?;
         return Ok(path);
@@ -231,7 +231,7 @@ fn resolve_workspace_root<R: tauri::Runtime>(
     if cfg!(debug_assertions) {
         let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let repo_root = manifest_dir.join("../../..");
-        if repo_root.join(".agentmesh").exists() {
+        if repo_root.join(".coco").exists() {
             return Ok(repo_root);
         }
     }
@@ -337,7 +337,7 @@ fn validate_id(value: &str, label: &str) -> Result<(), String> {
 
 fn codex_thread_sidecar_dir(workspace_root: &std::path::Path) -> std::path::PathBuf {
     workspace_root
-        .join(".agentmesh")
+        .join(".coco")
         .join("codex")
         .join("threads")
 }
@@ -351,7 +351,7 @@ fn codex_thread_sidecar_path(
 
 fn codex_thread_archive_guard_dir(workspace_root: &std::path::Path) -> std::path::PathBuf {
     workspace_root
-        .join(".agentmesh")
+        .join(".coco")
         .join("codex")
         .join("archive_guards")
 }
@@ -636,7 +636,7 @@ fn read_optional_string(path: &std::path::Path) -> Result<Option<String>, String
 
 fn task_agents_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path::PathBuf {
     workspace_root
-        .join(".agentmesh")
+        .join(".coco")
         .join("tasks")
         .join(task_id)
         .join("agents")
@@ -644,14 +644,14 @@ fn task_agents_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path
 
 fn task_root_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path::PathBuf {
     workspace_root
-        .join(".agentmesh")
+        .join(".coco")
         .join("tasks")
         .join(task_id)
 }
 
 fn task_shared_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path::PathBuf {
     workspace_root
-        .join(".agentmesh")
+        .join(".coco")
         .join("tasks")
         .join(task_id)
         .join("shared")
@@ -755,7 +755,7 @@ fn collect_artifact_summaries(
 }
 
 #[tauri::command]
-fn cluster_status(state: tauri::State<'_, AppState>) -> agentmesh_core::task::ClusterStatus {
+fn cluster_status(state: tauri::State<'_, AppState>) -> coco_core::task::ClusterStatus {
     state
         .orchestrator
         .lock()
@@ -766,7 +766,7 @@ fn cluster_status(state: tauri::State<'_, AppState>) -> agentmesh_core::task::Cl
 #[tauri::command]
 fn list_tasks(
     state: tauri::State<'_, AppState>,
-) -> Result<Vec<agentmesh_core::task::TaskFile>, String> {
+) -> Result<Vec<coco_core::task::TaskFile>, String> {
     state
         .orchestrator
         .lock()
@@ -779,7 +779,7 @@ fn list_tasks(
 fn get_task(
     state: tauri::State<'_, AppState>,
     task_id: String,
-) -> Result<agentmesh_core::task::TaskFile, String> {
+) -> Result<coco_core::task::TaskFile, String> {
     state
         .orchestrator
         .lock()
@@ -795,7 +795,7 @@ fn get_task_events(
     event_type_prefix: Option<String>,
     limit: usize,
     offset: usize,
-) -> Result<Vec<agentmesh_core::task::TaskEvent>, String> {
+) -> Result<Vec<coco_core::task::TaskEvent>, String> {
     state
         .orchestrator
         .lock()
@@ -807,8 +807,8 @@ fn get_task_events(
 #[tauri::command]
 fn create_task(
     state: tauri::State<'_, AppState>,
-    req: agentmesh_core::task::CreateTaskRequest,
-) -> Result<agentmesh_core::task::CreateTaskResponse, String> {
+    req: coco_core::task::CreateTaskRequest,
+) -> Result<coco_core::task::CreateTaskResponse, String> {
     state
         .orchestrator
         .lock()
@@ -1592,7 +1592,7 @@ async fn workspace_root_set(
             .orchestrator
             .lock()
             .map_err(|_| "orchestrator lock poisoned".to_string())?;
-        *orchestrator = agentmesh_orchestrator::Orchestrator::new(root.clone());
+        *orchestrator = coco_orchestrator::Orchestrator::new(root.clone());
     }
 
     Ok(root.to_string_lossy().to_string())
@@ -1609,7 +1609,7 @@ fn window_new(app: tauri::AppHandle) -> Result<String, String> {
     let label = format!("main-{id}");
 
     tauri::WebviewWindowBuilder::new(&app, label.clone(), tauri::WebviewUrl::default())
-        .title("AgentMesh")
+        .title("Coco")
         .inner_size(900.0, 650.0)
         .min_inner_size(900.0, 650.0)
         .build()

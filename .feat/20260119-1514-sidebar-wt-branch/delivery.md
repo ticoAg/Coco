@@ -22,7 +22,7 @@ created_at_utc: "2026-01-19T15:14:07Z"
 ## How to verify
 - Commands:
   - `npm -C apps/gui run build`
-  - `cargo check -p agentmesh-app`
+  - `cargo check -p coco-app`
 - Manual steps:
   - 打开 GUI → Codex Chat → 展开左侧 SessionTree，确认 `task/orchestrator/worker` 节点末尾展示 `wt-[branch]`。
   - 使用一个超长 branch name，确认 suffix 截断且 hover tooltip 展示全名。

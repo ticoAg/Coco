@@ -2335,10 +2335,10 @@ export function CodexChat() {
 		setIsWorkspaceMenuOpen(false);
 		try {
 			const version = await getVersion();
-			await dialogMessage(`AgentMesh\nVersion ${version}`, 'About AgentMesh');
+			await dialogMessage(`Coco\nVersion ${version}`, 'About Coco');
 		} catch {
 			try {
-				await dialogMessage('AgentMesh', 'About AgentMesh');
+				await dialogMessage('Coco', 'About Coco');
 			} catch {
 				// ignore
 			}
@@ -4251,7 +4251,7 @@ export function CodexChat() {
 													{diagnostics.resolvedCodexBin ? `resolved codex: ${diagnostics.resolvedCodexBin}` : 'resolved codex: (not found)'}
 												</div>
 												<div className="truncate">
-													{diagnostics.envOverride ? `AGENTMESH_CODEX_BIN: ${diagnostics.envOverride}` : 'AGENTMESH_CODEX_BIN: (unset)'}
+													{diagnostics.envOverride ? `COCO_CODEX_BIN: ${diagnostics.envOverride}` : 'COCO_CODEX_BIN: (unset)'}
 												</div>
 												<div className="truncate">
 													PATH source: {diagnostics.pathSource ?? '(unknown)'}
@@ -4268,7 +4268,7 @@ export function CodexChat() {
 											</div>
 										) : (
 											<div className="mt-3 text-xs text-text-muted">
-												Tip: set <span className="font-mono">AGENTMESH_CODEX_BIN</span> to an absolute path (e.g.{' '}
+												Tip: set <span className="font-mono">COCO_CODEX_BIN</span> to an absolute path (e.g.{' '}
 												<span className="font-mono">/opt/homebrew/bin/codex</span>) if launching from Finder.
 											</div>
 										)}

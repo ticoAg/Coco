@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://agentmesh.dev/schemas/orchestrator-actions.schema.json",
-  "title": "AgentMesh Orchestrator Actions",
+  "$id": "https://coco.dev/schemas/orchestrator-actions.schema.json",
+  "title": "Coco Orchestrator Actions",
   "description": "Orchestrator（模型）输出的结构化 actions，供 Controller（程序状态机）解析并确定性执行。",
   "type": "object",
   "required": ["sessionGoal", "tasks"],

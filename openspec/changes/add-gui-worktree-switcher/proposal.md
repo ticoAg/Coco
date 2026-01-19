@@ -12,4 +12,4 @@ Users want to create and switch git worktrees directly in the GUI while keeping 
 ## Impact
 - Affected specs: gui-codex-chat
 - Affected code: apps/gui (frontend + Tauri backend)
-- Docs: docs/agentmesh/gui.md
+- Docs: docs/coco/gui.md

@@ -27,13 +27,13 @@ jobs:
         run: cargo fmt --check
 
       - name: check (exclude Tauri app)
-        run: cargo check --workspace --exclude agentmesh-app
+        run: cargo check --workspace --exclude coco-app
 
       - name: clippy (exclude Tauri app)
-        run: cargo clippy --workspace --exclude agentmesh-app -- -D warnings
+        run: cargo clippy --workspace --exclude coco-app -- -D warnings
 
       - name: test (exclude Tauri app)
-        run: cargo test --workspace --exclude agentmesh-app
+        run: cargo test --workspace --exclude coco-app
 
   gui_frontend:
     name: GUI frontend build (Vite)

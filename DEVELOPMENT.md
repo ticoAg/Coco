@@ -1,12 +1,12 @@
 # Development (Rust-first + Tauri macOS)
 
-AgentMesh is moving to a macOS-only `.app` distribution built with Tauri, with an embedded orchestrator and an optional CLI wrapper:
+Coco is moving to a macOS-only `.app` distribution built with Tauri, with an embedded orchestrator and an optional CLI wrapper:
 
-- **Orchestrator (control plane)**: Rust library (`agentmesh-orchestrator`) embedded in the Tauri backend; optional `agentmesh` CLI wrapper for scripts/automation.
+- **Orchestrator (control plane)**: Rust library (`coco-orchestrator`) embedded in the Tauri backend; optional `coco` CLI wrapper for scripts/automation.
 - **GUI (primary entry)**: Tauri app that visualizes the task directory (no local HTTP server).
 - **Frontend**: React + Vite + Tailwind (inside the GUI).
 
-Note: the `agentmesh` CLI is optional; the current implementation is an MVP focused on tasks/events (`agentmesh task create|list|show|events` + `--json`).
+Note: the `coco` CLI is optional; the current implementation is an MVP focused on tasks/events (`coco task create|list|show|events` + `--json`).
 Worker lifecycle commands (spawn/resume/cancel/join) are planned and tracked in follow-up OpenSpec changes.
 
 The previous Python implementation is archived under [`legacy/python/`](legacy/python).
@@ -18,7 +18,7 @@ The previous Python implementation is archived under [`legacy/python/`](legacy/p
 - macOS build tools (Xcode Command Line Tools)
 - Ubuntu (optional): Tauri system deps (installed by `just deps`, requires `sudo apt-get update/install`)
 - `codex` installed and available on `PATH` (required for Codex Chat and when running workers)
-  - macOS: if launching the `.app` from Finder, you may need to set `AGENTMESH_CODEX_BIN=/opt/homebrew/bin/codex` because GUI apps don't always inherit your shell `PATH`.
+  - macOS: if launching the `.app` from Finder, you may need to set `COCO_CODEX_BIN=/opt/homebrew/bin/codex` because GUI apps don't always inherit your shell `PATH`.
 
 ## Common commands
 
@@ -59,16 +59,16 @@ just be-build
 
 ## Release (macOS DMG)
 
-See [`docs/agentmesh/release.md`](docs/agentmesh/release.md) for the tag-driven GitHub Actions release workflow and local DMG build commands.
+See [`docs/coco/release.md`](docs/coco/release.md) for the tag-driven GitHub Actions release workflow and local DMG build commands.
 
 ## Workspace root (tasks)
 
-In dev mode, the Tauri app automatically uses the repository root if it contains [`.agentmesh/`](.agentmesh).
+In dev mode, the Tauri app automatically uses the repository root if it contains [`.coco/`](.coco).
 
 To override, set:
 
 ```bash
-export AGENTMESH_WORKSPACE_ROOT="/path/to/workspace"
+export COCO_WORKSPACE_ROOT="/path/to/workspace"
 ```
 
-The `agentmesh` CLI uses the same workspace root resolution rules as the GUI/Tauri app.
+The `coco` CLI uses the same workspace root resolution rules as the GUI/Tauri app.

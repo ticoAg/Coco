@@ -2,7 +2,7 @@
 title: "Log/Observability Agent Spec"
 purpose: "Define the Log agent: log/metrics/trace correlation and structured incident evidence extraction."
 owner: "log"
-tags: ["agentmesh", "preset", "swarm", "observability", "debug"]
+tags: ["coco", "preset", "swarm", "observability", "debug"]
 ---
 
 # Log / Observability Agent

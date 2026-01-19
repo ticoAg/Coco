@@ -24,7 +24,7 @@
 
 ## Non-Goals
 - 不引入新的状态管理库（Redux/Zustand 等）。
-- 不改 UI/UX（特别是 `CodexChat` 的 VSCode 插件对齐样式与交互，参考 [`docs/implementation-notes/agentmesh-gui-codex-style/README.md`](../../../../docs/implementation-notes/agentmesh-gui-codex-style/README.md)）。
+- 不改 UI/UX（特别是 `CodexChat` 的 VSCode 插件对齐样式与交互，参考 [`docs/implementation-notes/coco-gui-codex-style/README.md`](../../../../docs/implementation-notes/coco-gui-codex-style/README.md)）。
 - 不在本 change 内完成具体业务模块（CodexChat/TaskDetail/TurnBlock）的代码迁移与拆分（这些在后续独立 changes 中完成）。
 
 ## Impact

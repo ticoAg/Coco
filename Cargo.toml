@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/agentmesh-core",
-  "crates/agentmesh-cli",
-  "crates/agentmesh-orchestrator",
-  "crates/agentmesh-codex",
+  "crates/coco-core",
+  "crates/coco-cli",
+  "crates/coco-orchestrator",
+  "crates/coco-codex",
   "apps/gui/src-tauri",
 ]

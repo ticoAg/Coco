@@ -12,8 +12,8 @@ GUI 通过 Tauri 后端与 codex app-server 进程通信，使用 JSON-RPC 协�
 |------|------|
 | Tauri 后端命令 | [`apps/gui/src-tauri/src/lib.rs`](../../../apps/gui/src-tauri/src/lib.rs) |
 | Codex App Server 客户端 | [`apps/gui/src-tauri/src/codex_app_server.rs`](../../../apps/gui/src-tauri/src/codex_app_server.rs) |
-| AgentMesh app-server adapter client（可复用） | [`crates/agentmesh-codex/src/app_server_client.rs`](../../../crates/agentmesh-codex/src/app_server_client.rs) |
-| Orchestrator wrapper（语义 API：start/resume/fork/turn/...） | [`crates/agentmesh-orchestrator/src/codex_app_server_adapter.rs`](../../../crates/agentmesh-orchestrator/src/codex_app_server_adapter.rs) |
+| Coco app-server adapter client（可复用） | [`crates/coco-codex/src/app_server_client.rs`](../../../crates/coco-codex/src/app_server_client.rs) |
+| Orchestrator wrapper（语义 API：start/resume/fork/turn/...） | [`crates/coco-orchestrator/src/codex_app_server_adapter.rs`](../../../crates/coco-orchestrator/src/codex_app_server_adapter.rs) |
 | 前端 API 客户端 | [`apps/gui/src/api/client.ts`](../../../apps/gui/src/api/client.ts) |
 | 前端类型定义 | [`apps/gui/src/types/codex.ts`](../../../apps/gui/src/types/codex.ts) |
 | Codex 协议定义 | `github:openai/codex/codex-rs/app-server-protocol/src/protocol/v2.rs`（v2）与 `.../protocol/common.rs`（共享类型/通知） |
@@ -41,7 +41,7 @@ GUI 通过 Tauri 后端与 codex app-server 进程通信，使用 JSON-RPC 协�
 - **源码**: `lib.rs:953`
 - **备注（历史 Activity 恢复）**:
   - Codex app-server 的 `thread/resume` 在某些版本/场景下可能只返回 `userMessage/agentMessage/reasoning`（即历史 `turn.items` 不含命令/文件变更/MCP/WebSearch）。
-  - 为了在 GUI 的 “Finished working” 展开后能稳定看到历史过程（command/fileChange/webSearch/mcp），AgentMesh 会在 Tauri 后端对 `thread/resume` 的返回做一次“补全”：读取 `thread.path` 指向的 rollout JSONL（位于 `~/.codex/sessions/.../rollout-*.jsonl`），按 `event_msg.user_message` 的 turn 边界重建 activity items，并注入到 `thread.turns[].items`。
+  - 为了在 GUI 的 “Finished working” 展开后能稳定看到历史过程（command/fileChange/webSearch/mcp），Coco 会在 Tauri 后端对 `thread/resume` 的返回做一次“补全”：读取 `thread.path` 指向的 rollout JSONL（位于 `~/.codex/sessions/.../rollout-*.jsonl`），按 `event_msg.user_message` 的 turn 边界重建 activity items，并注入到 `thread.turns[].items`。
   - 目前补全的 block 类型：`commandExecution`（exec_command）、`fileChange`（apply_patch，整段 patch 作为 diff）、`mcpToolCall`（`server.tool`）、`webSearch`（web_search_call）。
   - `fileChange.changes` 可能包含 `lineNumbersAvailable`，当后端能根据当前 workspace 文件反推行号时，会把 `diff` 改写为带 `@@` 行号的 unified diff；否则保持原 diff 并让前端隐藏行号。
 

@@ -18,5 +18,5 @@
 
 ## Impact
 - Affected specs: `task-directory`
-- Affected code (implementation stage): [`crates/agentmesh-core`](../../../../crates/agentmesh-core) 的 Task scaffolding；[`crates/agentmesh-orchestrator`](../../../../crates/agentmesh-orchestrator) 的 join/report 生成。
-- Docs: 可能需要补充 [`docs/agentmesh/artifacts.md`](../../../../docs/agentmesh/artifacts.md) 的 evidence 小节（实现阶段同步）。
+- Affected code (implementation stage): [`crates/coco-core`](../../../../crates/coco-core) 的 Task scaffolding；[`crates/coco-orchestrator`](../../../../crates/coco-orchestrator) 的 join/report 生成。
+- Docs: 可能需要补充 [`docs/coco/artifacts.md`](../../../../docs/coco/artifacts.md) 的 evidence 小节（实现阶段同步）。

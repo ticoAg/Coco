@@ -27,7 +27,7 @@
 
 ## Non-Goals
 - 不引入新的状态管理库（Redux/Zustand 等）。
-- 不改变 Codex Chat 的 UI/UX、交互细节与 VSCode plugin parity（以 [`openspec/specs/gui-codex-chat/spec.md`](../../specs/gui-codex-chat/spec.md) 与 [`docs/implementation-notes/agentmesh-gui-codex-style/README.md`](../../../docs/implementation-notes/agentmesh-gui-codex-style/README.md) 为准）。
+- 不改变 Codex Chat 的 UI/UX、交互细节与 VSCode plugin parity（以 [`openspec/specs/gui-codex-chat/spec.md`](../../specs/gui-codex-chat/spec.md) 与 [`docs/implementation-notes/coco-gui-codex-style/README.md`](../../../docs/implementation-notes/coco-gui-codex-style/README.md) 为准）。
 - 不在本 change 内做“新增功能”（仅行为保持重构与目录迁移）。
 
 ## Impact
@@ -40,5 +40,5 @@
   - [`apps/gui/src/hooks/useSessionTree.ts`](../../../apps/gui/src/hooks/useSessionTree.ts)（可能迁移到 feature）
   - [`apps/gui/src/types/codex.ts`](../../../apps/gui/src/types/codex.ts)（可能迁移到 feature 或 shared 并通过 Facade 暴露）
 - Likely affected docs:
-  - [`docs/implementation-notes/agentmesh-gui-codex-style/README.md`](../../../docs/implementation-notes/agentmesh-gui-codex-style/README.md)（存在硬编码路径引用）
+  - [`docs/implementation-notes/coco-gui-codex-style/README.md`](../../../docs/implementation-notes/coco-gui-codex-style/README.md)（存在硬编码路径引用）
 

@@ -5,7 +5,7 @@ slug: "ui-finished-working-overflow"
 notes_dir: ".feat/20260119-1725-ui-finished-working-overflow"
 base_branch: "dev"
 feature_branch: "feat/ui-finished-working-overflow"
-worktree: "../AgentMesh-feat-ui-finished-working-overflow"
+worktree: "../Coco-feat-ui-finished-working-overflow"
 created_at_utc: "2026-01-19T17:25:40Z"
 ---
 # Feature Requirements: ui-finished-working-overflow
@@ -16,7 +16,7 @@ created_at_utc: "2026-01-19T17:25:40Z"
 - Current: vFinal
 - Base branch: dev
 - Feature branch: feat/ui-finished-working-overflow
-- Worktree: ../AgentMesh-feat-ui-finished-working-overflow
+- Worktree: ../Coco-feat-ui-finished-working-overflow
 - Created (UTC): 2026-01-19T17:25:40Z
 - Confirmed (Local): 2026-01-19
 

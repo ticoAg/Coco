@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://agentmesh.dev/schemas/task.schema.json",
-  "title": "AgentMesh Task Configuration",
+  "$id": "https://coco.dev/schemas/task.schema.json",
+  "title": "Coco Task Configuration",
   "description": "task.yaml 的 JSON Schema 定义，用于描述一次任务的状态、拓扑、阵容与 gating",
   "type": "object",
   "required": ["id", "title", "topology", "state"],

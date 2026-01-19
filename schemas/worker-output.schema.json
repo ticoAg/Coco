@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://agentmesh.dev/schemas/worker-output.schema.json",
-  "title": "AgentMesh Worker Final Output",
+  "$id": "https://coco.dev/schemas/worker-output.schema.json",
+  "title": "Coco Worker Final Output",
   "description": "子代理（worker）在一次 turn 结束时的结构化最终输出，用于 join/汇总与后续编排。",
   "type": "object",
   "required": ["status", "summary"],
@@ -27,7 +27,7 @@
         },
         "branch": {
           "type": "string",
-          "description": "建议合并的分支名（例如 agentmesh/<task_id>/<agent_id>）。"
+          "description": "建议合并的分支名（例如 coco/<task_id>/<agent_id>）。"
         },
         "touchedFiles": {
           "type": "array",

@@ -18,5 +18,5 @@ Users need to switch Codex profiles for the current GUI session without editing 
   - [`apps/gui/src/api/client.ts`](../../../../apps/gui/src/api/client.ts)
   - [`apps/gui/src-tauri/src/lib.rs`](../../../../apps/gui/src-tauri/src/lib.rs)
   - [`apps/gui/src-tauri/src/codex_app_server.rs`](../../../../apps/gui/src-tauri/src/codex_app_server.rs)
-  - [`docs/agentmesh/gui.md`](../../../../docs/agentmesh/gui.md)
+  - [`docs/coco/gui.md`](../../../../docs/coco/gui.md)
   - [`docs/implementation-notes/codex-cli/app-server-api.md`](../../../../docs/implementation-notes/codex-cli/app-server-api.md)

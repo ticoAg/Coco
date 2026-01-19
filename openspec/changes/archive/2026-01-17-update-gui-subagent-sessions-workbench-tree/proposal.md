@@ -32,9 +32,9 @@
 ## Impact
 - Affected spec: `gui-subagent-sessions`
 - Related docs:
-  - [`docs/agentmesh/gui.md`](../../../../docs/agentmesh/gui.md)（3.1 Subagents / Sessions 展示建议）
-  - [`docs/agentmesh/execution.md`](../../../../docs/agentmesh/execution.md)
-  - `WORKBENCH_STATE_FLOW.md` / [`docs/implementation-notes/agentmesh/workbench-state-flow.md`](../../../../docs/implementation-notes/agentmesh/workbench-state-flow.md)
+  - [`docs/coco/gui.md`](../../../../docs/coco/gui.md)（3.1 Subagents / Sessions 展示建议）
+  - [`docs/coco/execution.md`](../../../../docs/coco/execution.md)
+  - `WORKBENCH_STATE_FLOW.md` / [`docs/implementation-notes/coco/workbench-state-flow.md`](../../../../docs/implementation-notes/coco/workbench-state-flow.md)
 - Likely code modules (implementation stage):
   - Frontend:
     - `apps/gui/src/components/TaskDetail.tsx`（sessions tab → workbench）

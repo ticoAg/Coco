@@ -1,7 +1,7 @@
 [package]
-name = "agentmesh-app"
+name = "coco-app"
 version = "1.1.1"
-description = "AgentMesh (macOS)"
+description = "Coco (macOS)"
 authors = ["you"]
 license = ""
 repository = ""
@@ -25,5 +25,5 @@ tauri = { version = "2.9.5", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2.5.0"
 tokio = { version = "1.43.0", features = ["io-util", "macros", "process", "rt", "sync", "time"] }
-agentmesh-orchestrator = { path = "../../../crates/agentmesh-orchestrator" }
-agentmesh-core = { path = "../../../crates/agentmesh-core" }
+coco-orchestrator = { path = "../../../crates/coco-orchestrator" }
+coco-core = { path = "../../../crates/coco-core" }

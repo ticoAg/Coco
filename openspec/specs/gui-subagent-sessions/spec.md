@@ -7,7 +7,7 @@
 GUI SHALL 在任务详情中展示该任务的 subagents/sessions 概览，并至少包含：agent instance id（目录名）、状态（按推导规则）、最后更新时间（按推导规则）。
 
 #### Scenario: List sessions from task directory
-- **GIVEN** `.agentmesh/tasks/<task_id>/agents/` 下存在一个或多个 agent instance 目录
+- **GIVEN** `.coco/tasks/<task_id>/agents/` 下存在一个或多个 agent instance 目录
 - **WHEN** 用户打开任务详情页
 - **THEN** GUI 展示 sessions 列表
 

@@ -1,0 +1,104 @@
+# Coco 多阶段实施路线图（Codex-first / Session-based）
+
+> 原则：先把“产物形态 + 人工介入点”做扎实；执行层以 **CLI 工具的底层可编程接口** 作为首个接入路径（先做 Codex），直接读取结构化输出。
+
+> 执行闭环总览见：[`docs/coco/execution.md`](./execution.md)。
+>
+> 方案推进建议以 OpenSpec changes 作为“计划与验收清单”（便于拆分 PR）：
+> - [`openspec/changes/archive/2026-01-17-add-task-evidence-index/`](../../openspec/changes/archive/2026-01-17-add-task-evidence-index)
+> - [`openspec/changes/archive/2026-01-17-add-codex-app-server-adapter/`](../../openspec/changes/archive/2026-01-17-add-codex-app-server-adapter)
+> - [`openspec/changes/archive/2026-01-17-add-orchestrator-controller-loop/`](../../openspec/changes/archive/2026-01-17-add-orchestrator-controller-loop)
+> - [`openspec/changes/archive/2026-01-17-update-gui-codex-chat-fork-rollback/`](../../openspec/changes/archive/2026-01-17-update-gui-codex-chat-fork-rollback)
+
+## Phase 0（现在）：设计沉淀 + 模板库
+
+**目标**
+- 明确协作拓扑、状态机、产物规范
+- 提供可复用的 `Agent Spec` 模板（本仓库 `agents/*/agents.md` 已具备雏形）
+
+**交付物**
+- [`.coco/`](../../.coco) 的目录约定（见 [`docs/coco/artifacts.md`](artifacts.md)）
+- `DiagnosticReport` / `API Contract` / `Test Report` 模板
+- 基础 roster（Architect/FE/BE/QA + DB/Log/Network）
+
+**用户介入**
+- 直接编辑 agent spec 模板与报告模板
+
+## Phase 1：本地编排器（产物驱动、可暂停/可恢复、可并发）
+
+**目标**
+- 实现一个最小 Controller 状态机（优先内置库接口；CLI 作为可选 wrapper），只要能：
+  - 创建 task 目录
+  - 执行 `fork/join`（并发跑 N 个 agent）
+  - 写入结构化产物 + `events.jsonl`
+  - 在 `gate.blocked` 时停下等待人工输入
+
+> 说明：这里的“Orchestrator”指 **模型规划层**（输出 actions），Controller 负责解析 actions 并执行调度/落盘。
+
+**实现方式（示例）**
+- 先定义一个 **Adapter 接口**：
+  - `start(task, agentSpec, prompt, attachments) -> sessionHandle`
+  - `poll(sessionHandle) -> status/artifacts`
+  - `resume(sessionHandle, message, attachments)`
+  - `stop(sessionHandle)`
+- 先实现“本地 stub adapter”（用脚本模拟 agent 输出），把编排与产物跑通
+
+**用户介入**
+- 编辑 `.coco/tasks/<id>/shared/human-notes.md` 注入纠错
+- 编辑 `task.yaml`（改拓扑/改 roster/改 gating）
+- 驳回某个 artifact：写入 human-notes 并触发重跑
+
+## Phase 2：Codex Adapter（后台维护 session + 读取结构化事件）
+
+**目标**
+- 先把 Codex 做成可用的 adapter：管理一个个 coder session，并从底层事件流直接提取输出
+- 不做 TUI 控制台，不解析 ANSI 屏幕；只处理 JSON/JSONL 级别的事件与结果
+
+**实现方式（示例）**
+- 先做 **`codex exec --json`**（参考 `github:openai/codex/codex-rs/exec/`）：一次性跑完并输出 JSONL 事件
+  - 适合并行 subagents（<=8）：子进程 + 读 stdout JSONL 就能驱动 GUI 状态
+  - 配合独立 `CODEX_HOME` + git worktree，可获得良好的“独立上下文 + 并发隔离”体验
+- 再做 `codex app-server`（参考 `github:openai/codex/codex-rs/app-server/README.md`）：
+  - stdio JSON-RPC，Thread/Turn/Item 模型，事件流式输出
+  - 支持 approvals（server→client 请求），天然对齐 `gate.blocked` 与 GUI 的审批交互
+  - 支持 fork/rollback（用于继承上下文与控制主线程历史污染）
+- 细节：见 [`docs/coco/adapters/codex.md`](./adapters/codex.md)
+
+**交付物**
+- `codex exec` runner（spawn/resume/cancel/并发管理）+ JSONL 事件解析
+- （可选）`codex-app-server` client（初始化、thread/start|resume、turn/start、interrupt、approve/deny）
+- 任务目录落盘原始记录：`agents/<instance>/runtime/events.jsonl`、`agents/<instance>/runtime/requests.jsonl`、`agents/<instance>/session.json`
+
+**用户介入**
+- 当出现 approval request：任务进入 `gate.blocked`，用户在 `shared/human-notes.md` 决策 allow/deny（或补充约束）
+
+## Phase 3：产物提取（从 Codex items/events 生成 Coco artifacts）
+
+**目标**
+- 把 Codex 的 items/events 转成 Coco 稳定产物：报告、契约、变更摘要、下一步行动
+
+**交付物**
+- `DiagnosticReport`/`API Contract`/`Test Report` 等模板的“填充器”（从 item 里提取并落盘）
+- `events.jsonl` 的统一事件：`agent.turn.started/completed`、`artifact.written`、`gate.blocked/approved/rejected`
+- Evidence Index（`shared/evidence/index.json`）与 `evidence:<id>` 引用约定：将“关键证据”从过程日志中抽取出来供报告引用
+
+**用户介入**
+- 对提取出的产物进行验收/驳回/补充，触发重跑或继续
+
+## Phase 3.5：GUI（Artifacts-first）
+
+**目标**
+- 提供用户可感知的 GUI 页面（不嵌入/复刻各家 TUI）
+- 把 “任务状态 + 产物 + gates/approval” 以可操作的方式呈现出来
+
+**交付物**
+- 任务列表/任务详情/产物浏览/事件流/审批交互
+- GUI 以 **只读方式**读取任务目录（文件 watcher/轮询），不依赖常驻本地 HTTP 服务
+- （可选增强）Codex Chat：用 `codex app-server` 做原生对话（会话列表/流式 item 事件/web_search 展示），审批以内联消息「批准/拒绝」完成；仅在输入区暴露 `model` 与 `model_reasoning_effort`，其余配置通过编辑 `~/.codex/config.toml` 管理，并复用 `~/.codex/sessions` 历史。
+- （增强）在 Codex Chat 中接入 `thread/fork` 与 `thread/rollback`，用于验证 fork/rollback 的真实语义与边界（以及“只回滚历史，不回滚文件”）。
+
+细节见：[`docs/coco/gui.md`](./gui.md)
+
+## 备注
+
+如需新增更进一步的能力（例如更细粒度的 UI/交互、或额外的工作流机制），建议以 OpenSpec change 的形式推进，避免把未落地的设想混入主线文档。

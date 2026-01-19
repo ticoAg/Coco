@@ -29,14 +29,14 @@ if [[ -z "${SKIP_RUST_PREFLIGHT:-}" ]]; then
   echo "[preflight] cargo fmt --check"
   cargo fmt --check
 
-  echo "[preflight] cargo check --workspace --exclude agentmesh-app"
-  cargo check --workspace --exclude agentmesh-app
+  echo "[preflight] cargo check --workspace --exclude coco-app"
+  cargo check --workspace --exclude coco-app
 
-  echo "[preflight] cargo clippy --workspace --exclude agentmesh-app -- -D warnings"
-  cargo clippy --workspace --exclude agentmesh-app -- -D warnings
+  echo "[preflight] cargo clippy --workspace --exclude coco-app -- -D warnings"
+  cargo clippy --workspace --exclude coco-app -- -D warnings
 
-  echo "[preflight] cargo test --workspace --exclude agentmesh-app"
-  cargo test --workspace --exclude agentmesh-app
+  echo "[preflight] cargo test --workspace --exclude coco-app"
+  cargo test --workspace --exclude coco-app
 else
   echo "[preflight] SKIP_RUST_PREFLIGHT set; skipping Rust checks."
 fi

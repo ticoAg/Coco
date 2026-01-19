@@ -7,7 +7,7 @@
 - 优点：实现简单（子进程 + 读 stdout JSONL）、适合并发 worker（<=8）。
 - 代价：交互粒度不如 `app-server`（尤其 approvals），但可在后续 change 迁移。
 
-参考：[`docs/agentmesh/adapters/codex.md`](../../../../docs/agentmesh/adapters/codex.md)、[`docs/agentmesh/subagents.md`](../../../../docs/agentmesh/subagents.md)。
+参考：[`docs/coco/adapters/codex.md`](../../../../docs/coco/adapters/codex.md)、[`docs/coco/subagents.md`](../../../../docs/coco/subagents.md)。
 
 ### D2: Artifacts-first persistence
 adapter 的首要职责是“原始记录 + 可编排最终输出”落盘：

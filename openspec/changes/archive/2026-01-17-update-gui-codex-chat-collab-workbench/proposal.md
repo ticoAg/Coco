@@ -1,7 +1,7 @@
 # Change: update-gui-codex-chat-collab-workbench
 
 ## Summary
-在 AgentMesh GUI 的 Codex Chat 中补齐 **collab 多 agent 可视化 + workbench 多 panel 模式**：
+在 Coco GUI 的 Codex Chat 中补齐 **collab 多 agent 可视化 + workbench 多 panel 模式**：
 
 - 渲染 `CollabAgentToolCall` 的过程与状态（collab tools: `spawn_agent`/`send_input`/`wait`/`close_agent`；item 字段 `tool`: `spawnAgent`/`sendInput`/`wait`/`closeAgent`）
 - 从 collab 工具调用中推导 thread graph（root thread → orchestrator thread → worker threads）
@@ -26,14 +26,14 @@
     - GUI 在 thread tree 中记录并显示 fork 关系（优先从 app-server 返回值构建；必要时 GUI 自己维护映射）
 
 ## Non-Goals
-- 不在本 change 中实现完整 “AgentMesh Task Directory Workbench”（另一个 change 做）。
+- 不在本 change 中实现完整 “Coco Task Directory Workbench”（另一个 change 做）。
 - 不在本 change 中实现自动生成 Orchestrator actions / Controller loop 的 GUI 控制面（先把可视化跑通）。
 
 ## Impact
 - Affected spec: `gui-codex-chat`
 - Related docs:
-  - [`docs/agentmesh/gui.md`](../../../../docs/agentmesh/gui.md)（2.3 Codex Chat）
-  - [`docs/agentmesh/execution.md`](../../../../docs/agentmesh/execution.md)
+  - [`docs/coco/gui.md`](../../../../docs/coco/gui.md)（2.3 Codex Chat）
+  - [`docs/coco/execution.md`](../../../../docs/coco/execution.md)
   - [`docs/implementation-notes/codex-cli/app-server-api.md`](../../../../docs/implementation-notes/codex-cli/app-server-api.md)
   - `codex/codex-rs/app-server-protocol/src/protocol/v2.rs`（`CollabAgentToolCall` item 定义，仅参考）
 - Likely code modules (implementation stage):
