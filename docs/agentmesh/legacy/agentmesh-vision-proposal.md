@@ -14,7 +14,7 @@
 > - 这里提到的 “Subagent” 更偏向“角色/分工/阵容”的概念，不绑定某家产品的 Subagents 技术实现，也不要求做多 TUI 控制台。
 >
 > 具体落地文档见：[`docs/agentmesh/README.md`](../README.md)。
-> - 最新 multi/subagent 闭环方案（Orchestrator 模型 + Controller 状态机 + Evidence-first）见：[`docs/agentmesh/multiagent.md`](../multiagent.md)。
+> - 执行闭环总览（Task Directory + Workers + Gates / Evidence-first）见：[`docs/agentmesh/execution.md`](../execution.md)。
 > - Codex adapter 说明：[`docs/agentmesh/adapters/codex.md`](../adapters/codex.md)。
 
 这套特性旨在解决单一 Agent 上下文过载和能力泛化的问题，通过**专业化分工**和**有序协作**来提升复杂任务的效率。

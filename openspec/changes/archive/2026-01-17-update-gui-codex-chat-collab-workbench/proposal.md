@@ -33,7 +33,7 @@
 - Affected spec: `gui-codex-chat`
 - Related docs:
   - `docs/agentmesh/gui.md`（2.3 Codex Chat）
-  - `docs/agentmesh/multiagent.md`（4 Fork vs Spawn / 8 GUI）
+  - `docs/agentmesh/execution.md`
   - `docs/implementation-notes/codex-cli/app-server-api.md`
   - `codex/codex-rs/app-server-protocol/src/protocol/v2.rs`（`CollabAgentToolCall` item 定义，仅参考）
 - Likely code modules (implementation stage):

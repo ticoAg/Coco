@@ -4,7 +4,7 @@
 >
 > 适用：`docs/agentmesh/subagents.md` 的并行 worker 架构。
 >
-> multi/subagent 的整体闭环与 evidence-first 约定见：[`docs/agentmesh/multiagent.md`](../multiagent.md)。
+> 执行闭环与 evidence-first 约定见：[`docs/agentmesh/execution.md`](../execution.md)。
 
 ## 1. 约束：你是 subagent，不是主控
 

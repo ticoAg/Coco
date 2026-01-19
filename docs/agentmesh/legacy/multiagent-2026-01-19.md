@@ -1,5 +1,11 @@
 # Multi/Subagent 执行方案（可信、可复盘、Codex-first）
 
+> 注意：本文为 2026-01-19 从 `docs/agentmesh/multiagent.md` 迁移的历史备份，可能与当前主线文档不一致。
+>
+> 当前主线入口：
+> - 执行闭环：[`docs/agentmesh/execution.md`](../execution.md)
+> - 落地文档索引：[`docs/agentmesh/README.md`](../README.md)
+
 > 本文是对 AgentMesh 的 multi-agent / subagent 方案的一份“可落地”整合稿：
 > - 规划/决策由模型（Orchestrator）负责
 > - 执行/并发/落盘/证据链/权限隔离由程序（Controller 状态机 + Adapter）负责

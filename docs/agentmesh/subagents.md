@@ -1,12 +1,12 @@
 # 子代理（Subagents）落地方案：以 Codex CLI 为例
 
-> 目标：参考 Claude Code 的 Subagents 交互模型（分工 + 独立上下文 + 可恢复 + 状态可视化），在 AgentMesh 中用“外部编排 + 调用现成 CLI 工具”落地。
+> 目标：用 **Codex CLI** 跑多个并行 worker（分工 + 独立上下文 + 可恢复 + 状态可视化），并把过程/结果落盘到任务目录（Task Directory）。
 >
-> 本文聚焦 **`codex-cli + prompt`** 的可行实现路径：AgentMesh 负责控制面（并发、状态、产物、人工介入）；Codex CLI 作为一个或多个“后台 coder worker”运行。
+> 本文聚焦 **`codex exec --json + prompt`** 这条可行实现路径：AgentMesh 负责控制面（并发、状态、产物、人工介入）；Codex CLI 作为一个或多个后台 worker 运行。
 
 > 注：这里的“agentmesh 控制面”可以内置在 GUI/Tauri 后端运行；`agentmesh` CLI 仅作为可选 wrapper，并非必须入口。
 >
-> 最新版“可信 multi/subagent 执行方案”整合稿见：[`docs/agentmesh/multiagent.md`](./multiagent.md)。本文主要聚焦 subagent worker（`codex exec --json`）这条路径如何落地。
+> 执行闭环（Task Directory + Workers + Gates / Evidence-first）见：[`docs/agentmesh/execution.md`](./execution.md)。本文主要聚焦并行 worker（`codex exec --json`）这条路径如何落地。
 
 ## 1. 关键诉求与结论
 
@@ -64,7 +64,7 @@ GUI 只是把这些事实呈现出来并提供“人工介入动作”（允许/
 
 ## 3. subagent 的“独立上下文”如何实现
 
-Claude subagent 有独立上下文窗口。Codex 侧可以用两层隔离实现“足够接近”的效果：
+为了让每个 worker 具备“独立上下文”的效果，Codex 侧可以用两层隔离实现：
 
 ### 3.1 独立会话与状态隔离：独立 `CODEX_HOME`
 

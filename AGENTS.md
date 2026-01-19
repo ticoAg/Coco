@@ -45,7 +45,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 - **阅读优于臆测**：实现功能前，先探索repo中功能相关的模块，确定修改目标
 - **SDK 查证**：调用第三方库前，请查阅本地源码, 严禁凭猜测编写接口调用
-- **AI 协议共享**: 主动阅读工作目录下可能存在的agent.md,claude.md,gemini.md,readme.md了解对应 repo, module的工作模式
+- **AI 协议共享**: 主动阅读工作目录下可能存在的 `AGENTS.md/README.md/CONTRIBUTING/docs` 等文档，了解对应 repo/module 的工作模式
 
 ---
 

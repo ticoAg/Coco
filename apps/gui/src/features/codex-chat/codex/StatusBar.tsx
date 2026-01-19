@@ -87,8 +87,7 @@ function translateModelDesc(desc: string): string {
 		'Optimized for code generation and understanding': '针对代码生成和理解优化',
 		'Compact model for quick responses': '紧凑模型，快速响应',
 		'Mini model optimized for Codex tasks': '针对 Codex 任务优化的迷你模型',
-		// Claude models
-		'Most capable Claude model': '最强大的 Claude 模型',
+		// Common descriptions
 		'Balanced performance and speed': '性能与速度平衡',
 		'Fast and cost-effective': '快速且经济',
 		// Generic descriptions

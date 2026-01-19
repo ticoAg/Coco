@@ -33,7 +33,7 @@
 - Affected spec: `gui-subagent-sessions`
 - Related docs:
   - `docs/agentmesh/gui.md`（3.1 Subagents / Sessions 展示建议）
-  - `docs/agentmesh/multiagent.md`（8 GUI / 6 Evidence-first）
+  - `docs/agentmesh/execution.md`
   - `WORKBENCH_STATE_FLOW.md` / `docs/implementation-notes/agentmesh/workbench-state-flow.md`
 - Likely code modules (implementation stage):
   - Frontend:

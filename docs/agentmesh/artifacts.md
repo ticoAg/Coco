@@ -2,7 +2,7 @@
 
 > 目标：把一次 `User ↔ Agents` 的协作过程，落盘成**可追踪、可编辑、可复现**的产物集合，让用户可以在任何环节介入、注入指导、纠错。
 
-本规范刻意“协议无关”：即便未来接入 A2A/ACP/不同 vendor agent，产物形态也尽量保持稳定。
+本规范刻意保持稳定：即便后续扩展执行方式（例如不同的运行模式/更多工具能力），产物形态也尽量不变。
 
 ## 1. 顶层目录：`.agentmesh/`
 
@@ -140,8 +140,6 @@ events.jsonl 常用 JSON Lines 记录每个关键事件，便于：
 {"ts":"2025-12-14T15:10:12Z","type":"gate.approved","taskId":"...","gateId":"gate-approve-fix","by":"human","commentRef":"./shared/human-notes.md#approval-1"}
 ```
 
-> 与 A2A 的映射：A2A 的 `TaskStatusUpdateEvent` / `TaskArtifactUpdateEvent` 可以直接镜像为本地事件流；A2A 的 `input-required` 也能落到 `gate.blocked` + `human-notes.md`。
-
 ### 2.3 Evidence Index（证据索引：避免“上下文倾倒”）
 
 在 multi/subagent 场景里，最容易失控的是“过程噪声”：大量读文件片段、命令输出、探索性推理会迅速淹没主控上下文。建议把“关键证据”结构化落盘，并在报告/决策中只引用它，而不是复制大段日志。
@@ -174,8 +172,6 @@ agent_instance: "db-1"
 artifact_id: "artifact-...-v1"
 ---
 ```
-
-> 与 A2A 的映射：`artifact_id` 对应 A2A `artifactId`；`title`/文件名可对应 A2A 的 `artifact-name`（通常保持稳定以支持“版本演进”）。
 
 ## 4. 结构化交换：报告模板（示例）
 

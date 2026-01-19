@@ -7,7 +7,7 @@
 >
 > 补充：在保持 “Artifacts-first” 的前提下，GUI 也可以提供一个 **Codex Chat** 视图，用 `codex app-server` 做原生对话（会话列表、流式事件、内联审批），而不是复刻 TUI。
 
-> multi/subagent 的完整闭环（Orchestrator 模型 + Controller 状态机 + Evidence-first）见：[`docs/agentmesh/multiagent.md`](./multiagent.md)。
+> 执行闭环（Task Directory + Workers + Gates / Evidence-first）见：[`docs/agentmesh/execution.md`](./execution.md)。
 >
 > 术语约定：本文中的“后端编排器”更准确叫 **Controller（程序状态机）**；“Orchestrator（模型）”负责规划/分解，输出结构化 actions，由 Controller 执行。
 

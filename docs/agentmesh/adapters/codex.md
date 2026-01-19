@@ -4,7 +4,7 @@
 >
 > 不做多 TUI 控制台，不解析 ANSI 屏幕；Codex 的交互用其底层接口完成。
 
-> multi/subagent 的完整闭环（Orchestrator 模型 + Controller 状态机 + Evidence-first）见：[`docs/agentmesh/multiagent.md`](../multiagent.md)。
+> 执行闭环（Task Directory + Workers + Gates / Evidence-first）见：[`docs/agentmesh/execution.md`](../execution.md)。
 
 ## 1. 接口选项：`codex app-server`
 
@@ -111,7 +111,7 @@ adapter 开发时可以把 schema 作为“真源”，避免手写字段导致�
 
 - `<task_dir>/agents/<agent_id>/codex_home/`
 
-这会让 Codex 的 sessions/rollouts 等文件互不干扰，更接近 Claude Code 的“子代理独立上下文窗口”体验。
+这会让 Codex 的 sessions/rollouts 等文件互不干扰，更接近“每个 worker 有独立上下文”的体验。
 
 #### 2.1.2 worktree（可选，但推荐用于并发写）
 
@@ -174,9 +174,6 @@ codex exec --json \
 - 驱动 `gate.blocked`（审批请求）
 - 生成 `artifacts/`（报告、契约、变更摘要）
 
-## 4. 预留：其他 CLI 工具接入
+## 4. 范围说明
 
-本项目先把 Codex 跑通。未来接入其他 CLI 工具时，接入策略保持一致：
-
-- 接入顺序通常是：先找“底层可编程接口/事件流”（JSON-RPC / JSONL / API）
-- 如果某工具只能走 TUI/ANSI 屏幕，再考虑做“录制 + 抽取”的 fallback adapter
+本文档只覆盖 Codex 运行时的接入与落盘映射。

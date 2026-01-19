@@ -4,8 +4,8 @@
 
 ## 你现在可能在找什么？
 
-- **想快速理解 multi/subagent 方案闭环**（推荐起点）
-  - `docs/agentmesh/multiagent.md`
+- **想快速理解执行闭环**（推荐起点）
+  - `docs/agentmesh/execution.md`
 - **想看任务目录（Task Directory）与可复盘产物（Artifacts）规范**
   - `docs/agentmesh/artifacts.md`
   - 规范真源（可 validate）：`openspec/specs/task-directory/spec.md`
@@ -35,14 +35,12 @@
   - 放“如何做/为什么这么做”的工程化文档（可引用 OpenSpec，但不替代规范真源）。
 - **Implementation Notes（机制笔记）**：`docs/implementation-notes/`
   - 放“对齐外部系统/源码机制”的笔记（例如 Codex app-server、VSCode 插件交互等）。
-- **References（外部参考快照）**：`docs/references/`
-  - 放 A2A / ACP / Subagents / Skills 等外部资料，作为对照与术语来源。
 
 ## 推荐阅读路径
 
 ### 路径 A：方案闭环（从“是什么”到“怎么落地”）
 
-1) `docs/agentmesh/multiagent.md`
+1) `docs/agentmesh/execution.md`
 2) `docs/agentmesh/artifacts.md`
 3) `docs/agentmesh/subagents.md`
 4) `docs/agentmesh/adapters/codex.md`

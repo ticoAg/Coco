@@ -26,7 +26,7 @@
 ## Impact
 - Affected spec: `codex-app-server-adapter`
 - Related docs:
-  - `docs/agentmesh/multiagent.md`（3.2 / 4 Fork vs Spawn）
+  - `docs/agentmesh/execution.md`
   - `docs/agentmesh/gui.md`（2.3 Codex Chat / 3.1 Subagents）
   - `docs/implementation-notes/codex-cli/app-server-api.md`
 - Likely code modules (implementation stage):
