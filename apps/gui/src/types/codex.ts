@@ -9,6 +9,7 @@ export interface CodexJsonRpcEvent {
 export interface CodexThreadSummary {
 	id: string;
 	preview: string;
+	cwd?: string | null;
 	title?: string | null;
 	modelProvider: string;
 	createdAt: number;

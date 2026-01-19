@@ -20,6 +20,7 @@ export interface TreeNodeData {
 		agentInstance?: string;
 		threadId?: string;
 		path?: string;
+		wtLabel?: string;
 	};
 }
 

@@ -42,6 +42,10 @@ export function TreeNode({
 		node.interactionCount != null && (node.type === 'task' || node.type === 'orchestrator' || node.type === 'worker');
 
 	const labelTitle = node.label;
+	const wtLabel = node.metadata?.wtLabel ?? null;
+	const showWtLabel = Boolean(
+		wtLabel && (node.type === 'task' || node.type === 'orchestrator' || node.type === 'worker')
+	);
 	const action = node.actions?.[0] ?? null;
 
 	return (
@@ -95,6 +99,15 @@ export function TreeNode({
 				<span className="truncate text-[11px] text-text-main flex-1 min-w-0" title={labelTitle}>
 					{node.label}
 				</span>
+
+				{showWtLabel ? (
+					<span
+						className="ml-1 min-w-0 max-w-[120px] truncate rounded bg-white/5 px-1 py-0.5 text-[9px] text-text-muted"
+						title={wtLabel ?? undefined}
+					>
+						{wtLabel}
+					</span>
+				) : null}
 
 				{/* Hover action */}
 				{action ? (

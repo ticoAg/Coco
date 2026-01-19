@@ -77,6 +77,8 @@ struct CodexThreadSummary {
     id: String,
     preview: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<String>,
     model_provider: String,
     created_at: i64,
@@ -1719,11 +1721,14 @@ async fn codex_thread_list(
             continue;
         };
 
-        // Parse cwd from entry for workspace filtering
-        let thread_cwd = entry
+        let cwd = entry
             .get("cwd")
             .and_then(|v| v.as_str())
-            .map(std::path::PathBuf::from);
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+
+        // Parse cwd from entry for workspace filtering
+        let thread_cwd = cwd.as_deref().map(std::path::PathBuf::from);
 
         // Filter: skip threads not in requested cwd unless pinned (threads without cwd remain visible)
         let is_pinned = pinned_thread_id.as_deref() == Some(id);
@@ -1778,6 +1783,7 @@ async fn codex_thread_list(
         threads.push(CodexThreadSummary {
             id: id.to_string(),
             preview,
+            cwd,
             title,
             model_provider,
             created_at,

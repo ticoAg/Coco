@@ -1158,6 +1158,29 @@ export function CodexChat() {
 
 		const interactionCountFor = (threadId: string) => threadSummaryById.get(threadId)?.interactionCount ?? null;
 
+		const normalizedWorktrees = worktrees.map((wt) => ({
+			path: normalizePath(wt.path),
+			branch: wt.branch ?? null,
+		}));
+
+		const worktreeLabelForThreadId = (threadId: string): string => {
+			const cwd = threadSummaryById.get(threadId)?.cwd ?? null;
+			if (!cwd) return 'wt-[unknown]';
+			const normalizedCwd = normalizePath(cwd);
+
+			let best: { path: string; branch: string | null } | null = null;
+			for (const wt of normalizedWorktrees) {
+				if (normalizedCwd === wt.path || normalizedCwd.startsWith(`${wt.path}/`)) {
+					if (!best || wt.path.length > best.path.length) {
+						best = wt;
+					}
+				}
+			}
+
+			if (!best) return 'wt-[unknown]';
+			return best.branch ? `wt-[${best.branch}]` : 'wt-[detached]';
+		};
+
 		const buildFileNodes = (threadId: string, idPrefix: string, relativePath: string): TreeNodeData[] => {
 			const entries = workspaceDirEntriesByPath[relativePath];
 			if (!entries) return [];
@@ -1237,7 +1260,7 @@ export function CodexChat() {
 							interactionCount: interactionCountFor(workerId),
 							isActive: workerRunning,
 							status: workerRunning ? 'running' : undefined,
-							metadata: { threadId: workerId },
+							metadata: { threadId: workerId, wtLabel: worktreeLabelForThreadId(workerId) },
 							children: [filesNode],
 						};
 						registerNode(workerNode);
@@ -1254,7 +1277,7 @@ export function CodexChat() {
 						interactionCount: interactionCountFor(orchestratorId),
 						isActive: orchestratorRunning,
 						status: orchestratorRunning ? 'running' : undefined,
-						metadata: { threadId: orchestratorId },
+						metadata: { threadId: orchestratorId, wtLabel: worktreeLabelForThreadId(orchestratorId) },
 						children: workerNodes,
 					};
 					registerNode(orchestratorNode);
@@ -1281,7 +1304,7 @@ export function CodexChat() {
 					interactionCount: session.interactionCount ?? null,
 					isActive: taskIsActive,
 					status: taskIsActive ? 'running' : undefined,
-					metadata: { threadId: session.id },
+					metadata: { threadId: session.id, wtLabel: worktreeLabelForThreadId(session.id) },
 					children: children.length > 0 ? children : undefined,
 				};
 				registerNode(taskNode);
@@ -1378,7 +1401,7 @@ export function CodexChat() {
 			archivedGroupThreadIdsByKey,
 			archivedGroupKeyByNodeId,
 		};
-	}, [activeThread?.cwd, sessions, runningThreadIds, workspaceRoot, workbenchGraph.edges, workspaceDirEntriesByPath]);
+	}, [activeThread?.cwd, normalizePath, sessions, runningThreadIds, workspaceRoot, workbenchGraph.edges, workspaceDirEntriesByPath, worktrees]);
 
 	useEffect(() => {
 		setSessionTreeExpandedNodes((prev) => {
