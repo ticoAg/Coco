@@ -1,10 +1,29 @@
-import { ArrowUp, File, FileText, Folder, Image, Plus, Slash, X, Zap } from 'lucide-react';
+import { ArrowUp, File, FileText, Folder, Image, Plus, X, Zap } from 'lucide-react';
 import type { ChangeEvent, ClipboardEvent, Dispatch, KeyboardEvent, RefObject, SetStateAction } from 'react';
 import type { AutoContextInfo, CustomPrompt, FileAttachment, FileInfo, SkillMetadata } from '@/types/codex';
 import type { SlashCommand } from '../codex/slash-commands';
 import { MENU_STYLES } from '../codex/styles/menu-styles';
 import { SkillMenu } from '../codex/SkillMenu';
 import { SlashCommandMenu } from '../codex/SlashCommandMenu';
+
+function ShortSlashIcon({ className }: { className?: string }) {
+	// Keep icon size the same (h-4 w-4), but shorten the slash stroke to 80% of lucide's default.
+	return (
+		<svg
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			className={className}
+			aria-hidden="true"
+			focusable="false"
+		>
+			<path d="M20 4 4 20" />
+		</svg>
+	);
+}
 
 type FilteredSlashCommand = { cmd: SlashCommand; indices: number[] | null };
 type FilteredPrompt = { prompt: CustomPrompt; indices: number[] | null };
@@ -449,7 +468,7 @@ export function CodexChatComposer({
 						title="Commands (/)"
 						onClick={() => setIsSlashMenuOpen((v) => !v)}
 					>
-						<Slash className="h-4 w-4" />
+						<ShortSlashIcon className="h-4 w-4" />
 					</button>
 
 					<button
