@@ -1,5 +1,5 @@
 import type { ParsedCmd } from '../types/command';
-import type { CommandAction } from '../../../types/codex';
+import type { CommandAction } from '@/types/codex';
 import { isRecord, safeString } from './formatters';
 
 export function stripOuterQuotes(value: string): string {

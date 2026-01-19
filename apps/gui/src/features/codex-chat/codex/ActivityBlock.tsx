@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Check, ChevronRight, Copy } from 'lucide-react';
-import { Collapse } from '../ui/Collapse';
+import { Collapse } from '@/components/ui/Collapse';
 import { ChatMarkdown } from './ChatMarkdown';
 import { renderAnsiText } from './utils';
 

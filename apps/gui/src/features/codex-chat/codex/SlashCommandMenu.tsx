@@ -18,7 +18,7 @@ import {
 	X,
 	Zap,
 } from 'lucide-react';
-import type { CustomPrompt, SkillMetadata } from '../../types/codex';
+import type { CustomPrompt, SkillMetadata } from '@/types/codex';
 import type { SlashCommand } from './slash-commands';
 import { MENU_STYLES } from './styles/menu-styles';
 import { highlightMatches } from './utils';

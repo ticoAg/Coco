@@ -1,2 +1,2 @@
-export { CodexChat } from '@/components/CodexChat';
-
+export { CodexChat } from './CodexChat';
+export { default } from './CodexChat';

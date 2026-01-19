@@ -14,7 +14,7 @@
 ### GUI 前端
 | 文件 | 描述 |
 |------|------|
-| `apps/gui/src/components/CodexChat.tsx` | 主聊天组件，包含 slash 菜单逻辑 |
+| `apps/gui/src/features/codex-chat/CodexChat.tsx` | 主聊天组件，包含 slash 菜单逻辑 |
 | `apps/gui/src/api/client.ts` | API 客户端 |
 | `apps/gui/src/types/codex.ts` | 类型定义 |
 

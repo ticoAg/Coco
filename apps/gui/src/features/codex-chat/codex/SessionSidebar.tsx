@@ -1,4 +1,4 @@
-import type { CodexThreadSummary } from '../../types/codex';
+import type { CodexThreadSummary } from '@/types/codex';
 import { SessionRunningIndicator } from './SessionRunningIndicator';
 
 interface SessionSidebarProps {

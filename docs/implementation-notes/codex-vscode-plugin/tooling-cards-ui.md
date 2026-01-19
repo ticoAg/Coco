@@ -44,7 +44,7 @@
 
 为对齐 VSCode 插件的 Shell 结构，AgentMesh 的 `ActivityBlock` 详情区统一改为 Shell 风格滚动容器：
 
-- 统一使用 `am-shell` / `am-shell-scroll`（`apps/gui/src/components/CodexChat.tsx` + `apps/gui/src/index.css`）。
+- 统一使用 `am-shell` / `am-shell-scroll`（`apps/gui/src/features/codex-chat/CodexChat.tsx` + `apps/gui/src/index.css`）。
 - 视觉参数对齐：`max-height: 176px`，`padding: 8px`，`font-mono font-medium`（仅在需要等宽时），`overflow-x/overflow-y: auto`。
 - 滚动条与渐隐：`am-shell-scroll` 定义自定义 scrollbar；`am-scroll-fade` 提供上下渐隐（与插件 `vertical-scroll-fade-mask` 行为一致）。
 - Exec 卡片仍保留摘要行，同时在详情区增加 Shell header（复制/折叠按钮），与 VSCode 的 “summary + shell header” 双层结构一致。

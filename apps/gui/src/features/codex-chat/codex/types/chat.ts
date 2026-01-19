@@ -1,4 +1,4 @@
-import type { CommandAction, McpToolCallError, McpToolCallResult } from '../../../types/codex';
+import type { CommandAction, McpToolCallError, McpToolCallResult } from '@/types/codex';
 import type { parseCodeReviewStructuredOutputFromMessage } from '../assistantMessage';
 
 /** 附加内容类型（用于消息气泡展示与 rerun） */

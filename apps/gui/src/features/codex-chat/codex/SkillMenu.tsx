@@ -1,5 +1,5 @@
 import { Zap } from 'lucide-react';
-import type { SkillMetadata } from '../../types/codex';
+import type { SkillMetadata } from '@/types/codex';
 import { MENU_STYLES } from './styles/menu-styles';
 import { highlightMatches } from './utils';
 

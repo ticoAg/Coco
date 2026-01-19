@@ -1,5 +1,5 @@
 import { Archive, ChevronRight } from 'lucide-react';
-import type { TreeNodeData } from '../../../types/sidebar';
+import type { TreeNodeData } from '@/types/sidebar';
 import { SessionTreeIcon, getStatusColor } from './SessionTreeIcons';
 import { SessionRunningIndicator } from '../SessionRunningIndicator';
 

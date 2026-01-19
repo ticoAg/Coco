@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Copy, ChevronRight } from 'lucide-react';
-import { Collapse } from '../ui/Collapse';
+import { Collapse } from '@/components/ui/Collapse';
 import { DiffCountBadge } from './DiffCountBadge';
 import type { DiffReviewChange, ParsedDiff, ParsedDiffLine } from './types/diff';
 import { formatDiffPath, fileChangeVerb } from './utils/diff';

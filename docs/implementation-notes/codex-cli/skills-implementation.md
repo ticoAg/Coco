@@ -209,7 +209,7 @@ pub const SKILL_INSTRUCTIONS_PREFIX: &str = "<skill";
 
 - 前端类型：`apps/gui/src/types/codex.ts`
 - API 客户端：`apps/gui/src/api/client.ts`
-- 聊天组件：`apps/gui/src/components/CodexChat.tsx`
+- 聊天组件：`apps/gui/src/features/codex-chat/CodexChat.tsx`
 - 后端命令：`apps/gui/src-tauri/src/lib.rs`
 - TUI2 实现：`github:openai/codex/codex-rs/tui2/src/chatwidget.rs`
 - 注入逻辑：`github:openai/codex/codex-rs/core/src/skills/injection.rs`

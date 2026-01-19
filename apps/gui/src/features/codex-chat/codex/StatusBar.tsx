@@ -1,6 +1,6 @@
 import type React from 'react';
 import { Brain, Box, Check, ChevronDown, FileText, Plus, SignalHigh, SignalLow, SignalMedium, SignalZero, Users, Zap } from 'lucide-react';
-import type { CodexModelInfo, ReasoningEffort } from '../../types/codex';
+import type { CodexModelInfo, ReasoningEffort } from '@/types/codex';
 import type { ApprovalPolicy } from './types/command';
 import { MENU_STYLES } from './styles/menu-styles';
 

@@ -53,7 +53,7 @@
 
 ### 2.3 CodexChat Turn 层级折叠
 
-- 页面：`apps/gui/src/components/CodexChat.tsx`
+- 页面：`apps/gui/src/features/codex-chat/CodexChat.tsx`
 - Turn 渲染时把 entries 分为：
   - `userEntries`：用户输入（右侧气泡）
   - `workingEntries`：过程性输出（工具/推理/系统提示等）——折叠区
@@ -109,7 +109,7 @@
 - **换行策略**：diff 行不自动换行，超长行通过横向滚动查看。
 - **统计逻辑**：优先从 unified diff 统计；若无 hunk 且 `kind` 为 add/delete，则把原始内容行视为新增/删除（兼容 v2 `FileChange` 的 `diff` 仅包含原文的情况）。
 
-落点：`apps/gui/src/components/CodexChat.tsx`（`buildFileChangeSummary` / `renderDiffLines` / fileChange 展开渲染）。
+落点：`apps/gui/src/features/codex-chat/CodexChat.tsx`（`buildFileChangeSummary` / `renderDiffLines` / fileChange 展开渲染）。
 
 ### 2.6 AI 消息 block（assistant-message）数据来源对齐
 
@@ -117,14 +117,14 @@
 
 本项目实现落点（当前）：
 
-- **映射规则**：`apps/gui/src/components/CodexChat.tsx` + `apps/gui/src/components/codex/assistantMessage.ts`
+- **映射规则**：`apps/gui/src/features/codex-chat/CodexChat.tsx` + `apps/gui/src/features/codex-chat/codex/assistantMessage.ts`
   - `agentMessage` → GUI 内部 `assistant`（role=`message`）
   - `renderPlaceholderWhileStreaming`：当 assistant-message 处于 streaming 且内容以 `{` 或 ``` 开头时，不直接渲染正文，而是显示 placeholder（避免“JSON 半截”破坏布局）。
   - `structuredOutput`：当 assistant-message 完成且内容看起来像 JSON 时，尝试解析 Code Review schema，成功则走结构化 UI。
-- **分组规则（turn 内）**：`apps/gui/src/components/CodexChat.tsx`
+- **分组规则（turn 内）**：`apps/gui/src/features/codex-chat/CodexChat.tsx`
   - 只把 **最后一条** assistant-message 当作最终回复（`assistantMessageEntries`）。
   - 其余 assistant-message 保留在 Working 区域（`workingEntries`），与 VSCode plugin 一致。
-- **Code Review UI**：`apps/gui/src/components/codex/CodeReviewAssistantMessage.tsx`
+- **Code Review UI**：`apps/gui/src/features/codex-chat/codex/CodeReviewAssistantMessage.tsx`
   - 渲染 Findings cards + priority（高优先级与低优先级分区）。
   - 本项目按产品决策 **忽略 Open/Fix**（插件中的 open-file / startFixConversation 不在本 GUI 复刻范围内）。
 

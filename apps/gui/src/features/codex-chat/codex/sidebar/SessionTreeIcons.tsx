@@ -1,5 +1,5 @@
 import { Box, Command, File, FileText, Folder, FolderOpen, GitBranch, Terminal } from 'lucide-react';
-import type { TreeNodeType } from '../../../types/sidebar';
+import type { TreeNodeType } from '@/types/sidebar';
 
 interface SessionTreeIconProps {
 	type: TreeNodeType;

@@ -1,6 +1,6 @@
 import type React from 'react';
 import { ChatMarkdown } from '../ChatMarkdown';
-import type { McpContentBlock, McpToolCallError, McpToolCallResult } from '../../../types/codex';
+import type { McpContentBlock, McpToolCallError, McpToolCallResult } from '@/types/codex';
 import { isRecord, safeString } from './formatters';
 
 function truncatePreview(value: string, max = 60): string {

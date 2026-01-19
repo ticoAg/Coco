@@ -1,11 +1,13 @@
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { Check, ChevronDown, ChevronRight, Copy, Eye, File, FileText, GitBranch, Pencil, Search, Wrench, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Collapse } from '../ui/Collapse';
+import { Collapse } from '@/components/ui/Collapse';
 import { ActivityBlock } from './ActivityBlock';
 import { ChatMarkdown } from './ChatMarkdown';
 import { CodeReviewAssistantMessage } from './CodeReviewAssistantMessage';
 import { FileChangeEntryCard } from './FileChangeEntryCard';
+import { countExplorationCounts, formatExplorationCounts, isReadingGroup, isReasoningGroup } from '../lib/turn/exploration';
+import { extractHeadingFromMarkdown } from '../lib/turn/heading';
 import {
 	buildFileChangeSummary,
 	formatMcpArgsPreview,
@@ -19,7 +21,7 @@ import {
 	stringifyJsonSafe,
 } from './utils';
 import type { AssistantMessageEntry, ChatEntry, CodexChatSettings, TurnBlockStatus } from './types';
-import type { ReasoningGroup, SegmentedWorkingItem, WorkingItem } from './types';
+import type { SegmentedWorkingItem, WorkingItem } from './types';
 
 export type TurnBlockView = {
 	id: string;
@@ -42,98 +44,6 @@ interface TurnBlockProps {
 	approve: (requestId: number, decision: 'accept' | 'decline') => void;
 	onForkFromTurn?: (turnId: string) => void;
 	onEditUserEntry?: (entry: Extract<ChatEntry, { kind: 'user' }>) => void;
-}
-
-// ============================================================================
-// VS Code Codex Plugin Parity: Heading Extraction
-// ============================================================================
-function extractHeadingFromMarkdown(text: string): { heading: string | null; body: string } {
-	if (!text) return { heading: null, body: '' };
-
-	const lines = text.split('\n');
-	let firstIdx = 0;
-	while (firstIdx < lines.length && lines[firstIdx]?.trim() === '') {
-		firstIdx += 1;
-	}
-	const firstLine = lines[firstIdx]?.trim() || '';
-	const secondLine = lines[firstIdx + 1]?.trim() || '';
-
-	// Check for markdown heading: # Heading
-	if (firstLine.startsWith('#')) {
-		const heading = firstLine.replace(/^#+\s*/, '').trim();
-		const body = lines
-			.slice(firstIdx + 1)
-			.join('\n')
-			.trim();
-		return { heading: heading || null, body };
-	}
-
-	// Check for bold heading: **Heading**
-	const boldMatch = firstLine.match(/^\*\*(.+)\*\*$/);
-	if (boldMatch) {
-		const heading = boldMatch[1].trim();
-		const body = lines
-			.slice(firstIdx + 1)
-			.join('\n')
-			.trim();
-		return { heading: heading || null, body };
-	}
-
-	// Check for setext-style heading
-	if (firstLine && (secondLine.match(/^=+$/) || secondLine.match(/^-+$/))) {
-		const heading = firstLine.trim();
-		const body = lines
-			.slice(firstIdx + 2)
-			.join('\n')
-			.trim();
-		return { heading: heading || null, body };
-	}
-
-	return { heading: null, body: text };
-}
-
-function isReadingGroup(item: WorkingItem | undefined): item is Extract<WorkingItem, { kind: 'readingGroup' }> {
-	return !!item && 'kind' in item && item.kind === 'readingGroup';
-}
-
-function isReasoningGroup(item: WorkingItem | undefined): item is ReasoningGroup {
-	return !!item && 'kind' in item && item.kind === 'reasoningGroup';
-}
-
-type ExplorationCounts = { uniqueReadFileCount: number; searchCount: number; listCount: number };
-
-function countExplorationCounts(items: WorkingItem[]): ExplorationCounts {
-	const files = new Set<string>();
-	let searchCount = 0;
-	let listCount = 0;
-
-	const visitCommand = (entry: Extract<ChatEntry, { kind: 'command' }>) => {
-		const parsed = resolveParsedCmd(entry.command, entry.commandActions);
-		if (parsed.type === 'read' && parsed.name) files.add(parsed.name);
-		if (parsed.type === 'search') searchCount += 1;
-		if (parsed.type === 'list_files') listCount += 1;
-	};
-
-	for (const item of items) {
-		if (isReadingGroup(item)) {
-			for (const entry of item.entries) visitCommand(entry);
-			continue;
-		}
-		if (item.kind === 'command') {
-			visitCommand(item);
-		}
-	}
-
-	return { uniqueReadFileCount: files.size, searchCount, listCount };
-}
-
-function formatExplorationCounts(counts: ExplorationCounts): string {
-	const parts: string[] = [];
-	if (counts.uniqueReadFileCount > 0) parts.push(`${counts.uniqueReadFileCount} ${counts.uniqueReadFileCount === 1 ? 'file' : 'files'}`);
-	if (counts.searchCount > 0) parts.push(`${counts.searchCount} ${counts.searchCount === 1 ? 'search' : 'searches'}`);
-	// Match VSCode Codex plugin: "N list" (no plural).
-	if (counts.listCount > 0) parts.push(`${counts.listCount} list`);
-	return parts.join(', ');
 }
 
 function ExplorationAccordion({

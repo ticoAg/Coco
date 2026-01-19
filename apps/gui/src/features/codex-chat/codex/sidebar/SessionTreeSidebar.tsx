@@ -1,6 +1,6 @@
 import { ChevronLeft, Plus, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { TreeNodeData } from '../../../types/sidebar';
+import type { TreeNodeData } from '@/types/sidebar';
 import { TreeNode } from './TreeNode';
 import { SIDEBAR_WIDTH_PX, SIDEBAR_EXPANDED_WIDTH_PX } from '../styles/menu-styles';
 
