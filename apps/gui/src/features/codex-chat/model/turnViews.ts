@@ -1,4 +1,4 @@
-import type { ChatEntry, CodexChatSettings, TurnBlockData } from '../codex/types';
+import type { ChatEntry, TurnBlockData } from '../codex/types';
 import type { TurnBlockView } from '../codex/TurnBlock';
 import {
 	countRenderedWorkingItems,
@@ -10,9 +10,9 @@ import {
 	segmentExplorationItems,
 } from './threadTimeline';
 
-export function buildTurnBlockViews(turnBlocks: TurnBlockData[], settings: CodexChatSettings): TurnBlockView[] {
+export function buildTurnBlockViews(turnBlocks: TurnBlockData[], showReasoning: boolean): TurnBlockView[] {
 	return turnBlocks.map((turn) => {
-		const visible = settings.showReasoning ? turn.entries : turn.entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning');
+		const visible = showReasoning ? turn.entries : turn.entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning');
 
 		const userEntries = visible.filter((e) => e.kind === 'user') as Array<Extract<ChatEntry, { kind: 'user' }>>;
 		const assistantMessages = visible.filter(
@@ -46,4 +46,3 @@ export function buildTurnBlockViews(turnBlocks: TurnBlockData[], settings: Codex
 		};
 	});
 }
-

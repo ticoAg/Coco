@@ -3183,9 +3183,9 @@ export function CodexChat() {
 		return out;
 	}, [turnOrder, turnsById]);
 
-	const renderTurns = useMemo<TurnBlockView[]>(() => {
-		return buildTurnBlockViews(turnBlocks, settings);
-	}, [settings.showReasoning, turnBlocks]);
+		const renderTurns = useMemo<TurnBlockView[]>(() => {
+			return buildTurnBlockViews(turnBlocks, settings.showReasoning);
+		}, [settings.showReasoning, turnBlocks]);
 
 	const renderCount = useMemo(() => {
 		return renderTurns.reduce((acc, t) => {

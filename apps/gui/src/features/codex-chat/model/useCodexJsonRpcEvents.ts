@@ -404,6 +404,19 @@ export function useCodexJsonRpcEvents({
 					// ignore
 				});
 		};
-	}, [activeTurnId, defaultCollapseDetails, ingestCollabItems, itemToTurnRef, pendingTurnId, selectedThreadId, setThreadRunning, setThreadTokenUsage]);
-}
-
+	}, [
+		activeTurnId,
+		defaultCollapseDetails,
+		ingestCollabItems,
+		itemToTurnRef,
+		pendingTurnId,
+		selectedThreadId,
+		setActiveTurnId,
+		setCollapsedByEntryId,
+		setItemToTurnId,
+		setThreadRunning,
+		setThreadTokenUsage,
+		setTurnOrder,
+		setTurnsById,
+	]);
+	}
