@@ -168,7 +168,7 @@ export function CodexChatComposer({
 	sendMessage,
 }: Props) {
 	return (
-		<div className="group relative mt-4 flex flex-col gap-2 rounded-[26px] border border-white/5 bg-[#2b2d31] px-4 py-3 transition-colors focus-within:border-white/10">
+		<div className="group relative mt-4 flex flex-col gap-2 rounded-[26px] border border-white/5 bg-[#2b2d31] px-4 pt-3 pb-2 transition-colors focus-within:border-white/10">
 			{/* Floating pinned prompt/skill shortcuts (shown while composer is focused) */}
 			{pinnedResolvedItems.length > 0 ? (
 				<div className="pointer-events-none absolute bottom-full left-0 right-0 z-30 mb-2 flex flex-wrap gap-1.5 px-4 opacity-0 translate-y-2 transition-all duration-150 ease-out group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-y-0">
@@ -454,7 +454,7 @@ export function CodexChatComposer({
 			</div>
 
 			{/* Toolbar: + / AutoContext Send */}
-			<div className="flex items-center justify-between gap-2">
+			<div className="flex min-h-8 items-center justify-between gap-2">
 				<div className="flex items-center gap-1">
 					<button
 						type="button"
