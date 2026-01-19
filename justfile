@@ -42,6 +42,24 @@ ensure-gui-deps:
 dev: ensure-gui-deps
     cd apps/gui && npm run tauri:dev
 
+# 运行开发模式（使用已构建的 app，显示正确图标）
+dev-app: ensure-gui-deps
+    #!/usr/bin/env zsh
+    set -e
+    APP_PATH="target/release/bundle/macos/AgentMesh.app"
+    if [ ! -d "$APP_PATH" ]; then
+        echo "[just] App not found, building first..."
+        just build
+    fi
+    echo "[just] Starting frontend dev server..."
+    cd apps/gui && npm run dev &
+    VITE_PID=$!
+    sleep 2
+    echo "[just] Launching AgentMesh.app..."
+    open "$APP_PATH"
+    trap "kill $VITE_PID 2>/dev/null" EXIT
+    wait $VITE_PID
+
 # 构建 release app
 build: ensure-gui-deps
     cd apps/gui && npm run tauri:build
