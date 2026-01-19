@@ -172,7 +172,7 @@ export function ActivityBlock({
 						<div className="am-shell-scroll am-scroll-fade min-w-0">
 							<div
 								className={[
-									'min-w-0 text-[12px] leading-[1.5] text-text-muted',
+									'min-w-0 am-shell-body text-text-muted',
 									useMono ? 'font-mono font-medium' : 'font-sans',
 									effectiveVariant === 'markdown' ? 'whitespace-normal' : effectiveVariant === 'ansi' ? 'whitespace-pre-wrap break-words' : 'whitespace-pre-wrap break-words',
 									contentClassName ?? '',

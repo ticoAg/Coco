@@ -139,6 +139,7 @@
 		overflow: hidden;
 		border-top: 1px solid rgb(255 255 255 / 0.06);
 		width: 100%;
+		--am-shell-font-size: 11px;
 	}
 
 	.am-shell-header {
@@ -148,8 +149,13 @@
 		gap: 8px;
 		padding: 4px 8px;
 		color: rgb(var(--am-text-muted));
-		font-size: 12px;
+		font-size: var(--am-shell-font-size, 12px);
 		width: 100%;
+	}
+
+	.am-shell-body {
+		font-size: var(--am-shell-font-size, 12px);
+		line-height: 1.5;
 	}
 
 	.am-shell-scroll {

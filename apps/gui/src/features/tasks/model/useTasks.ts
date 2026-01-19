@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiClient } from '../api/client';
+import { apiClient } from '@/api/client';
 import type {
 	ClusterStatus,
 	CreateTaskRequest,
@@ -10,7 +10,7 @@ import type {
 	SubagentSessionSummary,
 	Task,
 	TaskEvent,
-} from '../types/task';
+} from '@/types/task';
 
 const getErrorMessage = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 

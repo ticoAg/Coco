@@ -1,37 +1,6 @@
-import type { Task, TaskState } from '../types/task';
-
-function statusBadgeStyle(state: TaskState): {
-	label: string;
-	className: string;
-} {
-	switch (state) {
-		case 'working':
-			return {
-				label: 'WORKING',
-				className: 'bg-status-info/15 text-status-info',
-			};
-		case 'input-required':
-			return {
-				label: 'BLOCKED',
-				className: 'bg-status-warning/15 text-status-warning',
-			};
-		case 'completed':
-			return {
-				label: 'DONE',
-				className: 'bg-status-success/15 text-status-success',
-			};
-		case 'failed':
-			return {
-				label: 'FAILED',
-				className: 'bg-status-error/15 text-status-error',
-			};
-		case 'canceled':
-			return { label: 'CANCELED', className: 'bg-white/10 text-text-muted' };
-		case 'created':
-		default:
-			return { label: 'CREATED', className: 'bg-white/10 text-text-muted' };
-	}
-}
+import type { Task, TaskState } from '@/types/task';
+import { formatTimeAgo } from '../lib/format';
+import { StatusBadge } from './StatusBadge';
 
 function taskIcon(state: TaskState): string {
 	switch (state) {
@@ -48,25 +17,6 @@ function taskIcon(state: TaskState): string {
 	}
 }
 
-function formatTimeAgo(dateString: string): string {
-	const date = new Date(dateString);
-	const now = new Date();
-	const diffMs = now.getTime() - date.getTime();
-	const diffMins = Math.floor(diffMs / 60000);
-	const diffHours = Math.floor(diffMs / 3600000);
-	const diffDays = Math.floor(diffMs / 86400000);
-
-	if (diffMins < 1) return 'Just now';
-	if (diffMins < 60) return `${diffMins}m ago`;
-	if (diffHours < 24) return `${diffHours}h ago`;
-	return `${diffDays}d ago`;
-}
-
-export function StatusBadge({ state }: { state: TaskState }) {
-	const config = statusBadgeStyle(state);
-	return <span className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold tracking-wide ${config.className}`}>{config.label}</span>;
-}
-
 interface TaskListProps {
 	tasks: Task[];
 	loading: boolean;
@@ -80,8 +30,8 @@ interface TaskListProps {
 export function TaskList({ tasks, loading, error, selectedTaskId, onSelectTask, onCreateTask, onRefresh }: TaskListProps) {
 	const runningCount = tasks.filter((t) => t.state === 'working').length;
 
-		return (
-			<section className="rounded-2xl border border-white/10 bg-bg-menu p-6">
+	return (
+		<section className="rounded-2xl border border-white/10 bg-bg-menu p-6">
 			<div className="mb-5 flex items-start justify-between gap-4">
 				<div>
 					<h2 className="text-lg font-semibold">Tasks</h2>
