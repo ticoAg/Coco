@@ -12,4 +12,4 @@
 ## 3. Validation
 - [x] 3.1 `openspec validate add-gui-frontend-architecture --strict`
 - [x] 3.2 `npm -C apps/gui run build`
-- [ ] 3.3 （可选）`npm -C apps/gui run lint`
+- [x] 3.3 （可选）`npm -C apps/gui run lint`
