@@ -15,7 +15,7 @@
 - 与 Codex Chat 存在可复用点（例如预览、时间格式化、通用 UI），但缺少明确 shared 层承载。
 
 ## What Changes
-- 引入 `apps/gui/src/features/tasks/` 作为 Task GUI 的业务域入口，并提供 Facade：`apps/gui/src/features/tasks/index.ts`。
+- 引入 [`apps/gui/src/features/tasks/`](../../../apps/gui/src/features/tasks) 作为 Task GUI 的业务域入口，并提供 Facade：[`apps/gui/src/features/tasks/index.ts`](../../../apps/gui/src/features/tasks/index.ts)。
 - 将 `TaskList / TaskDetail / NewTaskModal` 与相关 hooks/types 迁移到 feature 内，目录建议：
   - `ui/`：列表、详情页、tab 子视图、卡片组件
   - `model/`：数据获取 hooks、domain 组装（workbench nodes）
@@ -38,5 +38,5 @@
   - `apps/gui/src/components/TaskList.tsx`
   - `apps/gui/src/components/NewTaskModal.tsx`
   - `apps/gui/src/hooks/useTasks.ts`、`apps/gui/src/hooks/useTaskFiles.ts`
-  - `apps/gui/src/types/task.ts`（可能迁移到 feature/shared）
+  - [`apps/gui/src/types/task.ts`](../../../apps/gui/src/types/task.ts)（可能迁移到 feature/shared）
 

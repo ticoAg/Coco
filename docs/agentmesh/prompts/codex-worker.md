@@ -2,7 +2,7 @@
 
 > 目的：让 AgentMesh 以“prompt + 结构化输出协议”的方式，把 `codex exec --json` 当作一个可编排的 subagent worker。
 >
-> 适用：`docs/agentmesh/subagents.md` 的并行 worker 架构。
+> 适用：[`docs/agentmesh/subagents.md`](../subagents.md) 的并行 worker 架构。
 >
 > 执行闭环与 evidence-first 约定见：[`docs/agentmesh/execution.md`](../execution.md)。
 
@@ -22,7 +22,7 @@ AgentMesh 建议通过 `--output-schema schemas/worker-output.schema.json` 强�
 
 worker 在最后一条消息必须输出一个 JSON 对象，字段语义参考：
 
-- `schemas/worker-output.schema.json`
+- [`schemas/worker-output.schema.json`](../../../schemas/worker-output.schema.json)
 
 ## 3. 推荐 Prompt 模板（给 Controller 拼接用）
 

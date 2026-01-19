@@ -26,10 +26,10 @@
 ## Impact
 - Affected spec: `codex-app-server-adapter`
 - Related docs:
-  - `docs/agentmesh/execution.md`
-  - `docs/agentmesh/gui.md`（2.3 Codex Chat / 3.1 Subagents）
-  - `docs/implementation-notes/codex-cli/app-server-api.md`
+  - [`docs/agentmesh/execution.md`](../../../../docs/agentmesh/execution.md)
+  - [`docs/agentmesh/gui.md`](../../../../docs/agentmesh/gui.md)（2.3 Codex Chat / 3.1 Subagents）
+  - [`docs/implementation-notes/codex-cli/app-server-api.md`](../../../../docs/implementation-notes/codex-cli/app-server-api.md)
 - Likely code modules (implementation stage):
-  - `apps/gui/src-tauri/src/codex_app_server.rs`（spawn / events）
-  - `apps/gui/src-tauri/src/lib.rs`（Tauri commands: thread/turn/config/…）
-  - `apps/gui/src/components/CodexChat.tsx`（需要能区分 server 来源的事件）
+  - [`apps/gui/src-tauri/src/codex_app_server.rs`](../../../../apps/gui/src-tauri/src/codex_app_server.rs)（spawn / events）
+  - [`apps/gui/src-tauri/src/lib.rs`](../../../../apps/gui/src-tauri/src/lib.rs)（Tauri commands: thread/turn/config/…）
+  - [`apps/gui/src/components/CodexChat.tsx`](../../../../apps/gui/src/components/CodexChat.tsx)（需要能区分 server 来源的事件）

@@ -4,7 +4,7 @@
 定义 GUI 前端源码组织结构与模块边界：采用 Feature-first（`app/ + features/ + shared/`）以降低耦合、提升可维护性，并约束依赖方向与 Facade import 规则；迁移过程中保持可渐进落地且构建始终可用。
 ## Requirements
 ### Requirement: Feature-first source layout
-系统 SHALL 在 `apps/gui/src` 采用 Feature-first 的源码结构，以明确 app 装配、业务域 feature 与跨域复用 shared 的边界：
+系统 SHALL 在 [`apps/gui/src`](../../../apps/gui/src) 采用 Feature-first 的源码结构，以明确 app 装配、业务域 feature 与跨域复用 shared 的边界：
 
 - `src/app/`：应用入口与全局装配（例如 App shell、providers、startup glue）
 - `src/features/`：按业务域划分的功能模块（例如 `codex-chat`、`tasks`）
@@ -55,6 +55,6 @@
 当代码搬迁导致文件路径变化时，系统 SHALL 同步更新 `docs/**` 中的路径引用或改为引用稳定入口（例如 feature Facade），避免“事实信息不一致”。
 
 #### Scenario: Update docs referencing moved files
-- **GIVEN** 文档引用了 `apps/gui/src/components/CodexChat.tsx`
+- **GIVEN** 文档引用了 [`apps/gui/src/components/CodexChat.tsx`](../../../apps/gui/src/components/CodexChat.tsx)
 - **WHEN** 该文件被迁移到 `src/features/codex-chat/...`
 - **THEN** 文档引用被同步更新（或替换为新的稳定入口）

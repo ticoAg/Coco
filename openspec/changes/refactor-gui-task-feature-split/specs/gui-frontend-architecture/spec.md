@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Tasks feature module boundary
-系统 SHALL 将 Task GUI 的实现代码收敛到 `apps/gui/src/features/tasks/`，并通过 Facade（`apps/gui/src/features/tasks/index.ts`）对外暴露。
+系统 SHALL 将 Task GUI 的实现代码收敛到 [`apps/gui/src/features/tasks/`](../../../../../apps/gui/src/features/tasks)，并通过 Facade（[`apps/gui/src/features/tasks/index.ts`](../../../../../apps/gui/src/features/tasks/index.ts)）对外暴露。
 
 约束：
 - `app/` 与其它 features MUST 从 Facade import（例如 `@/features/tasks`）

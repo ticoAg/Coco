@@ -5,10 +5,10 @@
 > 执行闭环总览见：[`docs/agentmesh/execution.md`](./execution.md)。
 >
 > 方案推进建议以 OpenSpec changes 作为“计划与验收清单”（便于拆分 PR）：
-> - `openspec/changes/add-task-evidence-index/`
-> - `openspec/changes/add-codex-app-server-adapter/`
-> - `openspec/changes/add-orchestrator-controller-loop/`
-> - `openspec/changes/update-gui-codex-chat-fork-rollback/`
+> - [`openspec/changes/archive/2026-01-17-add-task-evidence-index/`](../../openspec/changes/archive/2026-01-17-add-task-evidence-index)
+> - [`openspec/changes/archive/2026-01-17-add-codex-app-server-adapter/`](../../openspec/changes/archive/2026-01-17-add-codex-app-server-adapter)
+> - [`openspec/changes/archive/2026-01-17-add-orchestrator-controller-loop/`](../../openspec/changes/archive/2026-01-17-add-orchestrator-controller-loop)
+> - [`openspec/changes/archive/2026-01-17-update-gui-codex-chat-fork-rollback/`](../../openspec/changes/archive/2026-01-17-update-gui-codex-chat-fork-rollback)
 
 ## Phase 0（现在）：设计沉淀 + 模板库
 
@@ -17,7 +17,7 @@
 - 提供可复用的 `Agent Spec` 模板（本仓库 `agents/*/agents.md` 已具备雏形）
 
 **交付物**
-- `.agentmesh/` 的目录约定（见 `docs/agentmesh/artifacts.md`）
+- [`.agentmesh/`](../../.agentmesh) 的目录约定（见 [`docs/agentmesh/artifacts.md`](artifacts.md)）
 - `DiagnosticReport` / `API Contract` / `Test Report` 模板
 - 基础 roster（Architect/FE/BE/QA + DB/Log/Network）
 

@@ -6,8 +6,8 @@ AgentMesh 是一个“产物优先（artifacts-first）”的本地编排系统�
 当前路线选择 **Codex-first**：优先通过 `codex exec --json` / `codex app-server` 这类“底层可编程接口”消费结构化事件流，而非解析 TUI/ANSI 屏幕。
 
 ## Tech Stack
-- Rust workspace（`crates/agentmesh-core`, `crates/agentmesh-orchestrator`, `crates/agentmesh-codex`）
-- GUI：Tauri（Rust）+ React/TypeScript（`apps/gui`）
+- Rust workspace（[`crates/agentmesh-core`](../crates/agentmesh-core), [`crates/agentmesh-orchestrator`](../crates/agentmesh-orchestrator), [`crates/agentmesh-codex`](../crates/agentmesh-codex)）
+- GUI：Tauri（Rust）+ React/TypeScript（[`apps/gui`](../apps/gui)）
 - 任务与产物：`task.yaml`（YAML），`events.jsonl`（JSON Lines），以及 `shared/*` / `agents/*` 目录结构
 
 ## Project Conventions
@@ -30,7 +30,7 @@ AgentMesh 是一个“产物优先（artifacts-first）”的本地编排系统�
 
 ### Git Workflow
 - 以小步可回滚的变更为主；优先保持变更范围与 change-id 对齐。
-- 避免在 worker 内执行 `git merge/rebase/push`（参见 `docs/agentmesh/prompts/codex-worker.md`）。
+- 避免在 worker 内执行 `git merge/rebase/push`（参见 [`docs/agentmesh/prompts/codex-worker.md`](../docs/agentmesh/prompts/codex-worker.md)）。
 
 ## Domain Context
 - `.agentmesh/tasks/<task_id>/` 是单个任务的落盘空间。

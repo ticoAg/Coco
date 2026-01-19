@@ -13,10 +13,10 @@ Users need to switch Codex profiles for the current GUI session without editing 
 ## Impact
 - Affected specs: `gui-codex-chat`
 - Affected code:
-  - `apps/gui/src/components/CodexChat.tsx`
+  - [`apps/gui/src/components/CodexChat.tsx`](../../../../apps/gui/src/components/CodexChat.tsx)
   - `apps/gui/src/components/codex/StatusBar.tsx`
-  - `apps/gui/src/api/client.ts`
-  - `apps/gui/src-tauri/src/lib.rs`
-  - `apps/gui/src-tauri/src/codex_app_server.rs`
-  - `docs/agentmesh/gui.md`
-  - `docs/implementation-notes/codex-cli/app-server-api.md`
+  - [`apps/gui/src/api/client.ts`](../../../../apps/gui/src/api/client.ts)
+  - [`apps/gui/src-tauri/src/lib.rs`](../../../../apps/gui/src-tauri/src/lib.rs)
+  - [`apps/gui/src-tauri/src/codex_app_server.rs`](../../../../apps/gui/src-tauri/src/codex_app_server.rs)
+  - [`docs/agentmesh/gui.md`](../../../../docs/agentmesh/gui.md)
+  - [`docs/implementation-notes/codex-cli/app-server-api.md`](../../../../docs/implementation-notes/codex-cli/app-server-api.md)

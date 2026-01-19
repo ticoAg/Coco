@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Codex Chat feature module boundary
-系统 SHALL 将 Codex Chat 的实现代码收敛到 `apps/gui/src/features/codex-chat/`，并通过 Facade（`apps/gui/src/features/codex-chat/index.ts`）对外暴露。
+系统 SHALL 将 Codex Chat 的实现代码收敛到 [`apps/gui/src/features/codex-chat/`](../../../../../apps/gui/src/features/codex-chat)，并通过 Facade（[`apps/gui/src/features/codex-chat/index.ts`](../../../../../apps/gui/src/features/codex-chat/index.ts)）对外暴露。
 
 约束：
 - `app/` 与其它 features MUST 从 Facade import（例如 `@/features/codex-chat`）

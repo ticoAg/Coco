@@ -23,9 +23,9 @@
 
 ## 本地预检（推荐）
 
-- 安装 pre-push hook：`scripts/hooks/install.sh`
+- 安装 pre-push hook：[`scripts/hooks/install.sh`](../../scripts/hooks/install.sh)
 - 跳过 pre-push：`SKIP_RUST_PREFLIGHT=1 git push`
-- 手动预检：`scripts/release/preflight.sh`
+- 手动预检：[`scripts/release/preflight.sh`](../../scripts/release/preflight.sh)
 
 额外：项目也提供 `pre-commit` hook（提交前快速质检：Rust fmt/clippy + GUI build（按改动范围触发））。如需临时跳过：
 
@@ -50,9 +50,9 @@
 
 Release workflow 会校验 tag 版本与以下文件一致（不一致会直接失败）：
 
-- `apps/gui/src-tauri/tauri.conf.json`（`version`）
-- `apps/gui/package.json`（`version`）
-- `apps/gui/src-tauri/Cargo.toml`（`[package].version`）
+- [`apps/gui/src-tauri/tauri.conf.json`](../../apps/gui/src-tauri/tauri.conf.json)（`version`）
+- [`apps/gui/package.json`](../../apps/gui/package.json)（`version`）
+- [`apps/gui/src-tauri/Cargo.toml`](../../apps/gui/src-tauri/Cargo.toml)（`[package].version`）
 - `crates/*/Cargo.toml`（`[package].version`）
 
 本地可先跑一遍校验：

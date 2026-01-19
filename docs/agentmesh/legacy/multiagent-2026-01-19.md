@@ -49,7 +49,7 @@ AgentMesh 对 Codex 的接入建议分两条路径：
 落盘约定（已在 repo 中以 capability 形式固化）：
 - `agents/<instance>/runtime/events.jsonl`：stdout JSONL 原样追加
 - `agents/<instance>/runtime/stderr.log`：stderr 原样追加
-- `agents/<instance>/artifacts/final.json`：最终结构化输出（对齐 `schemas/worker-output.schema.json`）
+- `agents/<instance>/artifacts/final.json`：最终结构化输出（对齐 [`schemas/worker-output.schema.json`](../../../schemas/worker-output.schema.json)）
 - `agents/<instance>/session.json`：最小恢复信息（threadId/cwd/codexHome 等）
 
 关键隔离：每个 worker 使用独立 `CODEX_HOME`（默认放到 `agents/<instance>/codex_home/`）。

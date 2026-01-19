@@ -5,7 +5,7 @@
 - [x] 1.2 确认已合入（或同 PR 先落地）`add-gui-frontend-architecture` 的目录与边界约定。
 
 ## 2. Implementation
-- [x] 2.1 建立 `apps/gui/src/features/tasks/` 目录骨架（`index.ts` / `ui/` / `model/` / `lib/` / `types/`）。
+- [x] 2.1 建立 [`apps/gui/src/features/tasks/`](../../../apps/gui/src/features/tasks) 目录骨架（`index.ts` / `ui/` / `model/` / `lib/` / `types/`）。
 - [x] 2.2 迁移 Task 相关组件与 hooks：
   - `TaskList.tsx` / `NewTaskModal.tsx` / `TaskDetail.tsx`
   - `useTasks.ts` / `useTaskFiles.ts`（必要时包含 `useSubagentSessions` / `useSharedArtifacts`）

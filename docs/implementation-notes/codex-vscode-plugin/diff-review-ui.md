@@ -1,6 +1,6 @@
 # Diff 评审与折叠机制（Review UI）
 
-> 来源：`docs/implementation-notes/codex-vscode-plugin/plugin-index.js`。
+> 来源：[`docs/implementation-notes/codex-vscode-plugin/plugin-index.js`](plugin-index.js)。
 
 本文聚焦 diff 评审相关 UI：Review 头部、文件树开关、展开/折叠、以及 diff hunk 的折叠渲染策略。
 

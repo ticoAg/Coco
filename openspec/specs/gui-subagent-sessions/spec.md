@@ -152,4 +152,3 @@ The preview panel SHALL:
 - **GIVEN** a workbench node points to a `.html` file that exists
 - **WHEN** the user selects the node
 - **THEN** the GUI renders HTML preview
-

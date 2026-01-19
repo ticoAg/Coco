@@ -9,7 +9,7 @@ AgentMesh is moving to a macOS-only `.app` distribution built with Tauri, with a
 Note: the `agentmesh` CLI is optional; the current implementation is an MVP focused on tasks/events (`agentmesh task create|list|show|events` + `--json`).
 Worker lifecycle commands (spawn/resume/cancel/join) are planned and tracked in follow-up OpenSpec changes.
 
-The previous Python implementation is archived under `legacy/python/`.
+The previous Python implementation is archived under [`legacy/python/`](legacy/python).
 
 ## Prerequisites
 
@@ -59,11 +59,11 @@ just be-build
 
 ## Release (macOS DMG)
 
-See `docs/agentmesh/release.md` for the tag-driven GitHub Actions release workflow and local DMG build commands.
+See [`docs/agentmesh/release.md`](docs/agentmesh/release.md) for the tag-driven GitHub Actions release workflow and local DMG build commands.
 
 ## Workspace root (tasks)
 
-In dev mode, the Tauri app automatically uses the repository root if it contains `.agentmesh/`.
+In dev mode, the Tauri app automatically uses the repository root if it contains [`.agentmesh/`](.agentmesh).
 
 To override, set:
 

@@ -1,6 +1,6 @@
 # Worktree 初始化与进度提示 UI
 
-> 来源：`docs/implementation-notes/codex-vscode-plugin/plugin-index.js`。
+> 来源：[`docs/implementation-notes/codex-vscode-plugin/plugin-index.js`](plugin-index.js)。
 
 本文记录本地 worktree 初始化流程的 UI 机制：进度卡片、脚本执行展示、失败处理与“生成初始化脚本”的引导。
 

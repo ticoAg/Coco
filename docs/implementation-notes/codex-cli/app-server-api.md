@@ -10,12 +10,12 @@ GUI 通过 Tauri 后端与 codex app-server 进程通信，使用 JSON-RPC 协�
 
 | 组件 | 路径 |
 |------|------|
-| Tauri 后端命令 | `apps/gui/src-tauri/src/lib.rs` |
-| Codex App Server 客户端 | `apps/gui/src-tauri/src/codex_app_server.rs` |
-| AgentMesh app-server adapter client（可复用） | `crates/agentmesh-codex/src/app_server_client.rs` |
-| Orchestrator wrapper（语义 API：start/resume/fork/turn/...） | `crates/agentmesh-orchestrator/src/codex_app_server_adapter.rs` |
-| 前端 API 客户端 | `apps/gui/src/api/client.ts` |
-| 前端类型定义 | `apps/gui/src/types/codex.ts` |
+| Tauri 后端命令 | [`apps/gui/src-tauri/src/lib.rs`](../../../apps/gui/src-tauri/src/lib.rs) |
+| Codex App Server 客户端 | [`apps/gui/src-tauri/src/codex_app_server.rs`](../../../apps/gui/src-tauri/src/codex_app_server.rs) |
+| AgentMesh app-server adapter client（可复用） | [`crates/agentmesh-codex/src/app_server_client.rs`](../../../crates/agentmesh-codex/src/app_server_client.rs) |
+| Orchestrator wrapper（语义 API：start/resume/fork/turn/...） | [`crates/agentmesh-orchestrator/src/codex_app_server_adapter.rs`](../../../crates/agentmesh-orchestrator/src/codex_app_server_adapter.rs) |
+| 前端 API 客户端 | [`apps/gui/src/api/client.ts`](../../../apps/gui/src/api/client.ts) |
+| 前端类型定义 | [`apps/gui/src/types/codex.ts`](../../../apps/gui/src/types/codex.ts) |
 | Codex 协议定义 | `github:openai/codex/codex-rs/app-server-protocol/src/protocol/v2.rs`（v2）与 `.../protocol/common.rs`（共享类型/通知） |
 
 ---

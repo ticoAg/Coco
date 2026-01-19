@@ -57,7 +57,7 @@ codex exec --json \
 #### Scenario: Final output is available without parsing JSONL
 - **WHEN** worker 正常结束
 - **THEN** `agents/<instance>/artifacts/final.json` 存在
-- **AND** 内容满足 `schemas/worker-output.schema.json`
+- **AND** 内容满足 [`schemas/worker-output.schema.json`](../../../../../../schemas/worker-output.schema.json)
 
 ### Requirement: Exit Code Mapping and Outcome Semantics
 系统 SHALL 将 worker 的“结果语义”统一映射为：

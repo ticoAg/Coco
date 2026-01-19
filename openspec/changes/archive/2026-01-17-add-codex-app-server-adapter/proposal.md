@@ -26,5 +26,5 @@
 
 ## Impact
 - New spec: `codex-app-server-adapter`
-- Affected code (implementation stage): `crates/agentmesh-codex`、`crates/agentmesh-orchestrator`、（可选）`apps/gui/src-tauri` 提取公共 client。
-- Docs: `docs/agentmesh/adapters/codex.md` 与 `docs/implementation-notes/codex-cli/app-server-api.md` 需要在实现阶段同步“实际支持的方法/字段/落盘”。
+- Affected code (implementation stage): [`crates/agentmesh-codex`](../../../../crates/agentmesh-codex)、[`crates/agentmesh-orchestrator`](../../../../crates/agentmesh-orchestrator)、（可选）[`apps/gui/src-tauri`](../../../../apps/gui/src-tauri) 提取公共 client。
+- Docs: [`docs/agentmesh/adapters/codex.md`](../../../../docs/agentmesh/adapters/codex.md) 与 [`docs/implementation-notes/codex-cli/app-server-api.md`](../../../../docs/implementation-notes/codex-cli/app-server-api.md) 需要在实现阶段同步“实际支持的方法/字段/落盘”。

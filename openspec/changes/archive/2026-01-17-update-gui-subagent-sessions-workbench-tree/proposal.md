@@ -32,13 +32,13 @@
 ## Impact
 - Affected spec: `gui-subagent-sessions`
 - Related docs:
-  - `docs/agentmesh/gui.md`（3.1 Subagents / Sessions 展示建议）
-  - `docs/agentmesh/execution.md`
-  - `WORKBENCH_STATE_FLOW.md` / `docs/implementation-notes/agentmesh/workbench-state-flow.md`
+  - [`docs/agentmesh/gui.md`](../../../../docs/agentmesh/gui.md)（3.1 Subagents / Sessions 展示建议）
+  - [`docs/agentmesh/execution.md`](../../../../docs/agentmesh/execution.md)
+  - `WORKBENCH_STATE_FLOW.md` / [`docs/implementation-notes/agentmesh/workbench-state-flow.md`](../../../../docs/implementation-notes/agentmesh/workbench-state-flow.md)
 - Likely code modules (implementation stage):
   - Frontend:
     - `apps/gui/src/components/TaskDetail.tsx`（sessions tab → workbench）
     - `apps/gui/src/hooks/useTasks.ts`（sessions 数据源/轮询）
     - `apps/gui/src/components/*`（新增 WorkbenchTree / RuntimeViewer 组件）
   - Backend:
-    - `apps/gui/src-tauri/src/lib.rs`（新增 task-dir tree/list/read 命令或复用现有接口）
+    - [`apps/gui/src-tauri/src/lib.rs`](../../../../apps/gui/src-tauri/src/lib.rs)（新增 task-dir tree/list/read 命令或复用现有接口）

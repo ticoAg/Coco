@@ -64,8 +64,8 @@ Codex 提供 `codex app-server`（参见 `github:openai/codex/codex-rs/app-serve
 - `shared/evidence/index.json`：建议由 Controller 汇总维护的 Evidence Index（报告/决策用 `evidence:<id>` 引用）
 
 实现参考：
-- app-server client（spawn + stdio JSONL loop + recording）：`crates/agentmesh-codex/src/app_server_client.rs`
-- orchestrator wrapper（semantic API：start/resume/fork/rollback/turn/...）：`crates/agentmesh-orchestrator/src/codex_app_server_adapter.rs`
+- app-server client（spawn + stdio JSONL loop + recording）：[`crates/agentmesh-codex/src/app_server_client.rs`](../../../crates/agentmesh-codex/src/app_server_client.rs)
+- orchestrator wrapper（semantic API：start/resume/fork/rollback/turn/...）：[`crates/agentmesh-orchestrator/src/codex_app_server_adapter.rs`](../../../crates/agentmesh-orchestrator/src/codex_app_server_adapter.rs)
 
 > 说明：Codex 自身也会在本地保存 rollout（JSONL）。任务目录里拷贝一份的价值在于“任务闭环可复现”，不依赖用户机器上的 Codex home。
 

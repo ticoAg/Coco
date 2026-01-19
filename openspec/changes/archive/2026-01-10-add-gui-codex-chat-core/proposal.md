@@ -15,7 +15,7 @@
 
 ## Impact
 - Specs（新增）：`gui-codex-chat`
-- 受影响代码（实现阶段）：`apps/gui`、`apps/gui/src-tauri`
+- 受影响代码（实现阶段）：[`apps/gui`](../../../../apps/gui)、[`apps/gui/src-tauri`](../../../../apps/gui/src-tauri)
 - 文档：可能新增 GUI 使用说明与配置说明（按实施情况确认）
 
 ## Open Questions / Decisions

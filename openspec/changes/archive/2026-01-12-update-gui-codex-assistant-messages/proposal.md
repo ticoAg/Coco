@@ -10,5 +10,5 @@ CodexChat currently renders agent messages without the VSCode plugin’s structu
 - Surface stream/system error messages in Working with plugin-equivalent grouping/visibility.
 
 ## Impact
-- Affected specs: `openspec/specs/gui-codex-chat/spec.md`
-- Affected code: `apps/gui/src/components/CodexChat.tsx`, `apps/gui/src/types/codex.ts` (new/extended item types), and new Codex UI components under `apps/gui/src/components/codex/*`.
+- Affected specs: [`openspec/specs/gui-codex-chat/spec.md`](../../../specs/gui-codex-chat/spec.md)
+- Affected code: [`apps/gui/src/components/CodexChat.tsx`](../../../../apps/gui/src/components/CodexChat.tsx), [`apps/gui/src/types/codex.ts`](../../../../apps/gui/src/types/codex.ts) (new/extended item types), and new Codex UI components under `apps/gui/src/components/codex/*`.

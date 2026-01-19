@@ -1,6 +1,6 @@
 # Inbox 与 Remote 线程 UI
 
-> 来源：`docs/implementation-notes/codex-vscode-plugin/plugin-index.js`。
+> 来源：[`docs/implementation-notes/codex-vscode-plugin/plugin-index.js`](plugin-index.js)。
 
 本文覆盖两块 UI：Inbox（Automations 列表与右侧线程面板）以及 Remote 任务线程视图（含 diff review 面板）。
 

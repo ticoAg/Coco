@@ -151,7 +151,7 @@ GUI 只是把这些事实呈现出来并提供“人工介入动作”（允许/
 
 建议对每个 subagent 强制 `--output-schema`，让它最后输出一个 JSON 对象（stdout JSONL 里会体现为 agent_message 的文本是 JSON 字符串，或通过 `--output-last-message` 落盘）。
 
-推荐 schema：`schemas/worker-output.schema.json`（由 AgentMesh 定义）。
+推荐 schema：[`schemas/worker-output.schema.json`](../../schemas/worker-output.schema.json)（由 AgentMesh 定义）。
 
 核心字段建议：
 

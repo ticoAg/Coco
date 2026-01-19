@@ -32,15 +32,15 @@
 ## Impact
 - Affected spec: `gui-codex-chat`
 - Related docs:
-  - `docs/agentmesh/gui.md`（2.3 Codex Chat）
-  - `docs/agentmesh/execution.md`
-  - `docs/implementation-notes/codex-cli/app-server-api.md`
+  - [`docs/agentmesh/gui.md`](../../../../docs/agentmesh/gui.md)（2.3 Codex Chat）
+  - [`docs/agentmesh/execution.md`](../../../../docs/agentmesh/execution.md)
+  - [`docs/implementation-notes/codex-cli/app-server-api.md`](../../../../docs/implementation-notes/codex-cli/app-server-api.md)
   - `codex/codex-rs/app-server-protocol/src/protocol/v2.rs`（`CollabAgentToolCall` item 定义，仅参考）
 - Likely code modules (implementation stage):
   - Frontend:
-    - `apps/gui/src/components/CodexChat.tsx`（事件路由、workbench UI）
-    - `apps/gui/src/types/codex.ts`（新增 collab item union type）
+    - [`apps/gui/src/components/CodexChat.tsx`](../../../../apps/gui/src/components/CodexChat.tsx)（事件路由、workbench UI）
+    - [`apps/gui/src/types/codex.ts`](../../../../apps/gui/src/types/codex.ts)（新增 collab item union type）
     - `apps/gui/src/components/codex/*`（TurnBlock / Sidebar / 新 Workbench 组件）
   - Backend:
-    - `apps/gui/src-tauri/src/codex_app_server.rs`（notifications 透传；必要时补充字段）
-    - `apps/gui/src-tauri/src/lib.rs`（如需新增/扩展命令）
+    - [`apps/gui/src-tauri/src/codex_app_server.rs`](../../../../apps/gui/src-tauri/src/codex_app_server.rs)（notifications 透传；必要时补充字段）
+    - [`apps/gui/src-tauri/src/lib.rs`](../../../../apps/gui/src-tauri/src/lib.rs)（如需新增/扩展命令）

@@ -1,6 +1,6 @@
 # Workspace 树与侧边栏任务分组 UI 机制
 
-> 来源：`docs/implementation-notes/codex-vscode-plugin/plugin-index.js`（已打包 webview 代码）。
+> 来源：[`docs/implementation-notes/codex-vscode-plugin/plugin-index.js`](plugin-index.js)（已打包 webview 代码）。
 
 本文记录 VSCode 插件侧边栏（workspace 分组/threads）与文件树相关 UI 的实现方式，便于在 AgentMesh 中复刻交互与状态管理。
 

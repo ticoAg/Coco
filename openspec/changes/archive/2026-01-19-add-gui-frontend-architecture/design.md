@@ -29,7 +29,7 @@ Trade-off：
 - 缺点：短期内存在“双路径”与少量重复入口，需要有明确的收敛计划。
 
 ## Risk: docs hardcode file paths
-现有文档中存在硬编码路径引用（例如 `docs/implementation-notes/agentmesh-gui-codex-style/README.md` 直接引用 `apps/gui/src/components/CodexChat.tsx`）。
+现有文档中存在硬编码路径引用（例如 [`docs/implementation-notes/agentmesh-gui-codex-style/README.md`](../../../../docs/implementation-notes/agentmesh-gui-codex-style/README.md) 直接引用 [`apps/gui/src/components/CodexChat.tsx`](../../../../apps/gui/src/components/CodexChat.tsx)）。
 
 应对：
 - 迁移涉及的路径必须同步更新文档；

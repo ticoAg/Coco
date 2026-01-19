@@ -1,12 +1,12 @@
 # AgentMesh 实现评估（Codex-first / Session-based）
 
-> 注意：本文为 2026-01-19 从 `docs/agentmesh/implementation.md` 迁移的历史备份，可能与当前主线文档不一致。
+> 注意：本文为 2026-01-19 从 [`docs/agentmesh/implementation.md`](../implementation.md) 迁移的历史备份，可能与当前主线文档不一致。
 >
 > 当前主线入口：
 > - 执行闭环：[`docs/agentmesh/execution.md`](../execution.md)
 > - 实现评估（主线）：[`docs/agentmesh/implementation.md`](../implementation.md)
 
-> 目标：参考 `docs/references/` 下的文档，评估如何落地 [[AgentMesh.md]](../../AgentMesh.md) 的设计，并把**可让用户随时介入与修正**的产物形态作为首要产出。
+> 目标：参考 [`docs/references/`](../../references) 下的文档，评估如何落地 [[AgentMesh.md]](../../AgentMesh.md) 的设计，并把**可让用户随时介入与修正**的产物形态作为首要产出。
 >
 > 重要前提：本项目核心是**直接复用各方成熟的 code TUI/CLI 产品**（例如 codex cli 这类交互式命令行）。A2A / ACP / Claude Code Subagents 的概念只用于借鉴交互模型与术语，不作为硬依赖或必做集成。
 
@@ -42,7 +42,7 @@
 
 ### 2.1 Claude Code Subagents（仅参考其“分工 + 上下文隔离”思路）
 
-`docs/references/code.claude.com/sub-agents.md` 里 Subagents 的价值点是：
+[`docs/references/code.claude.com/sub-agents.md`](../../references/code.claude.com/sub-agents.md) 里 Subagents 的价值点是：
 
 - 把复杂任务拆给“专门角色”，减少主线程上下文污染
 - 每个角色有独立上下文与工具权限边界
@@ -53,14 +53,14 @@
 - 我们把每个 agent 当作一个**独立运行时**（CLI 工具），通过其“底层可编程接口/事件流”（例如 Codex app-server/exec）来管理 session 与提取输出
 - “上下文隔离”由“多进程/多会话 + 任务目录产物 + 显式共享”实现，而不是依赖某家产品的 subagent 功能
 
-### 2.2 Skills（固定定义：按 `docs/references/skills/README.md`）
+### 2.2 Skills（固定定义：按 [`docs/references/skills/README.md`](../../references/skills/README.md)）
 
-Skills 在本项目里视为各家 agent 可共享的一种**能力封装形式**（指令、脚本、资源）。我们遵循 `docs/references/skills/README.md` 的原始定义：
+Skills 在本项目里视为各家 agent 可共享的一种**能力封装形式**（指令、脚本、资源）。我们遵循 [`docs/references/skills/README.md`](../../references/skills/README.md) 的原始定义：
 
 - 一个 skill 是一个**自包含文件夹**，其中包含 `SKILL.md`（YAML frontmatter + 指令正文）
 - frontmatter 的关键字段是 `name` 与 `description`
 
-`docs/references/openai-codex/skills.md` 仅说明 codex 作为某个运行时如何“消费 skills”，不应被当作 Skills 的规范扩展。
+[`docs/references/openai-codex/skills.md`](../../references/openai-codex/skills.md) 仅说明 codex 作为某个运行时如何“消费 skills”，不应被当作 Skills 的规范扩展。
 
 在 AgentMesh 中，Skills 的职责边界应保持克制：
 
@@ -81,7 +81,7 @@ Skills 在本项目里视为各家 agent 可共享的一种**能力封装形式*
 
 ### 2.4 Agent Client Protocol（仅参考其“编辑器交互”分层）
 
-`docs/references/agentclientprotocol/introduction.md` 描述了 IDE ↔ agent 的协议化交互。
+[`docs/references/agentclientprotocol/introduction.md`](../../references/agentclientprotocol/introduction.md) 描述了 IDE ↔ agent 的协议化交互。
 
 在 AgentMesh 中，ACP 仅作为参考：本项目先把“CLI 工具 session 化 + 结构化产物 + 人工介入”打通，是否提供 ACP 兼容层属于后置增强，而不是核心路径。
 
@@ -164,7 +164,7 @@ Codex adapter 的具体交互与落盘细节见：[`docs/agentmesh/adapters/code
 
 - 固化 Task Directory 规范（见 [[artifacts.md]](./artifacts.md)）
 - 固化结构化报告模板（`DiagnosticReport` / Test Report / API Contract）
-- 固化 Evidence Index（`shared/evidence/index.json`）与“报告引用 token”（`evidence:<id>`），让主控不依赖对话历史也能复盘（见 `openspec/changes/add-task-evidence-index/`）
+- 固化 Evidence Index（`shared/evidence/index.json`）与“报告引用 token”（`evidence:<id>`），让主控不依赖对话历史也能复盘（见 [`openspec/changes/archive/2026-01-17-add-task-evidence-index/`](../../../openspec/changes/archive/2026-01-17-add-task-evidence-index)）
 - 固化“显式共享”流程（用 manifest 指定 attach 的文件/片段）
 - 用你现有的 `agents/*/agents.md` 作为“可复用 Agent Spec 模板库”
 

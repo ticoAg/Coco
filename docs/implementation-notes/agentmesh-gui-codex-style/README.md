@@ -2,7 +2,7 @@
 
 本目录用于把「AgentMesh GUI」在 UI/UX 上向「Codex VSCode 插件 Webview」靠齐的实现方案沉淀下来，便于后续同事接力扩展。
 
-> 参考资料入口：`docs/implementation-notes/codex-vscode-plugin/`（你已经从 `plugin-index.js` 里抽象了折叠结构/卡片骨架/动画参数等）。
+> 参考资料入口：[`docs/implementation-notes/codex-vscode-plugin/`](../codex-vscode-plugin)（你已经从 `plugin-index.js` 里抽象了折叠结构/卡片骨架/动画参数等）。
 
 ---
 
@@ -37,23 +37,23 @@
 
 ### 2.1 全局主题（CSS variables + Tailwind token）
 
-- CSS variables 定义：`apps/gui/src/index.css`
+- CSS variables 定义：[`apps/gui/src/index.css`](../../../apps/gui/src/index.css)
   - 以 `--am-` 前缀命名。
   - 颜色存为 `r g b` 三元组，便于 Tailwind 使用 `rgb(var(--x) / <alpha-value>)` 支持 `/70` 这类透明度。
-- Tailwind token 映射：`apps/gui/tailwind.config.ts`
+- Tailwind token 映射：[`apps/gui/tailwind.config.ts`](../../../apps/gui/tailwind.config.ts)
   - `bg.* / text.* / border.* / status.* / token.*` 都改为引用 CSS variables。
   - 菜单/弹出层使用 `shadow-menu`，卡片使用 `shadow-card`，两者由 CSS variables 控制。
 
 ### 2.2 Accordion 动画（framer-motion）
 
-- 通用折叠组件：`apps/gui/src/components/ui/Collapse.tsx`
+- 通用折叠组件：[`apps/gui/src/components/ui/Collapse.tsx`](../../../apps/gui/src/components/ui/Collapse.tsx)
 - 动画常量：`ACCORDION_TRANSITION`（本项目已调成“几乎无动画”的更快参数）
   - `duration: 0.3`
   - `ease: [0.19, 1, 0.22, 1]`
 
 ### 2.3 CodexChat Turn 层级折叠
 
-- 页面：`apps/gui/src/features/codex-chat/CodexChat.tsx`
+- 页面：[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)
 - Turn 渲染时把 entries 分为：
   - `userEntries`：用户输入（右侧气泡）
   - `workingEntries`：过程性输出（工具/推理/系统提示等）——折叠区
@@ -74,7 +74,7 @@
 - Block 内文本支持 Markdown 渲染（Reasoning/MCP text 等），命令输出保留 ANSI 彩色显示。
 - 点击摘要行才展开详情区（命令输出 / diff / reasoning markdown 等）。
 - 可展开 block 使用轻卡片样式（`.am-block` / `.am-block-hover`），标题行 hover 时通过 React 状态切换边框（`.am-block-outline`）与提亮（`.am-row-title`），对齐 VSCode 插件折叠卡片的轻量质感。
-- 样式类在 `apps/gui/src/index.css`：`.am-row` / `.am-row-hover` / `.am-row-title` / `.am-block` / `.am-block-hover` / `.am-block-outline`。
+- 样式类在 [`apps/gui/src/index.css`](../../../apps/gui/src/index.css)：`.am-row` / `.am-row-hover` / `.am-row-title` / `.am-block` / `.am-block-hover` / `.am-block-outline`。
 - Working 列表采用轻间距（`space-y-1`），避免相邻 block 边框黏连。
 - **默认折叠策略（对齐 VSCode plugin）**：每次展开 `Finished working`（即非 `inProgress` 的 turn）时，内部所有可折叠 block 都强制回到折叠状态，避免长输出“炸屏”。实现见 `CodexChat.tsx` 的 `toggleTurnWorking`。
 - Reasoning 若仅有标题行且无正文，不显示展开控件，仅保留标题行。
@@ -96,8 +96,8 @@
 - 最后把 server 里未消费的 item 追加，避免丢失数据。
 
 相关实现位置：
-- `apps/gui/src-tauri/src/codex_rollout_restore.rs`：`parse_rollout_activity_by_turn` 与 `merge_turn_items`
-- `apps/gui/src-tauri/src/lib.rs`：`codex_thread_resume` 调用 merge
+- [`apps/gui/src-tauri/src/codex_rollout_restore.rs`](../../../apps/gui/src-tauri/src/codex_rollout_restore.rs)：`parse_rollout_activity_by_turn` 与 `merge_turn_items`
+- [`apps/gui/src-tauri/src/lib.rs`](../../../apps/gui/src-tauri/src/lib.rs)：`codex_thread_resume` 调用 merge
 
 ### 2.5 Diff 摘要 + 折叠内容（Block 形式）
 
@@ -109,22 +109,22 @@
 - **换行策略**：diff 行不自动换行，超长行通过横向滚动查看。
 - **统计逻辑**：优先从 unified diff 统计；若无 hunk 且 `kind` 为 add/delete，则把原始内容行视为新增/删除（兼容 v2 `FileChange` 的 `diff` 仅包含原文的情况）。
 
-落点：`apps/gui/src/features/codex-chat/CodexChat.tsx`（`buildFileChangeSummary` / `renderDiffLines` / fileChange 展开渲染）。
+落点：[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)（`buildFileChangeSummary` / `renderDiffLines` / fileChange 展开渲染）。
 
 ### 2.6 AI 消息 block（assistant-message）数据来源对齐
 
-对齐来源：`docs/implementation-notes/codex-vscode-plugin/plugin-index.js` 中的 `mapStateToLocalConversationItems` 与 `splitItemsIntoRenderGroups`。
+对齐来源：[`docs/implementation-notes/codex-vscode-plugin/plugin-index.js`](../codex-vscode-plugin/plugin-index.js) 中的 `mapStateToLocalConversationItems` 与 `splitItemsIntoRenderGroups`。
 
 本项目实现落点（当前）：
 
-- **映射规则**：`apps/gui/src/features/codex-chat/CodexChat.tsx` + `apps/gui/src/features/codex-chat/codex/assistantMessage.ts`
+- **映射规则**：[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx) + [`apps/gui/src/features/codex-chat/codex/assistantMessage.ts`](../../../apps/gui/src/features/codex-chat/codex/assistantMessage.ts)
   - `agentMessage` → GUI 内部 `assistant`（role=`message`）
   - `renderPlaceholderWhileStreaming`：当 assistant-message 处于 streaming 且内容以 `{` 或 ``` 开头时，不直接渲染正文，而是显示 placeholder（避免“JSON 半截”破坏布局）。
   - `structuredOutput`：当 assistant-message 完成且内容看起来像 JSON 时，尝试解析 Code Review schema，成功则走结构化 UI。
-- **分组规则（turn 内）**：`apps/gui/src/features/codex-chat/CodexChat.tsx`
+- **分组规则（turn 内）**：[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)
   - 只把 **最后一条** assistant-message 当作最终回复（`assistantMessageEntries`）。
   - 其余 assistant-message 保留在 Working 区域（`workingEntries`），与 VSCode plugin 一致。
-- **Code Review UI**：`apps/gui/src/features/codex-chat/codex/CodeReviewAssistantMessage.tsx`
+- **Code Review UI**：[`apps/gui/src/features/codex-chat/codex/CodeReviewAssistantMessage.tsx`](../../../apps/gui/src/features/codex-chat/codex/CodeReviewAssistantMessage.tsx)
   - 渲染 Findings cards + priority（高优先级与低优先级分区）。
   - 本项目按产品决策 **忽略 Open/Fix**（插件中的 open-file / startFixConversation 不在本 GUI 复刻范围内）。
 
@@ -134,7 +134,7 @@
 
 ### 3.1 交互/结构映射
 
-参考：`docs/implementation-notes/codex-vscode-plugin/conversation-folding-ui.md`
+参考：[`docs/implementation-notes/codex-vscode-plugin/conversation-folding-ui.md`](../codex-vscode-plugin/conversation-folding-ui.md)
 
 - Codex 插件 `LocalConversationTurnContent` 的“Working/Thinking”折叠区
   - AgentMesh 对应：`CodexChat.tsx` 中 `workingEntries` + `collapsedWorkingByTurnId` 的折叠区
@@ -184,8 +184,8 @@
 
 ### 4.2 本期已落地组件/样式
 
-- `Collapse`：`apps/gui/src/components/ui/Collapse.tsx`
-- `.am-card / .am-card-clickable / .am-divider / .am-label / .am-icon-button / .am-scroll-fade`：`apps/gui/src/index.css`
+- `Collapse`：[`apps/gui/src/components/ui/Collapse.tsx`](../../../apps/gui/src/components/ui/Collapse.tsx)
+- `.am-card / .am-card-clickable / .am-divider / .am-label / .am-icon-button / .am-scroll-fade`：[`apps/gui/src/index.css`](../../../apps/gui/src/index.css)
 
 ---
 

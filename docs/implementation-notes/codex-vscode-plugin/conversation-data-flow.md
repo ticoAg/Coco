@@ -55,8 +55,8 @@
   - 完成后调用 `dedupe_adjacent_reasoning`（`apps/gui/src-tauri/src/codex_rollout_restore.rs:258`）去重相邻 reasoning。
 
 ### 2.3 UI 侧 item 映射与增量（对齐后）
-- `normalizeThreadFromResponse`（`apps/gui/src/features/codex-chat/CodexChat.tsx`）：直接取 `res.thread`。
-- `entryFromThreadItem`（`apps/gui/src/features/codex-chat/CodexChat.tsx`）：
+- `normalizeThreadFromResponse`（[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)）：直接取 `res.thread`。
+- `entryFromThreadItem`（[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)）：
   - `reasoning` → 保留 `reasoningSummary` / `reasoningContent` 数组，`text` 由 `buildReasoningText` 组装。
   - 渲染层通过 `expandReasoningEntries` + `buildReasoningSegments` 把 `summary[]` 拆成多个 reasoning block，**最后一段追加 content**。
   - 若 `summary[]` 为空但 `content` 有值，优先合并到前一条 reasoning block，避免额外标题（无前置 reasoning 时仍单独显示）。
@@ -68,7 +68,7 @@
 - `mergeReadingEntries`：在 Working 数据层合并连续 `read`。
 - `segmentExplorationItems`：把 `list_files/search/read + reasoning` 串成 exploration 组。
 - `formatExplorationHeader`：生成 “Exploring/Explored N files” 标题。
-- `parseCommand`：命令解析用于探索分组与标题生成（`apps/gui/src/features/codex-chat/CodexChat.tsx`）。
+- `parseCommand`：命令解析用于探索分组与标题生成（[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)）。
   - `sed -n` / `nl -ba` 识别为 `read`，`sed -i`（或 `--in-place`）避免误判。
   - 支持管道命令按 segment 解析（`rg ... | head` / `nl ... | sed -n ...`）。
 - `getCmdSummary`：unknown/format/test/lint/noop 等命令的标题优先展示原始 `command`（保留 shell wrapper）。
@@ -81,7 +81,7 @@
 
 ### 3.1 锁定数据源与会话范围
 - GUI 侧真实渲染数据来自 `thread/resume` + rollout 还原：
-  - `codex_thread_resume` → `augment_thread_resume_response`（`apps/gui/src-tauri/src/lib.rs` / `apps/gui/src-tauri/src/codex_rollout_restore.rs`）。
+  - `codex_thread_resume` → `augment_thread_resume_response`（[`apps/gui/src-tauri/src/lib.rs`](../../../apps/gui/src-tauri/src/lib.rs) / [`apps/gui/src-tauri/src/codex_rollout_restore.rs`](../../../apps/gui/src-tauri/src/codex_rollout_restore.rs)）。
 - rollout 路径优先取 `thread.path`，缺失时会在 `~/.codex/sessions` 下按 `threadId` 模糊检索（`augment_thread_resume_response`）。
 - 建议先记录目标 turn 的输入文本（`event_msg.user_message`），确保与 VSCode 插件显示的是同一轮。
 
@@ -139,7 +139,7 @@ PY
 ### 3.3 对照 `thread/resume` items 与 rollout
 - 如果 `thread.turns[].items` 缺少 `commandExecution`，说明探索分组所需活动项来源不足；
 - 如果 `commandExecution` 存在但没有 `commandActions`，将回退到 `parseCommand`；
-- 合并逻辑位置：`merge_turn_items`（`apps/gui/src-tauri/src/codex_rollout_restore.rs`）。
+- 合并逻辑位置：`merge_turn_items`（[`apps/gui/src-tauri/src/codex_rollout_restore.rs`](../../../apps/gui/src-tauri/src/codex_rollout_restore.rs)）。
 
 ### 3.4 排查探索分组缺失原因
 - `resolveParsedCmd` 优先用 `commandActions`，否则走 `parseCommand`；
@@ -151,7 +151,7 @@ PY
 
 ### 3.5 UI 渲染与分组路径定位
 - `renderTurns` 中的 `workingEntries → expandReasoningEntries → mergeReadingEntries → segmentExplorationItems`
-- 相关位置：`apps/gui/src/features/codex-chat/CodexChat.tsx`（`renderTurns`、`segmentExplorationItems`、`parseCommand`）。
+- 相关位置：[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)（`renderTurns`、`segmentExplorationItems`、`parseCommand`）。
 
 ---
 
@@ -179,10 +179,10 @@ PY
 - 插件：`ExplorationAccordion`（`plugin-index.js:278335`）
 - 插件：reasoning deltas（`plugin-index.js:44789` / `plugin-index.js:44818`）
 
-- 我们：`entryFromThreadItem`（`apps/gui/src/features/codex-chat/CodexChat.tsx`）
-- 我们：`applyReasoningDelta` / `applyReasoningPartAdded`（`apps/gui/src/features/codex-chat/CodexChat.tsx`）
-- 我们：`expandReasoningEntries` / `buildReasoningSegments`（`apps/gui/src/features/codex-chat/CodexChat.tsx`）
-- 我们：`mergeReadingEntries` / `segmentExplorationItems`（`apps/gui/src/features/codex-chat/CodexChat.tsx`）
-- 我们：`formatExplorationHeader`（`apps/gui/src/features/codex-chat/CodexChat.tsx`）
+- 我们：`entryFromThreadItem`（[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)）
+- 我们：`applyReasoningDelta` / `applyReasoningPartAdded`（[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)）
+- 我们：`expandReasoningEntries` / `buildReasoningSegments`（[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)）
+- 我们：`mergeReadingEntries` / `segmentExplorationItems`（[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)）
+- 我们：`formatExplorationHeader`（[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)）
 - 我们：`merge_turn_items`（`apps/gui/src-tauri/src/codex_rollout_restore.rs:819`）
 - 我们：`parse_rollout_activity_by_turn`（`apps/gui/src-tauri/src/codex_rollout_restore.rs:459`）

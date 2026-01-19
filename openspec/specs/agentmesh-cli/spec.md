@@ -53,7 +53,7 @@ CLI SHALL 使用以下退出码约定：
 CLI SHALL 支持通过环境变量 `AGENTMESH_WORKSPACE_ROOT` 指定工作区根目录；当未设置时，CLI SHALL 采用与 GUI/Tauri 一致的回退策略与优先级：
 
 1) `AGENTMESH_WORKSPACE_ROOT`
-2) repo dev fallback（debug 构建时：若 repo root 存在 `.agentmesh/`，则使用 repo root）
+2) repo dev fallback（debug 构建时：若 repo root 存在 [`.agentmesh/`](../../../.agentmesh)，则使用 repo root）
 3) app-data/workspace（应用数据目录下的 `workspace/` 子目录）
 
 #### Scenario: Workspace root from env var

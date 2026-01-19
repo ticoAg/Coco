@@ -5,7 +5,7 @@
 
 join 的输入 SHOULD 以 worker 的结构化最终输出为准：
 
-- `agents/<id>/artifacts/final.json`（符合 `schemas/worker-output.schema.json`）
+- `agents/<id>/artifacts/final.json`（符合 [`schemas/worker-output.schema.json`](../../../../../../schemas/worker-output.schema.json)）
 
 join 的输出 SHALL 至少包含：
 
@@ -23,11 +23,11 @@ join 的输出 SHALL 至少包含：
 ### Requirement: Joined Summary Template
 系统 SHALL 提供一个最小 joined summary 模板，以便人类理解 join 报告结构与字段含义：
 
-- `templates/JoinedSummary.md`
+- [`templates/JoinedSummary.md`](../../../../../../templates/JoinedSummary.md)
 
 #### Scenario: Template exists in repo
 - **WHEN** 开发者检出仓库
-- **THEN** `templates/JoinedSummary.md` 存在
+- **THEN** [`templates/JoinedSummary.md`](../../../../../../templates/JoinedSummary.md) 存在
 
 ### Requirement: Joined Summary Content
 join 汇总报告 SHALL 包含每个 worker 的：

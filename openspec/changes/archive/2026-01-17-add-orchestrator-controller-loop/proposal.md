@@ -25,4 +25,4 @@
 ## Impact
 - New spec: `orchestrator-controller-loop`
 - Related specs (referenced): `task-directory`, `subagent-orchestration`, `subagent-join-gates`, `codex-exec-adapter`, `codex-app-server-adapter`（新增）。
-- Affected code (implementation stage): `crates/agentmesh-orchestrator`（controller 状态机）、`crates/agentmesh-core`（落盘/事件）、`crates/agentmesh-codex`（adapter）。
+- Affected code (implementation stage): [`crates/agentmesh-orchestrator`](../../../../crates/agentmesh-orchestrator)（controller 状态机）、[`crates/agentmesh-core`](../../../../crates/agentmesh-core)（落盘/事件）、[`crates/agentmesh-codex`](../../../../crates/agentmesh-codex)（adapter）。

@@ -7,7 +7,7 @@
 - `sessionGoal`: string
 - `tasks`: array（每个 task 至少包含 `taskId/title/agent/adapter/prompt`）
 
-系统 SHALL 提供 `schemas/orchestrator-actions.schema.json` 作为最小 JSON Schema，并要求 Orchestrator 输出与该 schema 兼容。
+系统 SHALL 提供 [`schemas/orchestrator-actions.schema.json`](../../../../../../schemas/orchestrator-actions.schema.json) 作为最小 JSON Schema，并要求 Orchestrator 输出与该 schema 兼容。
 
 #### Scenario: Parse actions from orchestrator
 - **GIVEN** Orchestrator 输出一个包含 `sessionGoal` 与 `tasks[]` 的 JSON
@@ -16,7 +16,7 @@
 
 #### Scenario: Actions output validates against schema
 - **GIVEN** 一个 actions JSON 文件
-- **WHEN** 使用 `schemas/orchestrator-actions.schema.json` 校验该 JSON
+- **WHEN** 使用 [`schemas/orchestrator-actions.schema.json`](../../../../../../schemas/orchestrator-actions.schema.json) 校验该 JSON
 - **THEN** 校验通过
 
 ### Requirement: Controller State Machine
@@ -68,7 +68,7 @@
 ### Requirement: Evidence-First Result Contract
 系统 SHALL 要求每个 subtask 的最终交付为结构化文件，并可被 join 汇总消费。
 
-最小交付 SHOULD 对齐 `schemas/worker-output.schema.json`（例如 `agents/<instance>/artifacts/final.json`）。
+最小交付 SHOULD 对齐 [`schemas/worker-output.schema.json`](../../../../../../schemas/worker-output.schema.json)（例如 `agents/<instance>/artifacts/final.json`）。
 
 #### Scenario: Join reads final outputs
 - **GIVEN** 至少两个 subtask 均已写入 `artifacts/final.json`

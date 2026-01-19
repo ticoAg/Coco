@@ -20,5 +20,5 @@
 
 ## Impact
 - Affected specs: `gui-codex-chat`
-- Affected code (implementation stage): `apps/gui/src-tauri/src/lib.rs`, `apps/gui/src-tauri/src/codex_app_server.rs`, `apps/gui/src/*`（会话 UI）
-- Docs: `docs/implementation-notes/codex-cli/app-server-api.md` 需要把 thread/fork 与 thread/rollback 标记为“已接入”。
+- Affected code (implementation stage): [`apps/gui/src-tauri/src/lib.rs`](../../../../apps/gui/src-tauri/src/lib.rs), [`apps/gui/src-tauri/src/codex_app_server.rs`](../../../../apps/gui/src-tauri/src/codex_app_server.rs), `apps/gui/src/*`（会话 UI）
+- Docs: [`docs/implementation-notes/codex-cli/app-server-api.md`](../../../../docs/implementation-notes/codex-cli/app-server-api.md) 需要把 thread/fork 与 thread/rollback 标记为“已接入”。

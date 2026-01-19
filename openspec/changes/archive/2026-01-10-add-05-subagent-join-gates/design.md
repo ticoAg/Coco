@@ -1,7 +1,7 @@
 # Design: add-05-subagent-join-gates
 
 ## Join Strategy (MVP)
-- Join 的输入是每个 worker 的 `artifacts/final.json`（符合 `schemas/worker-output.schema.json`）。
+- Join 的输入是每个 worker 的 `artifacts/final.json`（符合 [`schemas/worker-output.schema.json`](../../../../schemas/worker-output.schema.json)）。
 - Join 的输出是 `shared/reports/joined-summary.md`（人类入口），可选 `joined-summary.json`（机器入口）。
 - Join 不负责合并代码变更（worktree/branch 的合并由人类或后续工具完成）。
 

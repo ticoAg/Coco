@@ -14,14 +14,14 @@
 ### GUI 前端
 | 文件 | 描述 |
 |------|------|
-| `apps/gui/src/features/codex-chat/CodexChat.tsx` | 主聊天组件，包含 slash 菜单逻辑 |
-| `apps/gui/src/api/client.ts` | API 客户端 |
-| `apps/gui/src/types/codex.ts` | 类型定义 |
+| [`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx) | 主聊天组件，包含 slash 菜单逻辑 |
+| [`apps/gui/src/api/client.ts`](../../../apps/gui/src/api/client.ts) | API 客户端 |
+| [`apps/gui/src/types/codex.ts`](../../../apps/gui/src/types/codex.ts) | 类型定义 |
 
 ### GUI 后端 (Tauri)
 | 文件 | 描述 |
 |------|------|
-| `apps/gui/src-tauri/src/lib.rs` | Tauri 命令定义 |
+| [`apps/gui/src-tauri/src/lib.rs`](../../../apps/gui/src-tauri/src/lib.rs) | Tauri 命令定义 |
 
 ### Codex CLI 参考实现
 | 文件 | 描述 |
@@ -119,8 +119,8 @@ metadata:
 ## Slash 菜单交互
 
 ### 触发方式
-- 在输入框中输入 `/` 触发菜单
-- 菜单显示时隐藏 `/` 字符
+- 在输入框中输入 [`/`](../../../../../../../../..) 触发菜单
+- 菜单显示时隐藏 [`/`](../../../../../../../../..) 字符
 
 ### 键盘导航
 | 按键 | 功能 |

@@ -3,7 +3,7 @@
 ## Summary
 在 GUI 的 Codex Chat（session tree）中补齐三个核心体验：
 
-- **会话标题（title）**：当 codex app-server 只返回 `preview`（首条用户消息摘要）时，GUI 侧按规则提取生成一个短标题（自动：50 字），并把结果持久化到工作区目录（`.agentmesh/`）以便下次打开仍可复用；支持手动改名（最多 50 字）。
+- **会话标题（title）**：当 codex app-server 只返回 `preview`（首条用户消息摘要）时，GUI 侧按规则提取生成一个短标题（自动：50 字），并把结果持久化到工作区目录（[`.agentmesh/`](../../../../.agentmesh)）以便下次打开仍可复用；支持手动改名（最多 50 字）。
 - **Task 右键操作**：在左侧 session tree 的 `task` 节点支持右键菜单：Rename / Delete（以 `thread/archive` 语义实现）。
 - **会话活跃/归档分组**：按最近 1h 活跃度区分 Active/Archived，并在 Archived 中按日期/小时分组；提供一键归档该层级所有 sessions 的入口。
 
@@ -41,9 +41,9 @@
 ## Impact
 - Affected spec: `gui-codex-chat`
 - Likely code modules (implementation stage):
-  - Backend: `apps/gui/src-tauri/src/lib.rs`
+  - Backend: [`apps/gui/src-tauri/src/lib.rs`](../../../../apps/gui/src-tauri/src/lib.rs)
   - Frontend:
-    - `apps/gui/src/types/codex.ts`
-    - `apps/gui/src/api/client.ts`
-    - `apps/gui/src/components/CodexChat.tsx`
+    - [`apps/gui/src/types/codex.ts`](../../../../apps/gui/src/types/codex.ts)
+    - [`apps/gui/src/api/client.ts`](../../../../apps/gui/src/api/client.ts)
+    - [`apps/gui/src/components/CodexChat.tsx`](../../../../apps/gui/src/components/CodexChat.tsx)
     - `apps/gui/src/components/codex/sidebar/*`

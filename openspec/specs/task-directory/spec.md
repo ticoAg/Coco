@@ -139,4 +139,3 @@ GUI/脚本 MAY 解析该 token 并跳转到 `shared/evidence/index.json` 中对�
 - **GIVEN** 某 worker 的结论依赖一条证据 `id=cmd-42`
 - **WHEN** 系统生成 `shared/reports/joined-summary.md`
 - **THEN** 报告中包含文本 `evidence:cmd-42`
-

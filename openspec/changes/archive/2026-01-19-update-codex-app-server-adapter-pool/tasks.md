@@ -13,5 +13,5 @@
 
 ## 3. Validation
 - [x] 3.1 `openspec validate update-codex-app-server-adapter-pool --strict`
-- [x] 3.2 `cargo test`（至少覆盖 `apps/gui/src-tauri` 构建）
+- [x] 3.2 `cargo test`（至少覆盖 [`apps/gui/src-tauri`](../../../../apps/gui/src-tauri) 构建）
 - [x] 3.3 `npm -C apps/gui run build`

@@ -31,7 +31,7 @@
 - **协作逻辑**：
   - **阵容设计 (Roster Design)**：Lead / Orchestrator 根据任务设计需要哪些 agent 角色（数量、名称、职责、权限、可见范围）。实现上，每个角色会被绑定到一个或多个“coder session”（例如一个 Codex `threadId`）。
   - **Agent 定义生成 (Agent Spec Generation)**：为每个角色生成一份可复用的 `agents.md`（例如 `.agentmesh/agents/db/agents.md`），作为该 agent 的“说明书/运行契约”（Role、Inputs/Outputs、Permissions、Scope、Triggers 等）。
-    - 仓库里也可以保留一份模板库（例如 `agents/db/agents.md`），供复制/微调后写入 `.agentmesh/agents/`。
+    - 仓库里也可以保留一份模板库（例如 [`agents/db/agents.md`](../../../agents/db/agents.md)），供复制/微调后写入 `.agentmesh/agents/`。
   - **广播触发 (Broadcast Trigger)**：主 Agent 发布一个“诊断任务”，并行派发给 DB Agent, Network Agent, Log Agent。
   - **并行执行 (Parallel Execution)**：所有 agent 实例/会话可并行工作，互不阻塞。
   - **结果聚合 (Result Aggregation)**：各 agent 实例完成后不进行长篇大论，而是返回结构化的 `DiagnosticReport`。主 Agent 收到所有报告后进行综合分析。

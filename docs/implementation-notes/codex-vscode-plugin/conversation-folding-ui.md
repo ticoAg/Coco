@@ -1,6 +1,6 @@
 # AI 会话多层级折叠/显示机制（VSCode 插件 Webview）
 
-本文基于 `docs/implementation-notes/codex-vscode-plugin/plugin-index.js` 里的已打包实现，记录本地会话页面（截图所示）在 UI 上如何进行多层级折叠/展开与显示。重点是“一个会话 turn 内的层级折叠结构 + 互动状态 + 动画”。
+本文基于 [`docs/implementation-notes/codex-vscode-plugin/plugin-index.js`](plugin-index.js) 里的已打包实现，记录本地会话页面（截图所示）在 UI 上如何进行多层级折叠/展开与显示。重点是“一个会话 turn 内的层级折叠结构 + 互动状态 + 动画”。
 
 > 说明：该文件是打包产物，函数名仍保留但代码被编译为运行时结构；定位建议用函数名检索。
 

@@ -15,7 +15,7 @@
 - Affected specs:
   - `gui-codex-chat`
 - Affected code (expected):
-  - `apps/gui/src/components/CodexChat.tsx`
-  - `apps/gui/src/api/client.ts`
-  - `apps/gui/src-tauri/src/lib.rs`
+  - [`apps/gui/src/components/CodexChat.tsx`](../../../../apps/gui/src/components/CodexChat.tsx)
+  - [`apps/gui/src/api/client.ts`](../../../../apps/gui/src/api/client.ts)
+  - [`apps/gui/src-tauri/src/lib.rs`](../../../../apps/gui/src-tauri/src/lib.rs)
 

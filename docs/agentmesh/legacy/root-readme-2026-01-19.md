@@ -17,7 +17,7 @@ AgentMesh 是一个多 `Code Agent` 编排框架，用于协调多个异构 agen
 - 通过“显式共享”降低上下文窗口压力：只在需要时共享必要信息
 - 让不同厂商/不同模型/不同工具形态的 agent，可以通过统一适配层协作
 
-## 实施方向（与 `docs/agentmesh/` 同步）
+## 实施方向（与 [`docs/agentmesh/`](..) 同步）
 
 - **Codex-first / Session-based**：先把 Codex 作为第一个可用运行时，通过 `codex app-server`（或 `codex exec --json`）直接读取结构化事件流，落盘为可介入产物。
 - 其他工具后续接入时，接入路径通常先尝试其“底层可编程接口/事件流”；如果缺乏此类接口，再把 TUI 录制/抽取作为 fallback。

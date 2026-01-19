@@ -37,7 +37,7 @@ type CodexUserInput =
 ### 1. 触发方式
 
 - **`$` 键触发**：在输入框中按 `$` 键打开 skill 选择菜单
-- **`/` 菜单**：在 slash 命令菜单中也可以选择 skills（显示在 Commands 和 Prompts 之后）
+- **[`/`](../../../../../../../../..) 菜单**：在 slash 命令菜单中也可以选择 skills（显示在 Commands 和 Prompts 之后）
 
 ### 2. 选择行为
 
@@ -207,9 +207,9 @@ pub const SKILL_INSTRUCTIONS_PREFIX: &str = "<skill";
 
 ## 相关文件
 
-- 前端类型：`apps/gui/src/types/codex.ts`
-- API 客户端：`apps/gui/src/api/client.ts`
-- 聊天组件：`apps/gui/src/features/codex-chat/CodexChat.tsx`
-- 后端命令：`apps/gui/src-tauri/src/lib.rs`
+- 前端类型：[`apps/gui/src/types/codex.ts`](../../../apps/gui/src/types/codex.ts)
+- API 客户端：[`apps/gui/src/api/client.ts`](../../../apps/gui/src/api/client.ts)
+- 聊天组件：[`apps/gui/src/features/codex-chat/CodexChat.tsx`](../../../apps/gui/src/features/codex-chat/CodexChat.tsx)
+- 后端命令：[`apps/gui/src-tauri/src/lib.rs`](../../../apps/gui/src-tauri/src/lib.rs)
 - TUI2 实现：`github:openai/codex/codex-rs/tui2/src/chatwidget.rs`
 - 注入逻辑：`github:openai/codex/codex-rs/core/src/skills/injection.rs`
