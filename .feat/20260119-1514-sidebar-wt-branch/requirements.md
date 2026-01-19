@@ -1,3 +1,14 @@
+---
+summary: "Feature requirements and validation scope for sidebar-wt-branch"
+doc_type: requirements
+slug: "sidebar-wt-branch"
+notes_dir: ".feat/20260119-1514-sidebar-wt-branch"
+base_branch: "dev"
+feature_branch: "feat/sidebar-wt-branch"
+worktree: "/Users/ticoag/Documents/myws/ags/AgentMesh-feat-sidebar-wt-branch"
+created_at_utc: "2026-01-19T15:14:07Z"
+status: "vFinal"
+---
 # Feature Requirements: sidebar-wt-branch
 
 ## Status
@@ -63,5 +74,3 @@
 - **fallback**：
   - 无法解析 branch → `wt-[unknown]`
   - detached HEAD → `wt-[detached]`
-
-> 在用户确认后补齐，并标注确认日期/版本差异。

@@ -132,7 +132,6 @@ docs/implementation-notes/codex-vscode-plugin/plugin-index.js
 /legacy/
 
 # --- Codex feature notes (tracked) ---
-!.cache/
-!.cache/codex/
-!.cache/codex/**
+!.feat/
+!.feat/**
 # --- End Codex feature notes ---

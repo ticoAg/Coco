@@ -1,3 +1,10 @@
+---
+summary: "Evidence-first context notes for sidebar-wt-branch"
+doc_type: context
+slug: "sidebar-wt-branch"
+notes_dir: ".feat/20260119-1514-sidebar-wt-branch"
+created_at_utc: "2026-01-19T15:14:07Z"
+---
 # Context Notes
 
 目标：记录最小但关键的上下文证据（入口、现状、约束、关键定位）。

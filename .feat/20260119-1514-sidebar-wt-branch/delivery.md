@@ -1,3 +1,10 @@
+---
+summary: "Delivery summary, verification, and impact notes"
+doc_type: delivery
+slug: "sidebar-wt-branch"
+notes_dir: ".feat/20260119-1514-sidebar-wt-branch"
+created_at_utc: "2026-01-19T15:14:07Z"
+---
 # Delivery Notes
 
 交付时的详细说明（最终会随 squash merge 合回 base 分支）。
@@ -14,11 +21,11 @@
 
 ## How to verify
 - Commands:
-- `npm -C apps/gui run build`
-- `cargo check -p agentmesh-app`
+  - `npm -C apps/gui run build`
+  - `cargo check -p agentmesh-app`
 - Manual steps:
-- 打开 GUI → Codex Chat → 展开左侧 SessionTree，确认 `task/orchestrator/worker` 节点末尾展示 `wt-[branch]`。
-- 使用一个超长 branch name，确认 suffix 截断且 hover tooltip 展示全名。
+  - 打开 GUI → Codex Chat → 展开左侧 SessionTree，确认 `task/orchestrator/worker` 节点末尾展示 `wt-[branch]`。
+  - 使用一个超长 branch name，确认 suffix 截断且 hover tooltip 展示全名。
 
 ## Impact / risks
 - 变更仅为 UI 展示增强；不改变 sessions 数据源/归档分组/交互行为。
