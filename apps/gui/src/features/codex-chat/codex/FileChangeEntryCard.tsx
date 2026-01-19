@@ -20,7 +20,7 @@ export function FileChangeEntryCard({ change, isPending, defaultCollapsed }: Fil
 	const hasDiff = change.parsed.lines.length > 0;
 
 	return (
-		<div className={['am-block max-w-full', open ? 'am-block-open' : ''].join(' ')}>
+		<div className={['am-block min-w-0 max-w-full', open ? 'am-block-open' : ''].join(' ')}>
 			<div
 				className="am-shell-header am-row group text-left"
 				onClick={() => setOpen((prev) => !prev)}

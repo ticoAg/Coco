@@ -115,7 +115,7 @@ export function renderMcpContentBlocks(blocks: unknown[]): React.ReactNode {
 				if (block.type === 'image') {
 					const mime = block.mimeType || 'image/png';
 					const src = `data:${mime};base64,${block.data ?? ''}`;
-					return <img key={`mcp-image-${idx}`} className="max-h-48 w-max max-w-full rounded-md object-contain" src={src} alt="" />;
+					return <img key={`mcp-image-${idx}`} className="max-h-48 w-auto max-w-full rounded-md object-contain" src={src} alt="" />;
 				}
 				if (block.type === 'audio') {
 					const mime = block.mimeType || 'audio/mpeg';

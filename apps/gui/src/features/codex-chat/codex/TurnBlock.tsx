@@ -192,8 +192,8 @@ export function TurnBlock({
 
 			<div className="space-y-2">
 					{turn.userEntries.map((e) => (
-						<div key={e.id} className="flex justify-end pl-12">
-							<div className="group/user bg-token-foreground/5 max-w-[77%] break-words rounded-2xl px-3 py-2 text-[12px] text-text-main">
+						<div key={e.id} className="flex min-w-0 max-w-full justify-end pl-12">
+							<div className="group/user min-w-0 max-w-[77%] break-words rounded-2xl bg-token-foreground/5 px-3 py-2 text-[12px] text-text-main">
 								{/* Attachments in message bubble */}
 								{e.attachments && e.attachments.length > 0 ? (
 									(() => {
@@ -256,7 +256,7 @@ export function TurnBlock({
 									})()
 								) : null}
 								{showRawUser ? (
-									<pre className="whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 font-mono text-[12px] text-text-main">
+									<pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 font-mono text-[12px] text-text-main">
 										{e.text}
 									</pre>
 								) : (
@@ -301,12 +301,12 @@ export function TurnBlock({
 
 			<div className="space-y-2">
 				{turn.assistantMessageEntries.map((e) => (
-					<div key={e.id} className="pr-8">
-						<div className="text-[12px] text-text-main">
+					<div key={e.id} className="min-w-0 max-w-full pr-8">
+						<div className="min-w-0 max-w-full text-[12px] text-text-main">
 							{e.renderPlaceholderWhileStreaming && !e.completed ? (
 								<div className="text-[12px] text-text-muted italic">Generating…</div>
 							) : rawAssistantById[e.id] ? (
-								<pre className="whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 font-mono text-[12px] text-text-main">
+								<pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 font-mono text-[12px] text-text-main">
 									{e.text}
 								</pre>
 							) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (

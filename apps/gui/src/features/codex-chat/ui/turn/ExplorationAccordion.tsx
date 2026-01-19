@@ -62,7 +62,7 @@ export function ExplorationAccordion({
 	const prefix = exploring ? 'Exploring' : 'Explored';
 
 	return (
-		<div className={['am-block', open ? 'am-block-open' : ''].join(' ')}>
+		<div className={['am-block min-w-0 max-w-full', open ? 'am-block-open' : ''].join(' ')}>
 			<div
 				className="am-row group flex items-center gap-1.5 cursor-pointer select-none text-left"
 				onClick={() => setExpanded((v) => !v)}

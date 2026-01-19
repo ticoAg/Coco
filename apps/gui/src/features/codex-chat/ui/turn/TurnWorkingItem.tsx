@@ -153,7 +153,7 @@ export function TurnWorkingItem({ item, turnId, collapsedByEntryId, settings, to
 		const showPlaceholder = !!e.renderPlaceholderWhileStreaming && !e.completed;
 		const structured = e.structuredOutput && e.structuredOutput.type === 'code-review' ? e.structuredOutput : null;
 		return (
-			<div key={e.id} className="am-row text-left">
+			<div key={e.id} className="am-row min-w-0 max-w-full text-left">
 				{showPlaceholder ? (
 					<div className="text-[11px] text-text-menuDesc">Generating…</div>
 				) : structured ? (

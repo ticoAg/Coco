@@ -21,7 +21,7 @@ function MarkdownBody({ text }: { text: string }) {
 	}, [text]);
 
 	return (
-		<div className="min-w-0 break-words text-[11px] leading-[1.35] text-text-menuDesc">
+		<div className="min-w-0 max-w-full break-words text-[11px] leading-[1.35] text-text-menuDesc">
 			<ReactMarkdown
 				components={{
 					p: ({ children }) => <p className="my-0.5 whitespace-pre-wrap break-words">{children}</p>,
@@ -29,7 +29,7 @@ function MarkdownBody({ text }: { text: string }) {
 					ol: ({ children }) => <ol className="my-0.5 list-decimal pl-5">{children}</ol>,
 					li: ({ children }) => <li className="my-0.5">{children}</li>,
 					pre: ({ children }) => (
-						<pre className="my-1.5 overflow-x-auto rounded-md bg-black/25 px-2 py-1.5 font-mono text-[10px] leading-snug text-text-menuDesc">{children}</pre>
+						<pre className="my-1.5 max-w-full overflow-x-auto rounded-md bg-black/25 px-2 py-1.5 font-mono text-[10px] leading-snug text-text-menuDesc">{children}</pre>
 					),
 					code: ({ className, children }) => {
 						const isBlock = typeof className === 'string' && className.includes('language-');
@@ -50,7 +50,7 @@ function MarkdownBody({ text }: { text: string }) {
 function PriorityTitle({ title }: { title: string }) {
 	const parsed = parsePriorityTagFromTitle(title);
 	if (!parsed) {
-		return <div className="break-words text-[12px] font-semibold text-text-muted">{title}</div>;
+		return <div className="max-w-full break-words text-[12px] font-semibold text-text-muted">{title}</div>;
 	}
 	return (
 		<div className="flex min-w-0 items-center gap-2">
@@ -63,7 +63,7 @@ function PriorityTitle({ title }: { title: string }) {
 function FindingCard({ finding }: { finding: CodeReviewFinding }) {
 	const location = `${finding.code_location.absolute_file_path}:${finding.code_location.line_range.start}-${finding.code_location.line_range.end}`;
 	return (
-		<div className="rounded-xl border border-token-border/70 bg-token-inputBackground/45 px-3 py-2">
+		<div className="min-w-0 max-w-full rounded-xl border border-token-border/70 bg-token-inputBackground/45 px-3 py-2">
 			<div className="flex flex-col gap-1">
 				<PriorityTitle title={finding.title} />
 				<div className="text-[10px] text-text-menuDesc">{location}</div>
@@ -99,7 +99,7 @@ export function CodeReviewAssistantMessage(props: { output: CodeReviewStructured
 	}
 
 	return (
-		<div className="flex flex-col gap-2 py-1.5">
+		<div className="flex min-w-0 max-w-full flex-col gap-2 py-1.5">
 			{split.primary.length === 0 ? (
 				<div className="rounded-xl border border-token-border/70 bg-token-inputBackground/45 px-3 py-2 text-[11px] text-text-menuDesc">
 					Codex did not find any high priority issues.
