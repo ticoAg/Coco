@@ -1,41 +1,38 @@
 import { getVersion } from '@tauri-apps/api/app';
-import { listen } from '@tauri-apps/api/event';
 import { confirm as dialogConfirm, message as dialogMessage, open as openDialog } from '@tauri-apps/plugin-dialog';
-import { ArrowUp, Box, ChevronDown, ChevronRight, Eye, File, FileText, Folder, Image, Info, Plus, RotateCw, Settings, Slash, X, Zap } from 'lucide-react';
+import { Eye, Plus, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { apiClient } from '@/api/client';
-import { parseCodeReviewStructuredOutputFromMessage, shouldHideAssistantMessageContent } from './codex/assistantMessage';
 import type {
 	AttachmentItem,
 	ChatEntry,
 	CodexChatSettings,
-	ReadingGroup,
-	ReasoningGroup,
-	SegmentedWorkingItem,
 	TurnBlockData,
-	TurnBlockStatus,
-	WorkingItem,
 } from './codex/types';
 import type { ApprovalPolicy } from './codex/types';
 import {
 	errorMessage,
 	formatTokenCount,
 	fuzzyMatch,
-	normalizeCommandActions,
-	normalizeMcpError,
-	normalizeMcpResult,
-	resolveParsedCmd,
 	safeString,
 } from './codex/utils';
-import { MENU_STYLES, SIDEBAR_EXPANDED_WIDTH_PX } from './codex/styles/menu-styles';
-import { SlashCommandMenu } from './codex/SlashCommandMenu';
-import { SkillMenu } from './codex/SkillMenu';
+import { SIDEBAR_EXPANDED_WIDTH_PX } from './codex/styles/menu-styles';
 import { StatusBar, type StatusPopover } from './codex/StatusBar';
-import { SessionRunningIndicator } from './codex/SessionRunningIndicator';
 import { SessionTreeSidebar } from './codex/sidebar';
 import { SLASH_COMMANDS, type SlashCommand } from './codex/slash-commands';
 import { TurnBlock, type TurnBlockView } from './codex/TurnBlock';
+import {
+	PENDING_TURN_ID,
+	attachmentDedupKey,
+	basenameFromPath,
+	buildTurnBlockViews,
+	deriveTimelineFromThread,
+	guessImageNameFromDataUrl,
+	isImageDataUrl,
+	useCodexJsonRpcEvents,
+} from './model';
+import { CodexChatComposer, CodexChatHeader, CodexChatWorkbenchSidebar, CodexChatWorkbenchThreadChips } from './ui';
 import {
 	loadCodexChatSettings,
 	loadPinnedInputItems,
@@ -57,7 +54,6 @@ import {
 } from './lib/parsing';
 import type {
 	AutoContextInfo,
-	CodexJsonRpcEvent,
 	CodexModelInfo,
 	CodexThread,
 	CodexThreadItem,
@@ -72,12 +68,6 @@ import type {
 import type { TaskDirectoryEntry, TreeNodeData } from '@/types/sidebar';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-
-function isCollapsibleEntry(
-	entry: ChatEntry
-): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'webSearch' | 'mcp' | 'collab' }> {
-	return entry.kind === 'command' || entry.kind === 'fileChange' || entry.kind === 'webSearch' || entry.kind === 'mcp' || entry.kind === 'collab';
-}
 
 function extractProfileModels(value: unknown): string[] {
 	if (typeof value === 'string') return [value];
@@ -174,643 +164,12 @@ function mergeModelOptions(base: CodexModelInfo[], extraModels: string[]): Codex
 	return merged;
 }
 
-function isReadingGroup(item: WorkingItem | undefined): item is ReadingGroup {
-	return !!item && 'kind' in item && item.kind === 'readingGroup';
-}
-
-function isReasoningGroup(item: WorkingItem | undefined): item is ReasoningGroup {
-	return !!item && 'kind' in item && item.kind === 'reasoningGroup';
-}
-
-function isReasoningEntry(item: WorkingItem): item is Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }> {
-	return !isReadingGroup(item) && !isReasoningGroup(item) && item.kind === 'assistant' && item.role === 'reasoning';
-}
-
-function coerceReasoningParts(value: unknown): string[] {
-	if (Array.isArray(value)) {
-		return value.map((part) => (typeof part === 'string' ? part : String(part)));
-	}
-	if (typeof value === 'string') {
-		return value.trim() ? [value] : [];
-	}
-	return [];
-}
-
-function normalizeReasoningParts(value: unknown): string[] {
-	return coerceReasoningParts(value).filter((part) => part.trim() !== '');
-}
-
-function buildReasoningText(summary: string[], content: string[]): string {
-	return [...summary, ...content].filter(Boolean).join('\n');
-}
-
-function buildReasoningSegmentId(baseId: string, index: number): string {
-	return `${baseId}-summary-${index}`;
-}
-
-function buildReasoningContentId(baseId: string): string {
-	return `${baseId}-content`;
-}
-
-function buildReasoningSegments(entry: Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>): ChatEntry[] {
-	const summaryParts = normalizeReasoningParts(entry.reasoningSummary);
-	const contentParts = normalizeReasoningParts(entry.reasoningContent);
-	const contentText = contentParts.filter(Boolean).join('\n');
-	const segments: ChatEntry[] = [];
-
-	if (summaryParts.length > 0) {
-		summaryParts.forEach((summary, idx) => {
-			const isLast = idx === summaryParts.length - 1;
-			const text = isLast && contentText ? `${summary}\n\n${contentText}` : summary;
-			segments.push({
-				...entry,
-				id: buildReasoningSegmentId(entry.id, idx),
-				text,
-			});
-		});
-	} else {
-		const fallback = contentText || entry.text;
-		if (fallback.trim()) {
-			segments.push({
-				...entry,
-				id: buildReasoningContentId(entry.id),
-				text: fallback,
-			});
-		}
-	}
-
-	const isStreaming = !!entry.streaming && !entry.completed;
-	return segments.map((segment, idx) => {
-		const isLast = idx === segments.length - 1;
-		const streaming = isStreaming && isLast;
-		return {
-			...segment,
-			streaming,
-			completed: streaming ? false : true,
-		};
-	});
-}
-
-function expandReasoningEntries(entries: ChatEntry[]): ChatEntry[] {
-	const expanded: ChatEntry[] = [];
-	for (const entry of entries) {
-		if (entry.kind === 'assistant' && entry.role === 'reasoning') {
-			expanded.push(...buildReasoningSegments(entry));
-			continue;
-		}
-		expanded.push(entry);
-	}
-	return expanded;
-}
-
-function mergeReadingEntries(entries: ChatEntry[]): WorkingItem[] {
-	const grouped: WorkingItem[] = [];
-	for (const entry of entries) {
-		if (entry.kind === 'command') {
-			const parsed = resolveParsedCmd(entry.command, entry.commandActions);
-			if (parsed.type === 'read' && !entry.approval) {
-				const last = grouped[grouped.length - 1];
-				if (isReadingGroup(last)) {
-					last.entries.push(entry);
-					continue;
-				}
-				grouped.push({ kind: 'readingGroup', id: `read-group-${entry.id}`, entries: [entry] });
-				continue;
-			}
-		}
-		grouped.push(entry);
-	}
-	return grouped;
-}
-
-function mergeReasoningEntries(items: WorkingItem[]): WorkingItem[] {
-	return items;
-}
-
-function isExplorationStarter(item: WorkingItem): boolean {
-	if (isReadingGroup(item)) return true;
-	if (isReasoningGroup(item) || isReasoningEntry(item)) return true;
-	if (item.kind === 'command') {
-		const parsed = resolveParsedCmd(item.command, item.commandActions);
-		return parsed.type === 'read' || parsed.type === 'search' || parsed.type === 'list_files';
-	}
-	return false;
-}
-
-function isExplorationContinuation(item: WorkingItem): boolean {
-	return isExplorationStarter(item);
-}
-
-function getUniqueReadingCount(items: WorkingItem[]): number {
-	const names = new Set<string>();
-	for (const item of items) {
-		if (isReadingGroup(item)) {
-			for (const entry of item.entries) {
-				const parsed = resolveParsedCmd(entry.command, entry.commandActions);
-				if (parsed.type === 'read' && parsed.name) names.add(parsed.name);
-			}
-			continue;
-		}
-		if (item.kind === 'command') {
-			const parsed = resolveParsedCmd(item.command, item.commandActions);
-			if (parsed.type === 'read' && parsed.name) names.add(parsed.name);
-		}
-	}
-	return names.size;
-}
-
-function segmentExplorationItems(items: WorkingItem[], isTurnInProgress: boolean): SegmentedWorkingItem[] {
-	const out: SegmentedWorkingItem[] = [];
-	let current: WorkingItem[] | null = null;
-	let pendingReading: WorkingItem | null = null;
-
-	const flush = (status: 'exploring' | 'explored') => {
-		if (current && current.length > 0) {
-			const firstItem = current[0];
-			const firstId = isReadingGroup(firstItem) ? firstItem.id : `${(firstItem as ChatEntry).id}-explore`;
-			out.push({
-				kind: 'exploration',
-				id: `explore-${firstId}`,
-				status,
-				items: current,
-				uniqueFileCount: getUniqueReadingCount(current),
-			});
-		}
-		current = null;
-	};
-
-	for (const item of items) {
-		const buffered: WorkingItem[] = [];
-		if (pendingReading) {
-			buffered.push(pendingReading);
-			pendingReading = null;
-		}
-
-		if (current) {
-			if (isExplorationContinuation(item)) {
-				current.push(item);
-				continue;
-			}
-			if (isReadingGroup(item)) {
-				pendingReading = item;
-				flush('explored');
-				continue;
-			}
-			flush('explored');
-		}
-
-		if (isExplorationStarter(item)) {
-			current = [item];
-			continue;
-		}
-		if (isReadingGroup(item)) {
-			pendingReading = item;
-			continue;
-		}
-
-		buffered.forEach((bufferedItem) => out.push({ kind: 'item', item: bufferedItem }));
-		out.push({ kind: 'item', item });
-	}
-
-	if (current) {
-		flush(isTurnInProgress ? 'exploring' : 'explored');
-	}
-	if (pendingReading) {
-		out.push({ kind: 'item', item: pendingReading });
-	}
-	return out;
-}
-
-function countWorkingItems(items: SegmentedWorkingItem[]): number {
-	return items.reduce((acc, item) => {
-		if (item.kind === 'exploration') {
-			return (
-				acc +
-				item.items.reduce((inner, innerItem) => {
-					if (isReasoningGroup(innerItem)) return inner + innerItem.entries.length;
-					return inner + 1;
-				}, 0)
-			);
-		}
-		if (item.kind === 'item' && isReasoningGroup(item.item)) return acc + item.item.entries.length;
-		return acc + 1;
-	}, 0);
-}
-
-function countRenderedWorkingItems(items: SegmentedWorkingItem[]): number {
-	// Each segmented item renders as a top-level block in the turn.
-	return items.length;
-}
-
-function isCodexTextInput(value: CodexUserInput): value is Extract<CodexUserInput, { type: 'text' }> {
-	return value.type === 'text' && typeof (value as { text?: unknown }).text === 'string';
-}
-
-function extractUserText(item: Extract<CodexThreadItem, { type: 'userMessage' }>): string {
-	const parts = item.content.filter(isCodexTextInput).map((c) => c.text);
-	return parts.join('\n').trim();
-}
-
-function isImageDataUrl(value: string): boolean {
-	return value.startsWith('data:image');
-}
-
-function basenameFromPath(value: string): string {
-	const normalized = value.replace(/\\/g, '/');
-	const parts = normalized.split('/');
-	return parts[parts.length - 1] || value;
-}
-
-function guessImageNameFromDataUrl(url: string): string {
-	const match = url.match(/^data:(image\/[^;]+);base64,/);
-	if (!match) return 'image';
-	const mime = match[1] ?? '';
-	let ext = mime.split('/')[1] ?? '';
-	ext = ext.toLowerCase().replace('jpeg', 'jpg');
-	ext = ext.split('+')[0] ?? ext;
-	return ext ? `image.${ext}` : 'image';
-}
-
-function imageUrlDedupKey(url: string): string {
-	// Avoid using the whole base64 string as a Set key (can be very large).
-	const head = url.slice(0, 24);
-	const tail = url.slice(-24);
-	return `image:${url.length}:${head}:${tail}`;
-}
-
-function attachmentDedupKey(att: AttachmentItem): string {
-	switch (att.type) {
-		case 'file':
-			return `file:${att.path}`;
-		case 'skill':
-			return `skill:${att.name}`;
-		case 'prompt':
-			return `prompt:${att.name}`;
-		case 'image':
-			return imageUrlDedupKey(att.url);
-		case 'localImage':
-			return `localImage:${att.path}`;
-		default:
-			return `${(att as any)?.type ?? 'unknown'}`;
-	}
-}
-
-function extractUserAttachments(item: Extract<CodexThreadItem, { type: 'userMessage' }>): AttachmentItem[] {
-	const out: AttachmentItem[] = [];
-	const seen = new Set<string>();
-	for (const content of item.content ?? []) {
-		if (content.type === 'skill' && typeof content.name === 'string') {
-			const att: AttachmentItem = { type: 'skill', name: content.name };
-			const key = attachmentDedupKey(att);
-			if (seen.has(key)) continue;
-			seen.add(key);
-			out.push(att);
-			continue;
-		}
-
-		if (content.type === 'image' && typeof (content as { url?: unknown }).url === 'string') {
-			const url = (content as { url: string }).url;
-			const name = guessImageNameFromDataUrl(url);
-			const att: AttachmentItem = { type: 'image', url, name };
-			const key = attachmentDedupKey(att);
-			if (seen.has(key)) continue;
-			seen.add(key);
-			out.push(att);
-			continue;
-		}
-
-		if (content.type === 'localImage' && typeof (content as { path?: unknown }).path === 'string') {
-			const path = (content as { path: string }).path;
-			const name = basenameFromPath(path);
-			const att: AttachmentItem = { type: 'localImage', path, name };
-			const key = attachmentDedupKey(att);
-			if (seen.has(key)) continue;
-			seen.add(key);
-			out.push(att);
-		}
-	}
-	return out;
-}
-
-function entryFromThreadItem(item: CodexThreadItem): ChatEntry | null {
-	const rawType = safeString((item as unknown as { type?: unknown })?.type);
-	// Backend payloads may use different naming conventions; normalize for compatibility.
-	const typeKey = rawType.replace(/[-_]/g, '').toLowerCase();
-
-	switch (typeKey) {
-		case 'usermessage': {
-			const it = item as Extract<CodexThreadItem, { type: 'userMessage' }>;
-			const attachments = extractUserAttachments(it);
-			return {
-				kind: 'user',
-				id: it.id,
-				text: extractUserText(it),
-				attachments: attachments.length > 0 ? attachments : undefined,
-			};
-		}
-		case 'agentmessage': {
-			const it = item as Extract<CodexThreadItem, { type: 'agentMessage' }>;
-			const structuredOutput = parseCodeReviewStructuredOutputFromMessage(it.text);
-			return {
-				kind: 'assistant',
-				id: it.id,
-				role: 'message',
-				text: it.text,
-				completed: true,
-				renderPlaceholderWhileStreaming: false,
-				structuredOutput,
-			};
-		}
-		case 'error': {
-			const it = item as Extract<CodexThreadItem, { type: 'error' }>;
-			return {
-				kind: 'system',
-				id: it.id,
-				tone: 'error',
-				text: it.message,
-				willRetry: it.willRetry ?? null,
-				additionalDetails: it.additionalDetails ?? null,
-			};
-		}
-		case 'reasoning': {
-			const it = item as Extract<CodexThreadItem, { type: 'reasoning' }>;
-			const summary = coerceReasoningParts(it.summary);
-			const content = coerceReasoningParts(it.content);
-			return {
-				kind: 'assistant',
-				id: it.id,
-				role: 'reasoning',
-				text: buildReasoningText(summary, content),
-				reasoningSummary: summary,
-				reasoningContent: content,
-			};
-		}
-		case 'commandexecution': {
-			const it = item as Extract<CodexThreadItem, { type: 'commandExecution' }>;
-			const rawActions =
-				(it as unknown as { commandActions?: unknown; command_actions?: unknown })?.commandActions ??
-				(it as unknown as { commandActions?: unknown; command_actions?: unknown })?.command_actions;
-			const commandActions = normalizeCommandActions(rawActions);
-			return {
-				kind: 'command',
-				id: it.id,
-				command: it.command,
-				status: it.status,
-				cwd: it.cwd,
-				output: it.aggregatedOutput ?? null,
-				commandActions,
-			};
-		}
-		case 'filechange': {
-			const it = item as Extract<CodexThreadItem, { type: 'fileChange' }>;
-			return {
-				kind: 'fileChange',
-				id: it.id,
-				status: it.status,
-				changes: it.changes.map((c) => ({
-					path: c.path,
-					diff: c.diff,
-					kind: c.kind,
-					lineNumbersAvailable:
-						(c as { lineNumbersAvailable?: boolean; line_numbers_available?: boolean }).lineNumbersAvailable ??
-						(c as { lineNumbersAvailable?: boolean; line_numbers_available?: boolean }).line_numbers_available,
-				})),
-			};
-		}
-		case 'websearch': {
-			const it = item as Extract<CodexThreadItem, { type: 'webSearch' }>;
-			return { kind: 'webSearch', id: it.id, query: it.query };
-		}
-		case 'mcptoolcall': {
-			const it = item as Extract<CodexThreadItem, { type: 'mcpToolCall' }>;
-			const result = normalizeMcpResult(it.result ?? null);
-			const error = normalizeMcpError(it.error ?? null);
-			return {
-				kind: 'mcp',
-				id: it.id,
-				server: it.server,
-				tool: it.tool,
-				arguments: it.arguments,
-				result,
-				error,
-				durationMs: it.durationMs ?? null,
-				status: it.status,
-				message: error?.message,
-			};
-		}
-		case 'collabagenttoolcall': {
-			const it = item as Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>;
-			return {
-				kind: 'collab',
-				id: it.id,
-				tool: it.tool,
-				status: it.status,
-				senderThreadId: it.senderThreadId,
-				receiverThreadIds: Array.isArray(it.receiverThreadIds) ? it.receiverThreadIds : [],
-				prompt: it.prompt ?? null,
-				agentsStates: it.agentsStates ?? {},
-			};
-		}
-		default: {
-			if (typeof window !== 'undefined' && rawType) {
-				// eslint-disable-next-line no-console
-				console.debug('[CodexChat] Unknown thread item type:', rawType, item);
-			}
-			return null;
-		}
-	}
-}
-
-function mergeEntry(entries: ChatEntry[], next: ChatEntry): ChatEntry[] {
-	// When sending a turn we optimistically insert a local user entry (random id).
-	// The server later emits the persisted `userMessage` item (stable id). Deduplicate by text so
-	// the UI only shows the message that actually gets sent/persisted.
-	if (next.kind === 'user') {
-		const incoming = next as Extract<ChatEntry, { kind: 'user' }>;
-		const matchIdx = entries.findIndex(
-			(e): e is Extract<ChatEntry, { kind: 'user' }> => e.kind === 'user' && e.text === incoming.text
-		);
-		if (matchIdx !== -1) {
-			const prev = entries[matchIdx] as Extract<ChatEntry, { kind: 'user' }>;
-
-				const mergedAttachments = (() => {
-					const out: AttachmentItem[] = [];
-					const seen = new Set<string>();
-					for (const att of [...(prev.attachments ?? []), ...(incoming.attachments ?? [])]) {
-						const key = attachmentDedupKey(att);
-						if (seen.has(key)) continue;
-						seen.add(key);
-						out.push(att);
-					}
-					return out;
-				})();
-
-			const copy = [...entries];
-			copy[matchIdx] = {
-				...prev,
-				...incoming,
-				attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined,
-			};
-			return copy;
-		}
-	}
-
-	const idx = entries.findIndex((e) => e.id === next.id && e.kind === next.kind);
-	if (idx === -1) return [...entries, next];
-	const copy = [...entries];
-	// Keep previously computed structured output unless the update explicitly sets it.
-	if (next.kind === 'assistant') {
-		const prev = copy[idx] as Extract<ChatEntry, { kind: 'assistant' }>;
-		const incoming = next as Extract<ChatEntry, { kind: 'assistant' }>;
-		const reasoningSummary = incoming.role === 'reasoning' ? (incoming.reasoningSummary ?? prev.reasoningSummary) : prev.reasoningSummary;
-		const reasoningContent = incoming.role === 'reasoning' ? (incoming.reasoningContent ?? prev.reasoningContent) : prev.reasoningContent;
-		const nextText = incoming.role === 'reasoning' ? buildReasoningText(reasoningSummary ?? [], reasoningContent ?? []) : (incoming.text ?? prev.text);
-		copy[idx] = {
-			...prev,
-			...incoming,
-			text: nextText,
-			reasoningSummary,
-			reasoningContent,
-			structuredOutput: incoming.structuredOutput !== undefined ? incoming.structuredOutput : prev.structuredOutput,
-		} as ChatEntry;
-	} else {
-		copy[idx] = { ...copy[idx], ...next } as ChatEntry;
-	}
-	return copy;
-}
-
-function appendDelta(entries: ChatEntry[], id: string, role: 'message' | 'reasoning', delta: string): ChatEntry[] {
-	const idx = entries.findIndex((e) => e.kind === 'assistant' && e.id === id && e.role === role);
-	if (idx === -1) {
-		const renderPlaceholder = role === 'message' && shouldHideAssistantMessageContent(delta);
-		return [
-			...entries,
-			{
-				kind: 'assistant',
-				id,
-				role,
-				text: delta,
-				streaming: true,
-				completed: false,
-				renderPlaceholderWhileStreaming: renderPlaceholder,
-				structuredOutput: null,
-			},
-		];
-	}
-	const copy = [...entries];
-	const existing = copy[idx] as Extract<ChatEntry, { kind: 'assistant' }>;
-	const nextText = `${existing.text}${delta}`;
-	const renderPlaceholder = role === 'message' ? shouldHideAssistantMessageContent(nextText) : existing.renderPlaceholderWhileStreaming;
-	copy[idx] = {
-		...existing,
-		text: nextText,
-		streaming: true,
-		completed: false,
-		renderPlaceholderWhileStreaming: renderPlaceholder,
-		structuredOutput: null,
-	};
-	return copy;
-}
-
-function ensureReasoningIndex(parts: string[], index: number): string[] {
-	if (!Number.isFinite(index) || index < 0) return parts;
-	const next = parts.slice();
-	while (next.length <= index) next.push('');
-	return next;
-}
-
-function applyReasoningDelta(entries: ChatEntry[], id: string, delta: string, index: number, target: 'summary' | 'content'): ChatEntry[] {
-	if (!Number.isFinite(index) || index < 0) return entries;
-	const idx = entries.findIndex((e) => e.kind === 'assistant' && e.id === id && e.role === 'reasoning');
-	const base =
-		idx === -1
-			? ({
-				kind: 'assistant',
-				id,
-				role: 'reasoning',
-				text: '',
-				reasoningSummary: [],
-				reasoningContent: [],
-				streaming: true,
-				completed: false,
-			} as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>)
-			: (entries[idx] as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>);
-
-	const summary = ensureReasoningIndex(coerceReasoningParts(base.reasoningSummary), target === 'summary' ? index : -1);
-	const content = ensureReasoningIndex(coerceReasoningParts(base.reasoningContent), target === 'content' ? index : -1);
-
-	if (target === 'summary') summary[index] = `${summary[index] ?? ''}${delta}`;
-	if (target === 'content') content[index] = `${content[index] ?? ''}${delta}`;
-
-	const nextEntry: Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }> = {
-		...base,
-		reasoningSummary: summary,
-		reasoningContent: content,
-		text: buildReasoningText(summary, content),
-		streaming: true,
-		completed: false,
-	};
-
-	if (idx === -1) return [...entries, nextEntry];
-	const copy = [...entries];
-	copy[idx] = { ...copy[idx], ...nextEntry } as ChatEntry;
-	return copy;
-}
-
-function applyReasoningPartAdded(entries: ChatEntry[], id: string, index: number, target: 'summary' | 'content'): ChatEntry[] {
-	if (!Number.isFinite(index) || index < 0) return entries;
-	const idx = entries.findIndex((e) => e.kind === 'assistant' && e.id === id && e.role === 'reasoning');
-	const base =
-		idx === -1
-			? ({
-				kind: 'assistant',
-				id,
-				role: 'reasoning',
-				text: '',
-				reasoningSummary: [],
-				reasoningContent: [],
-			} as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>)
-			: (entries[idx] as Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>);
-
-	const summary = coerceReasoningParts(base.reasoningSummary);
-	const content = coerceReasoningParts(base.reasoningContent);
-	const nextSummary = target === 'summary' ? ensureReasoningIndex(summary, index) : summary;
-	const nextContent = target === 'content' ? ensureReasoningIndex(content, index) : content;
-
-	const nextEntry: Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }> = {
-		...base,
-		reasoningSummary: nextSummary,
-		reasoningContent: nextContent,
-		text: buildReasoningText(nextSummary, nextContent),
-	};
-
-	if (idx === -1) return [...entries, nextEntry];
-	const copy = [...entries];
-	copy[idx] = { ...copy[idx], ...nextEntry } as ChatEntry;
-	return copy;
-}
-
 function normalizeThreadFromResponse(res: unknown): CodexThread | null {
 	if (!res || typeof res !== 'object') return null;
 	const obj = res as Record<string, unknown>;
 	const thread = obj.thread;
 	if (!thread || typeof thread !== 'object') return null;
 	return thread as CodexThread;
-}
-
-const PENDING_TURN_ID = '__pending__';
-
-function isActivityEntry(entry: ChatEntry): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'mcp' | 'webSearch' | 'collab' }> {
-	return entry.kind === 'command' || entry.kind === 'fileChange' || entry.kind === 'mcp' || entry.kind === 'webSearch' || entry.kind === 'collab';
-}
-
-function parseTurnStatus(value: unknown): TurnBlockStatus {
-	if (typeof value !== 'string') return 'unknown';
-	if (value === 'inProgress') return 'inProgress';
-	if (value === 'completed') return 'completed';
-	if (value === 'failed') return 'failed';
-	if (value === 'interrupted') return 'interrupted';
-	return 'unknown';
 }
 
 function labelForThread(summary?: CodexThreadSummary, fallback?: string): string {
@@ -1547,71 +906,15 @@ export function CodexChat() {
 					}
 				}
 				ingestCollabItems(thread.id, collabItems);
+				const timeline = deriveTimelineFromThread(thread, {
+					defaultCollapseDetails: settings.defaultCollapseDetails,
+				});
 
-				const nextOrder: string[] = [];
-				const nextTurns: Record<string, TurnBlockData> = {};
-				const nextEntryCollapse: Record<string, boolean> = {};
-				const nextItemToTurn: Record<string, string> = {};
-				const typeCounts: Record<string, number> = {};
-
-				for (const turn of thread.turns ?? []) {
-					const turnId = turn.id;
-					if (!turnId) continue;
-					nextOrder.push(turnId);
-
-					const turnEntries: ChatEntry[] = [];
-					const items = turn.items ?? [];
-					const isTurnStreaming = turn.status === 'inProgress';
-					const lastIdx = items.length > 0 ? items.length - 1 : -1;
-					for (const [idx, item] of items.entries()) {
-						const rawType = safeString((item as unknown as { type?: unknown })?.type);
-						if (rawType) typeCounts[rawType] = (typeCounts[rawType] ?? 0) + 1;
-
-						const baseEntry = entryFromThreadItem(item);
-						let entry = baseEntry;
-
-						// Plugin parity: the last agentMessage in an in-progress turn is considered streaming.
-						if (baseEntry?.kind === 'assistant' && baseEntry.role === 'message') {
-							const streaming = isTurnStreaming && idx === lastIdx;
-							const completed = !streaming;
-							const renderPlaceholder = streaming && shouldHideAssistantMessageContent(baseEntry.text);
-							entry = {
-								...baseEntry,
-								streaming,
-								completed,
-								renderPlaceholderWhileStreaming: renderPlaceholder,
-								structuredOutput: completed ? (baseEntry.structuredOutput ?? null) : null,
-							};
-						}
-						if (!entry) continue;
-						turnEntries.push(entry);
-						nextItemToTurn[entry.id] = turnId;
-						if (isCollapsibleEntry(entry)) nextEntryCollapse[entry.id] = settings.defaultCollapseDetails;
-					}
-
-					nextTurns[turnId] = {
-						id: turnId,
-						status: parseTurnStatus(turn.status),
-						entries: turnEntries,
-					};
-				}
-
-				if (nextOrder.length === 0) {
-					const turnId = PENDING_TURN_ID;
-					nextOrder.push(turnId);
-					nextTurns[turnId] = { id: turnId, status: 'unknown', entries: [] };
-				}
-
-				if (import.meta.env.DEV) {
-					// eslint-disable-next-line no-console
-					console.info('[CodexChat] Resume thread item types:', typeCounts);
-				}
-
-				setTurnOrder(nextOrder);
-				setTurnsById(nextTurns);
-				setCollapsedByEntryId(nextEntryCollapse);
-				setItemToTurnId(nextItemToTurn);
-				itemToTurnRef.current = nextItemToTurn;
+				setTurnOrder(timeline.order);
+				setTurnsById(timeline.turnsById);
+				setCollapsedByEntryId(timeline.collapsedByEntryId);
+				setItemToTurnId(timeline.itemToTurnId);
+				itemToTurnRef.current = timeline.itemToTurnId;
 			} catch (err) {
 				const turnId = PENDING_TURN_ID;
 				setTurnOrder([turnId]);
@@ -3821,365 +3124,20 @@ export function CodexChat() {
 		void loadPrompts();
 	}, [listSessions, seedRunningThreads, loadModelsAndChatDefaults, loadWorkspaceRoot, loadRecentWorkspaces, loadSkills, loadPrompts]);
 
-	useEffect(() => {
-		let mounted = true;
-		const unlistenPromise = listen<CodexJsonRpcEvent>('codex_app_server', (event) => {
-			if (!mounted) return;
-			const payload = event.payload;
-			if (!payload || typeof payload !== 'object') return;
-
-			if (payload.kind === 'stderr') {
-				return;
-			}
-
-			const message = payload.message as any;
-			const method = safeString(message?.method);
-
-			if (payload.kind === 'notification') {
-				const params = message?.params ?? null;
-				const threadId = safeString(params?.threadId ?? params?.thread_id);
-				if (method === 'turn/started' && threadId) {
-					setThreadRunning(threadId, true);
-				}
-				if (method === 'turn/completed' && threadId) {
-					setThreadRunning(threadId, false);
-				}
-
-				// Collab tool calls are useful to keep even when we are not focused on that thread,
-				// since they define the thread graph and agent state updates.
-				if ((method === 'item/started' || method === 'item/completed') && threadId) {
-					const item = params?.item as CodexThreadItem | undefined;
-					const rawType = safeString((item as unknown as { type?: unknown })?.type);
-					const typeKey = rawType.replace(/[-_]/g, '').toLowerCase();
-					if (typeKey === 'collabagenttoolcall' && item) {
-						ingestCollabItems(threadId, [item as Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>]);
-					}
-				}
-
-				if (selectedThreadId && threadId && threadId !== selectedThreadId) return;
-
-				if (method === 'thread/tokenUsage/updated') {
-					const tokenUsage = params?.tokenUsage ?? params?.token_usage ?? null;
-					const totalTokens = Number(tokenUsage?.total?.totalTokens ?? tokenUsage?.total?.total_tokens);
-					const contextWindowRaw = tokenUsage?.modelContextWindow ?? tokenUsage?.model_context_window;
-					const contextWindow = contextWindowRaw == null ? null : Number(contextWindowRaw);
-					if (!Number.isFinite(totalTokens)) return;
-					setThreadTokenUsage({
-						totalTokens,
-						contextWindow: Number.isFinite(contextWindow) ? contextWindow : null,
-					});
-					return;
-				}
-
-				if (method === 'turn/started') {
-					const turnId = safeString(params?.turn?.id ?? params?.turnId);
-					if (!turnId) return;
-
-					setActiveTurnId(turnId);
-					setTurnOrder((prev) => {
-						const withoutPending = prev.filter((id) => id !== PENDING_TURN_ID);
-						if (withoutPending.includes(turnId)) return withoutPending;
-						return [...withoutPending, turnId];
-					});
-					setTurnsById((prev) => {
-						const pending = prev[PENDING_TURN_ID];
-						const existing = prev[turnId];
-						const mergedEntries = [...(pending?.entries ?? []), ...(existing?.entries ?? [])];
-
-						const next: Record<string, TurnBlockData> = {
-							...prev,
-							[turnId]: {
-								id: turnId,
-								status: 'inProgress',
-								entries: mergedEntries,
-							},
-						};
-						delete next[PENDING_TURN_ID];
-						return next;
-					});
-					return;
-				}
-
-				if (method === 'turn/completed') {
-					const turnId = safeString(params?.turn?.id ?? params?.turnId);
-					if (!turnId) return;
-
-					const status = parseTurnStatus(params?.turn?.status ?? 'completed');
-					setTurnsById((prev) => {
-						const existing = prev[turnId] ?? {
-							id: turnId,
-							status: 'unknown' as const,
-							entries: [],
-						};
-						return { ...prev, [turnId]: { ...existing, status } };
-					});
-					if (activeTurnId === turnId) setActiveTurnId(null);
-					return;
-				}
-
-				if (method === 'item/started' || method === 'item/completed') {
-					const item = params?.item as CodexThreadItem | undefined;
-					if (!item) return;
-					let entry = entryFromThreadItem(item);
-					if (!entry) return;
-					if (entry.kind === 'assistant' && entry.role === 'message') {
-						const completed = method === 'item/completed';
-						entry = {
-							...entry,
-							streaming: !completed,
-							completed,
-							renderPlaceholderWhileStreaming: !completed && shouldHideAssistantMessageContent(entry.text),
-							structuredOutput: completed ? parseCodeReviewStructuredOutputFromMessage(entry.text) : null,
-						};
-					}
-					if (entry.kind === 'assistant' && entry.role === 'reasoning') {
-						const completed = method === 'item/completed';
-						entry = {
-							...entry,
-							streaming: !completed,
-							completed,
-						};
-					}
-					const explicitTurnId = safeString(params?.turnId ?? params?.turn_id ?? params?.turn?.id);
-					const turnId = explicitTurnId || activeTurnId || PENDING_TURN_ID;
-
-					itemToTurnRef.current = {
-						...itemToTurnRef.current,
-						[entry.id]: turnId,
-					};
-					setItemToTurnId(itemToTurnRef.current);
-
-					setTurnOrder((prev) => (prev.includes(turnId) ? prev : [...prev, turnId]));
-					setTurnsById((prev) => {
-						const existing = prev[turnId] ?? {
-							id: turnId,
-							status: 'inProgress' as const,
-							entries: [],
-						};
-						return {
-							...prev,
-							[turnId]: {
-								...existing,
-								entries: mergeEntry(existing.entries, entry),
-							},
-						};
-					});
-					setCollapsedByEntryId((prev) => {
-						if (!isCollapsibleEntry(entry)) return prev;
-						if (Object.prototype.hasOwnProperty.call(prev, entry.id)) return prev;
-						return { ...prev, [entry.id]: settings.defaultCollapseDetails };
-					});
-					return;
-				}
-
-				if (method === 'item/agentMessage/delta') {
-					const itemId = safeString(params?.itemId);
-					const delta = safeString(params?.delta);
-					if (!itemId || !delta) return;
-					const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID;
-					setTurnsById((prev) => {
-						const existing = prev[turnId];
-						if (!existing) return prev;
-						return {
-							...prev,
-							[turnId]: {
-								...existing,
-								entries: appendDelta(existing.entries, itemId, 'message', delta),
-							},
-						};
-					});
-					return;
-				}
-
-				if (method === 'item/reasoning/summaryTextDelta') {
-					const itemId = safeString(params?.itemId);
-					const delta = safeString(params?.delta);
-					const index = Number(params?.summaryIndex ?? params?.summary_index ?? params?.index);
-					if (!itemId || !delta) return;
-					const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID;
-					setTurnsById((prev) => {
-						const existing = prev[turnId];
-						if (!existing) return prev;
-						return {
-							...prev,
-							[turnId]: {
-								...existing,
-								entries: applyReasoningDelta(existing.entries, itemId, delta, index, 'summary'),
-							},
-						};
-					});
-					return;
-				}
-
-				if (method === 'item/reasoning/summaryPartAdded') {
-					const itemId = safeString(params?.itemId);
-					const index = Number(params?.summaryIndex ?? params?.summary_index ?? params?.index);
-					if (!itemId) return;
-					const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID;
-					setTurnsById((prev) => {
-						const existing = prev[turnId];
-						if (!existing) return prev;
-						return {
-							...prev,
-							[turnId]: {
-								...existing,
-								entries: applyReasoningPartAdded(existing.entries, itemId, index, 'summary'),
-							},
-						};
-					});
-					return;
-				}
-
-				if (method === 'item/reasoning/textDelta') {
-					const itemId = safeString(params?.itemId);
-					const delta = safeString(params?.delta);
-					const index = Number(params?.contentIndex ?? params?.content_index ?? params?.index);
-					if (!itemId || !delta) return;
-					const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID;
-					setTurnsById((prev) => {
-						const existing = prev[turnId];
-						if (!existing) return prev;
-						return {
-							...prev,
-							[turnId]: {
-								...existing,
-								entries: applyReasoningDelta(existing.entries, itemId, delta, index, 'content'),
-							},
-						};
-					});
-					return;
-				}
-
-				if (method === 'item/reasoning/contentPartAdded') {
-					const itemId = safeString(params?.itemId);
-					const index = Number(params?.contentIndex ?? params?.content_index ?? params?.index);
-					if (!itemId) return;
-					const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID;
-					setTurnsById((prev) => {
-						const existing = prev[turnId];
-						if (!existing) return prev;
-						return {
-							...prev,
-							[turnId]: {
-								...existing,
-								entries: applyReasoningPartAdded(existing.entries, itemId, index, 'content'),
-							},
-						};
-					});
-					return;
-				}
-
-				if (method === 'item/mcpToolCall/progress') {
-					const itemId = safeString(params?.itemId);
-					const progress = safeString(params?.message);
-					if (!itemId || !progress) return;
-					const turnId = itemToTurnRef.current[itemId] ?? activeTurnId ?? PENDING_TURN_ID;
-					setTurnsById((prev) => {
-						const existing = prev[turnId];
-						if (!existing) return prev;
-						const idx = existing.entries.findIndex((e) => e.kind === 'mcp' && e.id === itemId);
-						if (idx === -1) return prev;
-						const entriesCopy = [...existing.entries];
-						const e = entriesCopy[idx] as Extract<ChatEntry, { kind: 'mcp' }>;
-						entriesCopy[idx] = { ...e, message: progress };
-						return {
-							...prev,
-							[turnId]: { ...existing, entries: entriesCopy },
-						};
-					});
-					return;
-				}
-
-				if (method === 'error') {
-					const errMsg = safeString(params?.error?.message);
-					if (!errMsg) return;
-					const willRetryRaw = params?.error?.willRetry ?? params?.error?.will_retry;
-					const additionalDetailsRaw = params?.error?.additionalDetails ?? params?.error?.additional_details;
-					const willRetry = typeof willRetryRaw === 'boolean' ? willRetryRaw : null;
-					const additionalDetails = typeof additionalDetailsRaw === 'string' ? additionalDetailsRaw : null;
-					const turnId = activeTurnId ?? PENDING_TURN_ID;
-					const entry: ChatEntry = {
-						kind: 'system',
-						id: `system-err-${crypto.randomUUID()}`,
-						tone: 'error',
-						text: errMsg,
-						willRetry,
-						additionalDetails,
-					};
-					setTurnOrder((prev) => (prev.includes(turnId) ? prev : [...prev, turnId]));
-					setTurnsById((prev) => {
-						const existing = prev[turnId] ?? {
-							id: turnId,
-							status: 'unknown' as const,
-							entries: [],
-						};
-						return {
-							...prev,
-							[turnId]: {
-								...existing,
-								entries: [...existing.entries, entry],
-							},
-						};
-					});
-					return;
-				}
-			}
-
-			if (payload.kind === 'request') {
-				const params = message?.params ?? null;
-				const threadId = safeString(params?.threadId);
-				if (selectedThreadId && threadId && threadId !== selectedThreadId) return;
-
-				const requestId = Number(message?.id);
-				if (!Number.isFinite(requestId)) return;
-
-				if (method === 'item/commandExecution/requestApproval') {
-					const itemId = safeString(params?.itemId);
-					const reason = params?.reason ? String(params.reason) : null;
-					if (!itemId) return;
-					const explicitTurnId = safeString(params?.turnId ?? params?.turn_id);
-					const turnId = explicitTurnId || itemToTurnRef.current[itemId] || activeTurnId || PENDING_TURN_ID;
-					setTurnsById((prev) => {
-						const existing = prev[turnId];
-						if (!existing) return prev;
-						const updated = existing.entries.map((e) => {
-							if (e.kind !== 'command' || e.id !== itemId) return e;
-							return { ...e, approval: { requestId, reason } };
-						});
-						return { ...prev, [turnId]: { ...existing, entries: updated } };
-					});
-					return;
-				}
-
-				if (method === 'item/fileChange/requestApproval') {
-					const itemId = safeString(params?.itemId);
-					const reason = params?.reason ? String(params.reason) : null;
-					if (!itemId) return;
-					const explicitTurnId = safeString(params?.turnId ?? params?.turn_id);
-					const turnId = explicitTurnId || itemToTurnRef.current[itemId] || activeTurnId || PENDING_TURN_ID;
-					setTurnsById((prev) => {
-						const existing = prev[turnId];
-						if (!existing) return prev;
-						const updated = existing.entries.map((e) => {
-							if (e.kind !== 'fileChange' || e.id !== itemId) return e;
-							return { ...e, approval: { requestId, reason } };
-						});
-						return { ...prev, [turnId]: { ...existing, entries: updated } };
-					});
-					return;
-				}
-			}
-		});
-
-		return () => {
-			mounted = false;
-			unlistenPromise
-				.then((unlisten) => unlisten())
-				.catch(() => {
-					// ignore
-				});
-		};
-	}, [activeTurnId, ingestCollabItems, selectedThreadId, setThreadRunning, settings.defaultCollapseDetails]);
+	useCodexJsonRpcEvents({
+		selectedThreadId,
+		activeTurnId,
+		defaultCollapseDetails: settings.defaultCollapseDetails,
+		itemToTurnRef,
+		setItemToTurnId,
+		setThreadRunning,
+		ingestCollabItems,
+		setThreadTokenUsage,
+		setActiveTurnId,
+		setTurnOrder,
+		setTurnsById,
+		setCollapsedByEntryId,
+	});
 
 	const selectedModelInfo = useMemo(() => {
 		if (!selectedModel) return null;
@@ -4226,41 +3184,8 @@ export function CodexChat() {
 	}, [turnOrder, turnsById]);
 
 	const renderTurns = useMemo<TurnBlockView[]>(() => {
-		return turnBlocks.map((turn) => {
-			const visible = settings.showReasoning ? turn.entries : turn.entries.filter((e) => e.kind !== 'assistant' || e.role !== 'reasoning');
-
-			const userEntries = visible.filter((e) => e.kind === 'user') as Extract<ChatEntry, { kind: 'user' }>[];
-			const assistantMessages = visible.filter(
-				(e): e is Extract<ChatEntry, { kind: 'assistant'; role: 'message' }> => e.kind === 'assistant' && e.role === 'message'
-			);
-			const lastAssistantMessageId = assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1]?.id : null;
-			const assistantMessageEntries = lastAssistantMessageId ? assistantMessages.filter((e) => e.id === lastAssistantMessageId) : [];
-			const workingEntries = visible.filter((e) => {
-				if (isActivityEntry(e)) return true;
-				if (e.kind === 'system') return true;
-				if (e.kind === 'assistant' && e.role === 'reasoning') return true;
-				// Plugin parity: earlier assistant-messages stay in Working; only the last one is the final reply.
-				if (e.kind === 'assistant' && e.role === 'message') return e.id !== lastAssistantMessageId;
-				return false;
-				});
-				const expandedWorkingEntries = expandReasoningEntries(workingEntries);
-				const mergedReadingItems = mergeReadingEntries(expandedWorkingEntries);
-				const mergedWorkingItems = mergeReasoningEntries(mergedReadingItems);
-				const workingItems = segmentExplorationItems(mergedWorkingItems, turn.status === 'inProgress');
-				const workingItemCount = countWorkingItems(workingItems);
-				const workingRenderCount = countRenderedWorkingItems(workingItems);
-
-			return {
-				id: turn.id,
-				status: turn.status,
-					userEntries,
-					assistantMessageEntries,
-					workingItems,
-					workingItemCount,
-					workingRenderCount,
-				};
-			});
-		}, [settings.showReasoning, turnBlocks]);
+		return buildTurnBlockViews(turnBlocks, settings);
+	}, [settings.showReasoning, turnBlocks]);
 
 	const renderCount = useMemo(() => {
 		return renderTurns.reduce((acc, t) => {
@@ -4287,232 +3212,30 @@ export function CodexChat() {
 	return (
 		<div className="flex h-full min-w-0 flex-col overflow-x-hidden">
 			{/* 自定义标题栏 */}
-			<div className="flex h-10 shrink-0 items-center border-b border-white/10 bg-bg-panel/60" data-tauri-drag-region>
-				{/* macOS 窗口按钮占位 */}
-				<div className="w-20 shrink-0" data-tauri-drag-region />
-
-				<div className="flex min-w-0 items-center gap-2">
-					{/* 项目选择下拉菜单 */}
-					<div className="relative shrink-0">
-						<button
-							type="button"
-							className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border-menuDivider bg-bg-panel/40 px-2.5 text-[13px] font-medium text-text-main hover:bg-bg-panelHover transition-colors"
-							onClick={() => setIsWorkspaceMenuOpen((v) => !v)}
-							title={activeThread?.cwd ?? workspaceRoot ?? ''}
-						>
-							<span className="truncate">
-								{activeThread?.cwd || workspaceRoot ? repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? '') : 'Select Project'}
-							</span>
-							<ChevronDown className="h-4 w-4 text-text-menuLabel" />
-						</button>
-
-						{isWorkspaceMenuOpen ? (
-							<>
-								<div className="fixed inset-0 z-40" onClick={() => setIsWorkspaceMenuOpen(false)} role="button" tabIndex={0} />
-								<div className={`absolute left-0 top-full z-50 mt-2 w-[260px] p-1.5 ${MENU_STYLES.popover}`}>
-									{/* CURRENT PROJECT */}
-									<div className={MENU_STYLES.popoverTitle}>Current Project</div>
-									<button
-										type="button"
-										className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left hover:bg-bg-menuItemHover transition-colors"
-										title={activeThread?.cwd ?? workspaceRoot ?? ''}
-									>
-										<div className="flex min-w-0 items-center gap-2">
-											<Folder className="h-4 w-4 shrink-0 text-text-menuLabel" />
-											<div className="min-w-0">
-												<div className="truncate text-[12px] font-medium text-text-main">
-													{repoNameFromPath(activeThread?.cwd ?? workspaceRoot ?? '') || 'Not set'}
-												</div>
-												<div className="truncate text-[11px] text-text-menuDesc">
-													{(activeThread?.cwd ?? workspaceRoot)
-														? `~${(activeThread?.cwd ?? workspaceRoot ?? '').replace(/^\/Users\/[^/]+/, '')}`
-														: 'No project selected'}
-												</div>
-											</div>
-										</div>
-										<ChevronRight className="h-4 w-4 shrink-0 text-text-menuLabel" />
-									</button>
-
-									<div className="mx-2 my-1.5 border-t border-border-menuDivider" />
-
-									{/* New Window */}
-									<button type="button" className={MENU_STYLES.popoverItem} onClick={() => void openNewWindow()}>
-										<Box className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
-										<span>New Window</span>
-									</button>
-
-									{/* Open Project */}
-									<button type="button" className={MENU_STYLES.popoverItem} onClick={() => void openWorkspaceDialog()}>
-										<Folder className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
-										<span>Open Project</span>
-									</button>
-
-									{/* RECENT PROJECTS */}
-									{recentWorkspaces.filter((p) => p !== (activeThread?.cwd ?? workspaceRoot)).length > 0 ? (
-										<>
-											<div className="mx-2 my-1.5 border-t border-border-menuDivider" />
-											<div className={MENU_STYLES.popoverTitle}>Recent Projects</div>
-											<div>
-												{recentWorkspaces
-													.filter((p) => p !== (activeThread?.cwd ?? workspaceRoot))
-													.slice(0, 5)
-													.map((path) => (
-														<button
-															key={path}
-															type="button"
-															className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-bg-menuItemHover transition-colors"
-															onClick={() => void applyWorkspaceRoot(path)}
-															title={path}
-														>
-															<Folder className="h-4 w-4 shrink-0 text-text-menuLabel" />
-															<div className="min-w-0">
-																<div className="truncate text-[12px] font-medium text-text-main">{repoNameFromPath(path)}</div>
-																<div className="truncate text-[11px] text-text-menuDesc">{`~${path.replace(/^\/Users\/[^/]+/, '')}`}</div>
-															</div>
-														</button>
-													))}
-											</div>
-										</>
-									) : null}
-
-									<div className="mx-2 my-1.5 border-t border-border-menuDivider" />
-
-									{/* About */}
-									<button type="button" className={MENU_STYLES.popoverItem} onClick={() => void showAbout()}>
-										<Info className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
-										<span>About AgentMesh</span>
-									</button>
-
-									{/* Check for Updates */}
-									<button type="button" className={MENU_STYLES.popoverItem} onClick={() => void showUpdates()}>
-										<RotateCw className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
-										<span>Check for Updates...</span>
-									</button>
-								</div>
-							</>
-						) : null}
-					</div>
-
-					{activeThread?.cwd && relatedRepoPaths.length > 0 ? (
-						<div className="flex min-w-0 flex-nowrap items-center gap-1.5">
-							{relatedRepoPaths.map((path) => (
-								<div
-									key={path}
-									className="group inline-flex h-7 items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 text-[11px] leading-none text-text-main"
-									title={path}
-								>
-									<span className="max-w-[140px] truncate">{repoNameFromPath(path)}</span>
-									<button
-										type="button"
-										className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-red-300 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto hover:bg-red-500/70 hover:text-white"
-										onClick={() => removeRelatedRepoDir(path)}
-										aria-label={`Remove related repo ${repoNameFromPath(path)}`}
-									>
-										-
-									</button>
-								</div>
-							))}
-						</div>
-					) : null}
-
-					{selectedThreadId && activeThread?.cwd && relatedRepoPaths.length < 3 ? (
-						<button
-							type="button"
-							className="inline-flex h-7 items-center rounded px-2 text-[11px] leading-none text-text-muted hover:bg-white/5 hover:text-text-main"
-							onClick={() => void addRelatedRepoDir()}
-							title="Add related dir"
-						>
-							+ add dir
-						</button>
-					) : null}
-				</div>
-
-				<div className="flex-1" data-tauri-drag-region />
-
-				<div className="relative mr-3 flex shrink-0 items-center gap-1.5">
-					<button
-						type="button"
-						className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-menuDivider bg-bg-panel/40 text-text-main hover:bg-bg-panelHover transition-colors"
-						onClick={() => setIsSettingsMenuOpen((v) => !v)}
-						title="Menu"
-					>
-						<Settings className="h-5 w-5" />
-					</button>
-
-					{isSettingsMenuOpen ? (
-						<>
-							<div className="fixed inset-0 z-40" onClick={() => setIsSettingsMenuOpen(false)} role="button" tabIndex={0} />
-							<div className={`absolute right-0 top-[44px] z-50 w-[220px] p-1.5 ${MENU_STYLES.popover}`}>
-								<div className={MENU_STYLES.popoverTitle}>Menu</div>
-								<button
-									type="button"
-									className={MENU_STYLES.popoverItem}
-									onClick={() => {
-										setIsSettingsMenuOpen(false);
-										void openWorkspaceDialog();
-									}}
-								>
-									Switch workspace…
-								</button>
-								<button
-									type="button"
-									className={MENU_STYLES.popoverItem}
-									onClick={() => {
-										setIsSettingsMenuOpen(false);
-										setIsSettingsOpen(true);
-									}}
-								>
-									Settings
-								</button>
-								<button
-									type="button"
-									className={MENU_STYLES.popoverItem}
-									onClick={() => {
-										setIsSettingsMenuOpen(false);
-										void openConfig();
-									}}
-								>
-									Edit config.toml
-								</button>
-								<button
-									type="button"
-									className={MENU_STYLES.popoverItem}
-									onClick={() => {
-										setIsSettingsMenuOpen(false);
-										void createNewSession();
-									}}
-								>
-									New session
-								</button>
-								<button
-									type="button"
-									className={[
-										MENU_STYLES.popoverItem,
-										!selectedThreadId ? 'pointer-events-none opacity-50' : '',
-									].join(' ')}
-									onClick={() => void forkSession()}
-									disabled={!selectedThreadId}
-									title={selectedThreadId ? 'Fork the current session' : 'Select a session first'}
-								>
-									Fork session
-								</button>
-								<button
-									type="button"
-									className={[
-										MENU_STYLES.popoverItem,
-										!selectedThreadId ? 'pointer-events-none opacity-50' : '',
-									].join(' ')}
-									onClick={() => void rollbackSession()}
-									disabled={!selectedThreadId}
-									title={selectedThreadId ? 'Rollback last turn (history only)' : 'Select a session first'}
-								>
-									Rollback last turn
-								</button>
-							</div>
-						</>
-					) : null}
-				</div>
-			</div>
+			<CodexChatHeader
+				activeThreadCwd={activeThread?.cwd ?? null}
+				workspaceRoot={workspaceRoot}
+				recentWorkspaces={recentWorkspaces}
+				isWorkspaceMenuOpen={isWorkspaceMenuOpen}
+				setIsWorkspaceMenuOpen={setIsWorkspaceMenuOpen}
+				isSettingsMenuOpen={isSettingsMenuOpen}
+				setIsSettingsMenuOpen={setIsSettingsMenuOpen}
+				relatedRepoPaths={relatedRepoPaths}
+				selectedThreadId={selectedThreadId}
+				canAddRelatedRepoDir={relatedRepoPaths.length < 3}
+				onAddRelatedRepoDir={() => void addRelatedRepoDir()}
+				onRemoveRelatedRepoDir={removeRelatedRepoDir}
+				openNewWindow={() => void openNewWindow()}
+				openWorkspaceDialog={() => void openWorkspaceDialog()}
+				applyWorkspaceRoot={(path) => void applyWorkspaceRoot(path)}
+				showAbout={() => void showAbout()}
+				showUpdates={() => void showUpdates()}
+				openSettings={() => setIsSettingsOpen(true)}
+				openConfig={() => void openConfig()}
+				createNewSession={() => void createNewSession()}
+				forkSession={() => void forkSession()}
+				rollbackSession={() => void rollbackSession()}
+			/>
 
 			{/* 主内容区域 */}
 			<div className="flex min-h-0 min-w-0 flex-1">
@@ -4782,148 +3505,24 @@ export function CodexChat() {
 						{activeAgentTab ? (
 							<>
 								<div className="mt-3 min-h-0 flex-1 flex gap-4">
-									{isWorkbenchEnabled ? (
-										<div className="w-[280px] shrink-0 min-h-0 overflow-hidden rounded-xl border border-white/10 bg-bg-panelHover/40">
-											<div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
-												<div className="min-w-0">
-													<div className="text-xs font-semibold">Collab Workbench</div>
-													<div className="mt-0.5 truncate text-[10px] text-text-muted">
-														{workbenchGraph.rootThreadId ? `root: ${workbenchGraph.rootThreadId}` : 'root: (none)'}
-													</div>
-												</div>
-												<label className="flex items-center gap-1 text-[10px] text-text-muted">
-													<input
-														type="checkbox"
-														checked={workbenchAutoFocus}
-														onChange={(e) => setWorkbenchAutoFocus(e.target.checked)}
-													/>
-													<span>Auto-focus</span>
-												</label>
-											</div>
-
-											<div className="min-h-0 overflow-y-auto px-2 py-2">
-												{(() => {
-													const visited = new Set<string>();
-													const roleFor = (threadId: string): 'root' | 'orchestrator' | 'worker' | 'thread' => {
-														if (threadId === workbenchGraph.rootThreadId) return 'root';
-														if (threadId === workbenchGraph.orchestratorThreadId) return 'orchestrator';
-														if (workbenchGraph.workerThreadIds.includes(threadId)) return 'worker';
-														return 'thread';
-													};
-													const statusFor = (threadId: string): string | null => {
-														const st = collabAgentStateByThreadId[threadId];
-														return st?.status ? st.status : null;
-													};
-													const renderNode = (threadId: string, depth: number): JSX.Element | null => {
-														if (!threadId) return null;
-														if (visited.has(threadId)) return null;
-														visited.add(threadId);
-
-														const role = roleFor(threadId);
-														const running = Boolean(runningThreadIds[threadId]);
-														const status = statusFor(threadId);
-														const indentPx = 8 + depth * 12;
-
-														const children = workbenchGraph.childrenByParent[threadId] ?? [];
-
-														return (
-															<div key={threadId}>
-																<div className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 hover:bg-white/5">
-																	<button
-																		type="button"
-																		className="min-w-0 flex-1 text-left"
-																		style={{ paddingLeft: indentPx }}
-																		onClick={() => void selectSession(threadId)}
-																		title={threadId}
-																	>
-																		<div className="flex items-center gap-2">
-																			{running ? <SessionRunningIndicator /> : null}
-																			<div className="truncate text-[11px] text-text-main">{threadId}</div>
-																		</div>
-																		<div className="mt-0.5 flex items-center gap-1 text-[10px] text-text-muted">
-																			<span className="rounded bg-white/10 px-1 py-0.5">{role}</span>
-																			{status ? <span className="rounded bg-white/10 px-1 py-0.5">{status}</span> : null}
-																		</div>
-																	</button>
-																	<button
-																		type="button"
-																		className="shrink-0 rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-text-muted hover:border-white/20"
-																		onClick={() => void forkThreadLatest(threadId)}
-																		title="Fork this thread"
-																	>
-																		Fork
-																	</button>
-																</div>
-
-																{children.length > 0 ? (
-																	<div>
-																		{children.map((c) => (
-																			<div key={`${threadId}-${c.kind}-${c.threadId}`}>{renderNode(c.threadId, depth + 1)}</div>
-																		))}
-																	</div>
-																) : null}
-															</div>
-														);
-													};
-
-													if (!workbenchGraph.rootThreadId) {
-														return <div className="px-2 py-2 text-[11px] text-text-muted">No collab graph yet. Start a multi-agent task to see threads.</div>;
-													}
-													return <div className="space-y-1">{renderNode(workbenchGraph.rootThreadId, 0)}</div>;
-												})()}
-											</div>
-										</div>
-									) : null}
+									<CodexChatWorkbenchSidebar
+										enabled={isWorkbenchEnabled}
+										workbenchGraph={workbenchGraph}
+										workbenchAutoFocus={workbenchAutoFocus}
+										setWorkbenchAutoFocus={setWorkbenchAutoFocus}
+										collabAgentStateByThreadId={collabAgentStateByThreadId}
+										runningThreadIds={runningThreadIds}
+										selectSession={selectSession}
+										forkThreadLatest={forkThreadLatest}
+									/>
 
 									<div className="min-h-0 flex-1 flex flex-col">
-										{isWorkbenchEnabled && (workbenchGraph.orchestratorThreadId || workbenchGraph.workerThreadIds.length > 0) ? (
-											<div className="mb-2 flex flex-wrap items-center gap-2">
-												<button
-													type="button"
-													className={[
-														'rounded-full border px-2 py-1 text-[11px] leading-none transition-colors',
-														selectedThreadId === workbenchGraph.rootThreadId ? 'border-primary/50 bg-primary/10 text-text-main' : 'border-white/10 bg-white/5 text-text-muted hover:bg-white/10',
-													].join(' ')}
-													onClick={() => {
-														const root = workbenchGraph.rootThreadId;
-														if (root) void selectSession(root, { setAsWorkbenchRoot: true });
-													}}
-												>
-													Root
-												</button>
-
-												{workbenchGraph.orchestratorThreadId ? (
-													<button
-														type="button"
-														className={[
-															'rounded-full border px-2 py-1 text-[11px] leading-none transition-colors',
-															selectedThreadId === workbenchGraph.orchestratorThreadId
-																? 'border-primary/50 bg-primary/10 text-text-main'
-																: 'border-white/10 bg-white/5 text-text-muted hover:bg-white/10',
-														].join(' ')}
-														onClick={() => void selectSession(workbenchGraph.orchestratorThreadId!)}
-														title={workbenchGraph.orchestratorThreadId}
-													>
-														Orchestrator
-													</button>
-												) : null}
-
-												{workbenchGraph.workerThreadIds.map((id) => (
-													<button
-														key={id}
-														type="button"
-														className={[
-															'rounded-full border px-2 py-1 text-[11px] leading-none transition-colors',
-															selectedThreadId === id ? 'border-primary/50 bg-primary/10 text-text-main' : 'border-white/10 bg-white/5 text-text-muted hover:bg-white/10',
-														].join(' ')}
-														onClick={() => void selectSession(id)}
-														title={id}
-													>
-														Worker
-													</button>
-												))}
-											</div>
-										) : null}
+										<CodexChatWorkbenchThreadChips
+											enabled={isWorkbenchEnabled}
+											workbenchGraph={workbenchGraph}
+											selectedThreadId={selectedThreadId}
+											selectSession={selectSession}
+										/>
 
 										<div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden pb-4 min-w-0">
 											{renderTurns.map((turn) => (
@@ -4942,366 +3541,65 @@ export function CodexChat() {
 												/>
 											))}
 										</div>
-										<div className="group relative mt-4 flex flex-col gap-2 rounded-[26px] border border-white/5 bg-[#2b2d31] px-4 py-3 transition-colors focus-within:border-white/10">
-											{/* Floating pinned prompt/skill shortcuts (shown while composer is focused) */}
-											{pinnedResolvedItems.length > 0 ? (
-												<div className="pointer-events-none absolute bottom-full left-0 right-0 z-30 mb-2 flex flex-wrap gap-1.5 px-4 opacity-0 translate-y-2 transition-all duration-150 ease-out group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-y-0">
-													{pinnedResolvedItems.map((item) =>
-														item.type === 'prompt' ? (
-															<button
-																key={`prompt:${item.prompt.name}`}
-																type="button"
-																className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-[11px] text-text-muted hover:bg-white/10 hover:text-text-main"
-																onClick={() => executePromptSelection(item.prompt)}
-																title={`prompts:${item.prompt.name}`}
-															>
-																<FileText className="h-3 w-3 text-text-menuLabel" />
-																<span className="max-w-[200px] truncate">{`prompts:${item.prompt.name}`}</span>
-															</button>
-														) : (
-															<button
-																key={`skill:${item.skill.name}`}
-																type="button"
-																className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-[11px] text-text-muted hover:bg-white/10 hover:text-text-main"
-																onClick={() => executeSkillSelection(item.skill)}
-																title={item.skill.name}
-															>
-																<Zap className="h-3 w-3 text-text-menuLabel" />
-																<span className="max-w-[200px] truncate">{item.skill.name}</span>
-															</button>
-														)
-													)}
-												</div>
-											) : null}
-											{/* Popup Menu - shared container for +, / and $ menus */}
-											{isSlashMenuOpen || isAddContextOpen || isSkillMenuOpen ? (
-												<>
-													<div
-													className="fixed inset-0 z-40"
-													onClick={() => {
-														if (isSlashMenuOpen) {
-															setIsSlashMenuOpen(false);
-															setSlashSearchQuery('');
-															setSlashHighlightIndex(0);
-														}
-														if (isAddContextOpen) {
-															setIsAddContextOpen(false);
-															setFileSearchQuery('');
-															setFileSearchResults([]);
-														}
-														if (isSkillMenuOpen) {
-															setIsSkillMenuOpen(false);
-															setSkillSearchQuery('');
-															setSkillHighlightIndex(0);
-														}
-													}}
-													role="button"
-													tabIndex={0}
-												/>
-												<div className={`${MENU_STYLES.popoverPosition} ${MENU_STYLES.popover}`}>
-													{/* Search input */}
-													<input
-														type="text"
-														className={`mb-2 ${MENU_STYLES.searchInput}`}
-														placeholder={isSlashMenuOpen ? 'Search commands...' : isSkillMenuOpen ? 'Search skills...' : 'Search files...'}
-														value={isSlashMenuOpen ? slashSearchQuery : isSkillMenuOpen ? skillSearchQuery : fileSearchQuery}
-														onChange={(e) => {
-															if (isSlashMenuOpen) {
-																setSlashSearchQuery(e.target.value);
-																setSlashHighlightIndex(0);
-															} else if (isSkillMenuOpen) {
-																setSkillSearchQuery(e.target.value);
-																setSkillHighlightIndex(0);
-															} else {
-																void searchFiles(e.target.value);
-															}
-														}}
-														onKeyDown={(e) => {
-															// 处理方向键导航
-															if (e.key === 'ArrowDown') {
-																e.preventDefault();
-																if (isSlashMenuOpen) {
-																	setSlashHighlightIndex((i) => Math.min(i + 1, slashMenuTotalItems - 1));
-																} else if (isSkillMenuOpen) {
-																	setSkillHighlightIndex((i) => Math.min(i + 1, filteredSkills.length - 1));
-																}
-																return;
-															}
-															if (e.key === 'ArrowUp') {
-																e.preventDefault();
-																if (isSlashMenuOpen) {
-																	setSlashHighlightIndex((i) => Math.max(i - 1, 0));
-																} else if (isSkillMenuOpen) {
-																	setSkillHighlightIndex((i) => Math.max(i - 1, 0));
-																}
-																return;
-															}
-															// Tab 键补全
-															if (e.key === 'Tab') {
-																e.preventDefault();
-																if (isSlashMenuOpen) {
-																	if (slashHighlightIndex < filteredSlashCommands.length) {
-																		const selected = filteredSlashCommands[slashHighlightIndex];
-																		if (selected) {
-																			setInput(`/${selected.cmd.id} `);
-																			setIsSlashMenuOpen(false);
-																			setSlashSearchQuery('');
-																			textareaRef.current?.focus();
-																		}
-																	} else if (slashHighlightIndex < filteredSlashCommands.length + filteredPromptsForSlashMenu.length) {
-																		const promptIdx = slashHighlightIndex - filteredSlashCommands.length;
-																		const selected = filteredPromptsForSlashMenu[promptIdx];
-																		if (selected) {
-																			executePromptSelection(selected.prompt);
-																		}
-																	} else {
-																		const skillIdx = slashHighlightIndex - filteredSlashCommands.length - filteredPromptsForSlashMenu.length;
-																		const selected = filteredSkillsForSlashMenu[skillIdx];
-																		if (selected) {
-																			executeSkillSelection(selected.skill);
-																		}
-																	}
-																} else if (isSkillMenuOpen) {
-																	const selected = filteredSkills[skillHighlightIndex];
-																	if (selected) {
-																		executeSkillSelection(selected.skill);
-																	}
-																}
-																return;
-															}
-															// Enter 键执行
-															if (e.key === 'Enter') {
-																e.preventDefault();
-																if (isSlashMenuOpen) {
-																	if (slashHighlightIndex < filteredSlashCommands.length) {
-																		const selected = filteredSlashCommands[slashHighlightIndex];
-																		if (selected) executeSlashCommand(selected.cmd.id);
-																	} else if (slashHighlightIndex < filteredSlashCommands.length + filteredPromptsForSlashMenu.length) {
-																		const promptIdx = slashHighlightIndex - filteredSlashCommands.length;
-																		const selected = filteredPromptsForSlashMenu[promptIdx];
-																		if (selected) {
-																			executePromptSelection(selected.prompt);
-																		}
-																	} else {
-																		const skillIdx = slashHighlightIndex - filteredSlashCommands.length - filteredPromptsForSlashMenu.length;
-																		const selected = filteredSkillsForSlashMenu[skillIdx];
-																		if (selected) {
-																			executeSkillSelection(selected.skill);
-																		}
-																	}
-																} else if (isSkillMenuOpen) {
-																	const selected = filteredSkills[skillHighlightIndex];
-																	if (selected) executeSkillSelection(selected.skill);
-																}
-																return;
-															}
-															// Escape 键关闭菜单
-															if (e.key === 'Escape') {
-																e.preventDefault();
-																if (isSlashMenuOpen) {
-																	setIsSlashMenuOpen(false);
-																	setSlashSearchQuery('');
-																} else if (isSkillMenuOpen) {
-																	setIsSkillMenuOpen(false);
-																	setSkillSearchQuery('');
-																} else if (isAddContextOpen) {
-																	setIsAddContextOpen(false);
-																	setFileSearchQuery('');
-																	setFileSearchResults([]);
-																}
-																textareaRef.current?.focus();
-																return;
-															}
-														}}
-														autoFocus
-													/>
-													{/* Content list */}
-													<div ref={menuListRef} className={MENU_STYLES.listContainer}>
-														{isSkillMenuOpen ? (
-															<SkillMenu
-																skills={skills}
-																filteredSkills={filteredSkills}
-																highlightIndex={skillHighlightIndex}
-																onHighlight={setSkillHighlightIndex}
-																onSelect={executeSkillSelection}
-															/>
-															) : isSlashMenuOpen ? (
-																<SlashCommandMenu
-																	filteredCommands={filteredSlashCommands}
-																	filteredPrompts={filteredPromptsForSlashMenu}
-																	filteredSkills={filteredSkillsForSlashMenu}
-																	pinnedPromptNames={pinnedPromptNames}
-																	pinnedSkillNames={pinnedSkillNames}
-																	highlightIndex={slashHighlightIndex}
-																	onHighlight={setSlashHighlightIndex}
-																	onSelectCommand={executeSlashCommand}
-																	onSelectPrompt={executePromptSelection}
-																	onSelectSkill={executeSkillSelection}
-																	onTogglePromptPin={togglePinnedPromptName}
-																	onToggleSkillPin={togglePinnedSkillName}
-																/>
-															) : (
-															// File search results
-															<>
-																{fileSearchResults.length > 0 ? (
-																	fileSearchResults.map((f) => (
-																		<button key={f.path} type="button" className={MENU_STYLES.popoverItem} onClick={() => void addFileAttachment(f)}>
-																			{f.isDirectory ? (
-																				<Folder className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-																			) : (
-																				<File className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-																			)}
-																			<span className="truncate">{f.path}</span>
-																		</button>
-																	))
-																) : fileSearchQuery ? (
-																	<div className={`${MENU_STYLES.popoverItemDesc} px-2 py-1`}>No files found</div>
-																) : null}
-															</>
-														)}
-													</div>
-													{/* Add image option (only for + menu) */}
-													{isAddContextOpen ? (
-														<div className="mt-1.5 border-t border-border-menuDivider pt-1.5">
-															<button type="button" className={MENU_STYLES.popoverItem} onClick={() => fileInputRef.current?.click()}>
-																<Image className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-																<span>Add image</span>
-															</button>
-														</div>
-													) : null}
-												</div>
-											</>
-										) : null}
-
-											{/* Attachments display (skill/prompt tags are inline with textarea) */}
-											{fileAttachments.length > 0 ? (
-												<div className="flex flex-wrap gap-1.5">
-													{fileAttachments.map((f) => (
-														<div key={f.id} className="inline-flex items-center gap-1.5 rounded-md bg-black/20 px-2 py-1 text-[11px]">
-															{f.kind === 'image' || f.kind === 'localImage' ? <Image className="h-3 w-3 text-text-dim" /> : <File className="h-3 w-3 text-text-dim" />}
-															<span className="max-w-[120px] truncate">{f.name}</span>
-															<button type="button" className="rounded p-0.5 hover:bg-white/10" onClick={() => removeFileAttachment(f.id)}>
-																<X className="h-3 w-3" />
-															</button>
-														</div>
-													))}
-												</div>
-											) : null}
-
-												{/* Hidden file input for image upload */}
-												<input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} />
-
-											{/* Input area with inline tags for skill/prompt */}
-											<div className="flex flex-wrap items-start gap-1.5">
-												{/* Selected prompt - inline tag */}
-												{selectedPrompt ? (
-												<div className="inline-flex shrink-0 items-center gap-1.5 rounded bg-blue-500/10 px-1.5 py-0.5 text-[11px] text-blue-400">
-													<FileText className="h-3 w-3" />
-													<span className="max-w-[160px] truncate">prompts:{selectedPrompt.name}</span>
-												</div>
-											) : null}
-											{/* Selected skill - inline tag */}
-											{selectedSkill ? (
-												<div className="inline-flex shrink-0 items-center gap-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
-													<Zap className="h-3 w-3" />
-													<span className="max-w-[160px] truncate">{selectedSkill.name}</span>
-												</div>
-											) : null}
-											{/* Textarea */}
-											<textarea
-												ref={textareaRef}
-												rows={1}
-												className="m-0 h-5 min-w-[100px] flex-1 resize-none overflow-y-auto bg-transparent p-0 text-[13px] leading-5 outline-none placeholder:text-text-muted/40"
-												placeholder={selectedSkill || selectedPrompt ? '' : 'Ask for follow-up changes'}
-												value={input}
-													onChange={(e) => {
-														const newValue = e.target.value;
-														setInput(newValue);
-
-													// Auto-resize textarea
-													const textarea = e.target;
-													textarea.style.height = 'auto';
-													textarea.style.height = `${Math.min(textarea.scrollHeight, 264)}px`;
-													}}
-													onPaste={handleTextareaPaste}
-													onKeyDown={handleTextareaKeyDown}
-													disabled={sending}
-												/>
-										</div>
-
-										{/* Toolbar: + / AutoContext Send */}
-										<div className="flex items-center justify-between gap-2">
-											<div className="flex items-center gap-1">
-												{/* + Add Context Button */}
-												<button type="button" className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-white/10 hover:text-text-main" title="Add context (+)" onClick={() => setIsAddContextOpen((v) => !v)}>
-													<Plus className="h-4 w-4" />
-												</button>
-
-												{/* / Slash Commands Button */}
-												<button type="button" className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-white/10 hover:text-text-main" title="Commands (/)" onClick={() => setIsSlashMenuOpen((v) => !v)}>
-													<Slash className="h-4 w-4" />
-												</button>
-
-												{/* Auto context toggle */}
-												<button
-													type="button"
-													className={[
-														'ml-2 inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[11px] leading-none transition-colors',
-														autoContextEnabled
-															? 'bg-blue-600/30 text-blue-300'
-															: 'text-text-muted hover:bg-white/10',
-													].join(' ')}
-													onClick={() => setAutoContextEnabled((v) => !v)}
-													title={
-														autoContext
-															? `cwd: ${autoContext.cwd}\nRecent: ${autoContext.recentFiles.length} files\nGit: ${autoContext.gitStatus?.branch ?? 'N/A'}`
-															: 'Auto context'
-													}
-												>
-													<span className={autoContextEnabled ? 'text-blue-400' : 'text-text-muted'}>
-														{autoContextEnabled ? (
-															<svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-																<path d="M13 10V3L4 14H11V21L20 10H13Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-															</svg>
-														) : (
-															<svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-																<path d="M13 10V3L4 14H11V21L20 10H13Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-															</svg>
-														)}
-													</span>
-													<span>Auto context</span>
-												</button>
-											</div>
-
-											{/* Send/Stop button */}
-											{activeTurnId && selectedThreadId ? (
-												<button
-													type="button"
-													className="group flex h-7 w-7 items-center justify-center rounded-full bg-status-error/20 text-status-error hover:bg-status-error/30"
-													onClick={() => void apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId)}
-													title="Stop"
-												>
-													<div className="h-2.5 w-2.5 rounded-[1px] bg-current" />
-												</button>
-											) : (
-													<button
-														type="button"
-														className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-text-main hover:bg-white/20 disabled:opacity-30 transition-colors"
-														onClick={() => void sendMessage()}
-														disabled={
-															sending ||
-															(input.trim().length === 0 &&
-																!selectedSkill &&
-																!selectedPrompt &&
-																!fileAttachments.some((att) => att.kind === 'image' || att.kind === 'localImage'))
-														}
-														title="Send (Ctrl/Cmd+Enter)"
-													>
-														<ArrowUp className="h-4 w-4" />
-													</button>
-											)}
-										</div>
-									</div>
+										<CodexChatComposer
+											pinnedResolvedItems={pinnedResolvedItems}
+											executePromptSelection={executePromptSelection}
+											executeSkillSelection={executeSkillSelection}
+											executeSlashCommand={executeSlashCommand}
+											togglePinnedPromptName={togglePinnedPromptName}
+											togglePinnedSkillName={togglePinnedSkillName}
+											pinnedPromptNames={pinnedPromptNames}
+											pinnedSkillNames={pinnedSkillNames}
+											isSlashMenuOpen={isSlashMenuOpen}
+											isAddContextOpen={isAddContextOpen}
+											isSkillMenuOpen={isSkillMenuOpen}
+											setIsSlashMenuOpen={setIsSlashMenuOpen}
+											setIsAddContextOpen={setIsAddContextOpen}
+											setIsSkillMenuOpen={setIsSkillMenuOpen}
+											slashSearchQuery={slashSearchQuery}
+											skillSearchQuery={skillSearchQuery}
+											fileSearchQuery={fileSearchQuery}
+											setSlashSearchQuery={setSlashSearchQuery}
+											setSkillSearchQuery={setSkillSearchQuery}
+											setFileSearchQuery={setFileSearchQuery}
+											slashHighlightIndex={slashHighlightIndex}
+											skillHighlightIndex={skillHighlightIndex}
+											setSlashHighlightIndex={setSlashHighlightIndex}
+											setSkillHighlightIndex={setSkillHighlightIndex}
+											slashMenuTotalItems={slashMenuTotalItems}
+											filteredSlashCommands={filteredSlashCommands}
+											filteredPromptsForSlashMenu={filteredPromptsForSlashMenu}
+											filteredSkillsForSlashMenu={filteredSkillsForSlashMenu}
+											skills={skills}
+											filteredSkills={filteredSkills}
+											fileSearchResults={fileSearchResults}
+											setFileSearchResults={setFileSearchResults}
+											searchFiles={searchFiles}
+											addFileAttachment={addFileAttachment}
+											fileAttachments={fileAttachments}
+											removeFileAttachment={removeFileAttachment}
+											handleImageUpload={handleImageUpload}
+											fileInputRef={fileInputRef}
+											selectedPrompt={selectedPrompt}
+											selectedSkill={selectedSkill}
+											input={input}
+											setInput={setInput}
+											textareaRef={textareaRef}
+											menuListRef={menuListRef}
+											handleTextareaPaste={handleTextareaPaste}
+											handleTextareaKeyDown={handleTextareaKeyDown}
+											sending={sending}
+											autoContextEnabled={autoContextEnabled}
+											setAutoContextEnabled={setAutoContextEnabled}
+											autoContext={autoContext}
+											activeTurnId={activeTurnId}
+											selectedThreadId={selectedThreadId}
+											stopTurn={() => {
+												if (!selectedThreadId || !activeTurnId) return;
+												void apiClient.codexTurnInterrupt(selectedThreadId, activeTurnId);
+											}}
+											sendMessage={sendMessage}
+										/>
 
 									<StatusBar
 										openStatusPopover={openStatusPopover}
