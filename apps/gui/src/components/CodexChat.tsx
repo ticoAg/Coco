@@ -1,7 +1,7 @@
 import { getVersion } from '@tauri-apps/api/app';
 import { listen } from '@tauri-apps/api/event';
 import { confirm as dialogConfirm, message as dialogMessage, open as openDialog } from '@tauri-apps/plugin-dialog';
-import { ArrowUp, Box, ChevronDown, ChevronRight, File, FileText, Folder, Image, Info, Plus, RotateCw, Settings, Slash, X, Zap } from 'lucide-react';
+import { ArrowUp, Box, ChevronDown, ChevronRight, Eye, File, FileText, Folder, Image, Info, Plus, RotateCw, Settings, Slash, X, Zap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { apiClient } from '../api/client';
@@ -940,8 +940,6 @@ function labelForThread(summary?: CodexThreadSummary, fallback?: string): string
 	return preview ? preview : summary.id;
 }
 
-const MAIN_TAB_CHAT_ID = 'chat';
-
 const isMarkdownFile = (path?: string | null) => Boolean(path && path.toLowerCase().endsWith('.md'));
 const isHtmlFile = (path?: string | null) => {
 	if (!path) return false;
@@ -975,14 +973,28 @@ type FilteredSlashCommand = {
 	score: number;
 };
 
-type FilePreviewTab = {
+type AgentPanelTab = {
 	id: string;
+	kind: 'agent';
+	threadId: string;
+	title: string;
+};
+
+type FilePanelTab = {
+	id: string;
+	kind: 'file';
 	path: string;
 	title: string;
 	content: string | null;
+	draft: string;
+	dirty: boolean;
 	loading: boolean;
+	saving: boolean;
+	showPreview: boolean;
 	error: string | null;
 };
+
+type PanelTab = AgentPanelTab | FilePanelTab;
 
 type TaskContextMenuState = {
 	x: number;
@@ -1020,9 +1032,10 @@ export function CodexChat() {
 	const archiveTaskInFlightRef = useRef<Set<string>>(new Set());
 	const renameTaskInputRef = useRef<HTMLInputElement>(null);
 
-	const [fileTabs, setFileTabs] = useState<FilePreviewTab[]>([]);
-	const [activeMainTabId, setActiveMainTabId] = useState<string>(MAIN_TAB_CHAT_ID);
-	const fileTabsRef = useRef<FilePreviewTab[]>([]);
+	const [panelTabs, setPanelTabs] = useState<PanelTab[]>([]);
+	const [activeMainTabId, setActiveMainTabId] = useState<string | null>(null);
+	const panelTabsRef = useRef<PanelTab[]>([]);
+	const activeMainTabIdRef = useRef<string | null>(null);
 
 	const [workspaceDirEntriesByPath, setWorkspaceDirEntriesByPath] = useState<Record<string, TaskDirectoryEntry[]>>({});
 	const [workspaceDirLoadingByPath, setWorkspaceDirLoadingByPath] = useState<Record<string, boolean>>({});
@@ -1207,8 +1220,12 @@ export function CodexChat() {
 	}, []);
 
 	useEffect(() => {
-		fileTabsRef.current = fileTabs;
-	}, [fileTabs]);
+		panelTabsRef.current = panelTabs;
+	}, [panelTabs]);
+
+	useEffect(() => {
+		activeMainTabIdRef.current = activeMainTabId;
+	}, [activeMainTabId]);
 
 	useEffect(() => {
 		sessionTreeExpandedNodesRef.current = sessionTreeExpandedNodes;
@@ -1284,10 +1301,11 @@ export function CodexChat() {
 	}, [workspaceBasePath, loadWorkspaceDirectory]);
 
 	useEffect(() => {
-		if (activeMainTabId === MAIN_TAB_CHAT_ID) return;
-		if (fileTabs.some((tab) => tab.id === activeMainTabId)) return;
-		setActiveMainTabId(MAIN_TAB_CHAT_ID);
-	}, [activeMainTabId, fileTabs]);
+		if (!activeMainTabId) return;
+		if (panelTabs.some((tab) => tab.id === activeMainTabId)) return;
+		// Fallback: focus the most recently opened tab (end of array).
+		setActiveMainTabId(panelTabs[panelTabs.length - 1]?.id ?? null);
+	}, [activeMainTabId, panelTabs]);
 
 	useEffect(() => {
 		if (!selectedThreadId) {
@@ -2100,59 +2118,105 @@ export function CodexChat() {
 		return sessionTree.nodeIdByThreadId[selectedThreadId] ?? null;
 	}, [selectedSessionTreeNodeOverride, selectedThreadId, sessionTree.nodeIdByThreadId]);
 
+	const openAgentPanel = useCallback(
+		async (threadId: string, options?: { setAsWorkbenchRoot?: boolean }) => {
+			if (!threadId) return;
+			const tabId = `agent:${threadId}`;
+			const title = labelForThread(
+				sessions.find((s) => s.id === threadId),
+				threadId
+			);
+
+			setPanelTabs((prev) => {
+				const existing = prev.find((tab) => tab.id === tabId);
+				if (existing) {
+					// Keep title fresh when the session list updates.
+					return prev.map((tab) => (tab.id === tabId && tab.kind === 'agent' ? { ...tab, title } : tab));
+				}
+				return [...prev, { id: tabId, kind: 'agent', threadId, title }];
+			});
+
+			setActiveMainTabId(tabId);
+
+			// We still explicitly load here because some callers need special options like setAsWorkbenchRoot.
+			if (selectedThreadId !== threadId || options?.setAsWorkbenchRoot) {
+				await selectSession(threadId, options);
+			}
+		},
+		[selectedThreadId, selectSession, sessions]
+	);
+
 	const openFilePreview = useCallback(
 		(path: string) => {
 			const normalizedPath = path.replace(/\\/g, '/');
 			const tabId = `file:${normalizedPath}`;
-			const existing = fileTabsRef.current.find((tab) => tab.id === tabId);
+			const existing = panelTabsRef.current.find((tab) => tab.id === tabId);
 			setActiveMainTabId(tabId);
 
 			if (!workspaceBasePath) {
 				if (!existing) {
-					setFileTabs((prev) => [
+					setPanelTabs((prev) => [
 						...prev,
 						{
 							id: tabId,
+							kind: 'file',
 							path: normalizedPath,
 							title: baseName(normalizedPath),
 							content: null,
+							draft: '',
+							dirty: false,
 							loading: false,
+							saving: false,
+							showPreview: false,
 							error: 'Workspace root not set.',
 						},
 					]);
+				} else if (existing.kind === 'file' && !existing.error) {
+					setPanelTabs((prev) =>
+						prev.map((tab) => (tab.id === tabId && tab.kind === 'file' ? { ...tab, error: 'Workspace root not set.' } : tab))
+					);
 				}
 				return;
 			}
 
-			if (existing && existing.content && !existing.error) return;
-			if (existing?.loading) return;
+			if (existing && existing.kind === 'file' && existing.content && !existing.error) return;
+			if (existing?.kind === 'file' && existing.loading) return;
 
 			if (!existing) {
-				setFileTabs((prev) => [
+				setPanelTabs((prev) => [
 					...prev,
 					{
 						id: tabId,
+						kind: 'file',
 						path: normalizedPath,
 						title: baseName(normalizedPath),
 						content: null,
+						draft: '',
+						dirty: false,
 						loading: true,
+						saving: false,
+						showPreview: false,
 						error: null,
 					},
 				]);
 			} else {
-				setFileTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, loading: true, error: null } : tab)));
+				setPanelTabs((prev) =>
+					prev.map((tab) => (tab.id === tabId && tab.kind === 'file' ? { ...tab, loading: true, error: null } : tab))
+				);
 			}
 
 			void (async () => {
 				try {
 					const fullPath = normalizedPath.startsWith('/') ? normalizedPath : `${workspaceBasePath}/${normalizedPath}`;
 					const content = await apiClient.readFileContent(fullPath);
-					setFileTabs((prev) =>
+					setPanelTabs((prev) =>
 						prev.map((tab) =>
-							tab.id === tabId
+							tab.id === tabId && tab.kind === 'file'
 								? {
 									...tab,
 									content,
+									draft: content,
+									dirty: false,
 									loading: false,
 									error: null,
 								}
@@ -2161,8 +2225,8 @@ export function CodexChat() {
 					);
 				} catch (err) {
 					const message = err instanceof Error ? err.message : 'Failed to load file';
-					setFileTabs((prev) =>
-						prev.map((tab) => (tab.id === tabId ? { ...tab, loading: false, error: message } : tab))
+					setPanelTabs((prev) =>
+						prev.map((tab) => (tab.id === tabId && tab.kind === 'file' ? { ...tab, loading: false, error: message } : tab))
 					);
 				}
 			})();
@@ -2170,20 +2234,90 @@ export function CodexChat() {
 		[workspaceBasePath]
 	);
 
-	const closeFileTab = useCallback(
-		(tabId: string) => {
-			setFileTabs((prev) => {
-				const idx = prev.findIndex((tab) => tab.id === tabId);
-				if (idx === -1) return prev;
-				const next = prev.filter((tab) => tab.id !== tabId);
-				if (activeMainTabId === tabId) {
-					const fallback = next[idx - 1] ?? next[idx] ?? null;
-					setActiveMainTabId(fallback?.id ?? MAIN_TAB_CHAT_ID);
-				}
-				return next;
-			});
+	const setFileTabDraft = useCallback((tabId: string, draft: string) => {
+		setPanelTabs((prev) =>
+			prev.map((tab) => {
+				if (tab.id !== tabId || tab.kind !== 'file') return tab;
+				const dirty = tab.content == null ? draft.length > 0 : draft !== tab.content;
+				return { ...tab, draft, dirty };
+			})
+		);
+	}, []);
+
+	const toggleFileTabPreview = useCallback((tabId: string) => {
+		setPanelTabs((prev) =>
+			prev.map((tab) => (tab.id === tabId && tab.kind === 'file' ? { ...tab, showPreview: !tab.showPreview } : tab))
+		);
+	}, []);
+
+	const saveFileTab = useCallback(
+		async (tabId: string) => {
+			const tab = panelTabsRef.current.find((t): t is FilePanelTab => t.id === tabId && t.kind === 'file');
+			if (!tab) return;
+			if (!workspaceBasePath) {
+				setPanelTabs((prev) =>
+					prev.map((t) => (t.id === tabId && t.kind === 'file' ? { ...t, error: 'Workspace root not set.' } : t))
+				);
+				return;
+			}
+			if (tab.path.startsWith('/')) {
+				setPanelTabs((prev) =>
+					prev.map((t) =>
+						t.id === tabId && t.kind === 'file'
+							? { ...t, error: 'Saving absolute paths is not supported in this build.' }
+							: t
+					)
+				);
+				return;
+			}
+
+			setPanelTabs((prev) =>
+				prev.map((t) => (t.id === tabId && t.kind === 'file' ? { ...t, saving: true, error: null } : t))
+			);
+
+			try {
+				await apiClient.workspaceWriteFile(workspaceBasePath, tab.path, tab.draft);
+				setPanelTabs((prev) =>
+					prev.map((t) =>
+						t.id === tabId && t.kind === 'file'
+							? { ...t, saving: false, content: tab.draft, dirty: false, error: null }
+							: t
+					)
+				);
+			} catch (err) {
+				const message = err instanceof Error ? err.message : 'Failed to save file';
+				setPanelTabs((prev) =>
+					prev.map((t) => (t.id === tabId && t.kind === 'file' ? { ...t, saving: false, error: message } : t))
+				);
+			}
 		},
-		[activeMainTabId]
+		[workspaceBasePath]
+	);
+
+	const closePanelTab = useCallback(
+		async (tabId: string) => {
+			const current = panelTabsRef.current;
+			const idx = current.findIndex((tab) => tab.id === tabId);
+			if (idx < 0) return;
+			const target = current[idx];
+
+			if (target.kind === 'file' && target.dirty) {
+				const confirmed = await dialogConfirm('This file has unsaved changes. Close anyway?', {
+					title: 'Close file',
+					kind: 'warning',
+				});
+				if (!confirmed) return;
+			}
+
+			const nextTabs = current.filter((tab) => tab.id !== tabId);
+			setPanelTabs(nextTabs);
+
+			if (activeMainTabIdRef.current === tabId) {
+				const fallback = nextTabs[idx - 1] ?? nextTabs[idx] ?? null;
+				setActiveMainTabId(fallback?.id ?? null);
+			}
+		},
+		[setPanelTabs]
 	);
 
 	const handleSessionTreeSelect = useCallback(
@@ -2211,15 +2345,14 @@ export function CodexChat() {
 			if (!threadId) return;
 			setSelectedSessionTreeNodeOverride(null);
 			setIsWorkbenchEnabled(false);
-			setActiveMainTabId(MAIN_TAB_CHAT_ID);
 
 			if (node.type === 'task') {
-				void selectSession(threadId, { setAsWorkbenchRoot: true });
+				void openAgentPanel(threadId, { setAsWorkbenchRoot: true });
 				return;
 			}
 
 			if (node.type === 'worker') {
-				void selectSession(threadId);
+				void openAgentPanel(threadId);
 				const workerNodeId = sessionTree.workerNodeIdByThreadId[threadId];
 				const filesNodeId = sessionTree.workerFilesNodeIdByThreadId[threadId];
 				const expandIds = [workerNodeId, filesNodeId].filter((id): id is string => Boolean(id));
@@ -2229,18 +2362,17 @@ export function CodexChat() {
 			}
 
 			if (node.type === 'orchestrator') {
-				void selectSession(threadId);
+				void openAgentPanel(threadId);
 			}
 		},
 		[
 			expandSessionTreeNodes,
 			ensureWorkspaceDirectoryLoaded,
+			openAgentPanel,
 			openFilePreview,
-			selectSession,
 			setIsWorkbenchEnabled,
 			sessionTree.workerFilesNodeIdByThreadId,
 			sessionTree.workerNodeIdByThreadId,
-			setActiveMainTabId,
 		]
 	);
 
@@ -2369,21 +2501,36 @@ export function CodexChat() {
 					}
 				}
 
-					if (selectedThreadId && threadIds.includes(selectedThreadId)) {
-						setTurnOrder([]);
-						setTurnsById({});
-						setThreadTokenUsage(null);
-						setCollapsedWorkingByTurnId({});
-						setItemToTurnId({});
-						itemToTurnRef.current = {};
-						setCollapsedByEntryId({});
-						setActiveThread(null);
+				// Close any open agent panels that belong to the archived task threads.
+				{
+					const currentTabs = panelTabsRef.current;
+					const activeId = activeMainTabIdRef.current;
+
+					const nextTabs = currentTabs.filter((tab) => tab.kind !== 'agent' || !threadIds.includes(tab.threadId));
+					if (nextTabs.length !== currentTabs.length) {
+						setPanelTabs(nextTabs);
+						if (activeId && !nextTabs.some((tab) => tab.id === activeId)) {
+							const removedIdx = currentTabs.findIndex((tab) => tab.id === activeId);
+							const fallback = nextTabs[removedIdx - 1] ?? nextTabs[removedIdx] ?? null;
+							setActiveMainTabId(fallback?.id ?? null);
+						}
+					}
+				}
+
+				if (selectedThreadId && threadIds.includes(selectedThreadId)) {
+					setTurnOrder([]);
+					setTurnsById({});
+					setThreadTokenUsage(null);
+					setCollapsedWorkingByTurnId({});
+					setItemToTurnId({});
+					itemToTurnRef.current = {};
+					setCollapsedByEntryId({});
+					setActiveThread(null);
 					setActiveTurnId(null);
 					setSelectedThreadId(null);
 					setSelectedSessionTreeNodeOverride(null);
 					setIsWorkbenchEnabled(false);
 					setWorkbenchRootThreadId(null);
-					setActiveMainTabId(MAIN_TAB_CHAT_ID);
 				}
 
 				await listSessions();
@@ -2396,10 +2543,12 @@ export function CodexChat() {
 		[
 			collectThreadIdsInNode,
 			listSessions,
+			panelTabsRef,
 			selectedThreadId,
 			sessionTree.nodeById,
 			setThreadRunning,
 			setActiveMainTabId,
+			setPanelTabs,
 			setIsWorkbenchEnabled,
 		]
 	);
@@ -2488,7 +2637,7 @@ export function CodexChat() {
 		lastAutoFocusedThreadRef.current = candidate;
 		void (async () => {
 			try {
-				await selectSession(candidate);
+				await openAgentPanel(candidate);
 			} finally {
 				autoFocusInFlightRef.current = false;
 			}
@@ -2498,7 +2647,7 @@ export function CodexChat() {
 		isWorkbenchEnabled,
 		runningThreadIds,
 		selectedThreadId,
-		selectSession,
+		openAgentPanel,
 		workbenchAutoFocus,
 		workbenchGraph.orchestratorThreadId,
 		workbenchGraph.workerThreadIds,
@@ -2552,9 +2701,8 @@ export function CodexChat() {
 		try {
 			const res = await apiClient.codexThreadStart(selectedModel);
 			const thread = normalizeThreadFromResponse(res);
-			if (thread) {
-				setSelectedThreadId(thread.id);
-				setActiveThread(thread);
+			if (thread?.id) {
+				await openAgentPanel(thread.id);
 			}
 			await listSessions();
 		} catch (err) {
@@ -2575,7 +2723,7 @@ export function CodexChat() {
 				},
 			});
 		}
-	}, [listSessions, selectedModel]);
+	}, [listSessions, openAgentPanel, selectedModel]);
 
 	const forkFromTurn = useCallback(
 		async (requestedTurnId: string) => {
@@ -2647,7 +2795,7 @@ export function CodexChat() {
 				}
 
 				setForkParentByThreadId((prev) => ({ ...prev, [forked.id]: selectedThreadId }));
-				await selectSession(forked.id);
+				await openAgentPanel(forked.id);
 				await listSessions();
 			} catch (err) {
 				try {
@@ -2660,7 +2808,7 @@ export function CodexChat() {
 				}
 			}
 		},
-		[activeThread?.id, activeThread?.path, listSessions, selectSession, selectedThreadId, turnOrder, turnsById]
+		[activeThread?.id, activeThread?.path, listSessions, openAgentPanel, selectedThreadId, turnOrder, turnsById]
 	);
 
 	const forkThreadLatest = useCallback(
@@ -2672,7 +2820,7 @@ export function CodexChat() {
 				const thread = normalizeThreadFromResponse(res);
 				if (!thread?.id) throw new Error('Failed to parse thread/fork response');
 				setForkParentByThreadId((prev) => ({ ...prev, [thread.id]: threadId }));
-				await selectSession(thread.id);
+				await openAgentPanel(thread.id);
 				await listSessions();
 			} catch (err) {
 				try {
@@ -2685,7 +2833,7 @@ export function CodexChat() {
 				}
 			}
 		},
-		[listSessions, selectSession]
+		[listSessions, openAgentPanel]
 	);
 
 	const forkSession = useCallback(async () => {
@@ -4170,24 +4318,21 @@ export function CodexChat() {
 		return selectedModelInfo?.supportedReasoningEfforts ?? [];
 	}, [selectedModelInfo]);
 
-	const chatTabTitle = useMemo(() => {
-		if (!selectedThreadId) return '对话';
-		const summary = sessions.find((s) => s.id === selectedThreadId);
-		const fallback = activeThread?.preview?.trim() || '对话';
-		return labelForThread(summary, fallback);
-	}, [activeThread?.preview, selectedThreadId, sessions]);
+	const activePanelTab = useMemo(() => {
+		if (!activeMainTabId) return null;
+		return panelTabs.find((tab) => tab.id === activeMainTabId) ?? null;
+	}, [activeMainTabId, panelTabs]);
 
-	const mainTabs = useMemo(() => {
-		return [
-			{ id: MAIN_TAB_CHAT_ID, title: chatTabTitle, kind: 'chat' as const },
-			...fileTabs.map((tab) => ({ id: tab.id, title: tab.title, kind: 'file' as const })),
-		];
-	}, [chatTabTitle, fileTabs]);
+	const activeFileTab = activePanelTab?.kind === 'file' ? activePanelTab : null;
+	const activeAgentTab = activePanelTab?.kind === 'agent' ? activePanelTab : null;
 
-	const activeFileTab = useMemo(() => {
-		if (activeMainTabId === MAIN_TAB_CHAT_ID) return null;
-		return fileTabs.find((tab) => tab.id === activeMainTabId) ?? null;
-	}, [activeMainTabId, fileTabs]);
+	// Ensure the currently visible agent tab is actually loaded into the chat timeline state.
+	useEffect(() => {
+		if (!activeAgentTab?.threadId) return;
+		if (selectedThreadId === activeAgentTab.threadId) return;
+		setSelectedSessionTreeNodeOverride(null);
+		void selectSession(activeAgentTab.threadId);
+	}, [activeAgentTab?.threadId, selectSession, selectedThreadId]);
 
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const turnBlocks = useMemo(() => {
@@ -4680,8 +4825,9 @@ export function CodexChat() {
 				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col pb-0.5">
 					<div className="flex h-6 items-center justify-between border-b border-white/10 pr-3 py-0">
 						<div className="flex min-w-0 items-center overflow-x-auto">
-							{mainTabs.map((tab) => {
+							{panelTabs.map((tab) => {
 								const active = tab.id === activeMainTabId;
+								const title = tab.kind === 'file' && tab.dirty ? `${tab.title}*` : tab.title;
 								return (
 									<div
 										key={tab.id}
@@ -4689,30 +4835,38 @@ export function CodexChat() {
 											'group inline-flex h-6 max-w-[180px] items-center gap-1.5 border-b-2 px-3 text-[11px] transition-colors',
 											active ? 'border-primary bg-bg-panel/60 text-text-main' : 'border-transparent text-text-muted hover:text-text-main',
 										].join(' ')}
-										onClick={() => setActiveMainTabId(tab.id)}
+										onClick={() => {
+											setActiveMainTabId(tab.id);
+											if (tab.kind === 'agent') {
+												setSelectedSessionTreeNodeOverride(null);
+												void openAgentPanel(tab.threadId);
+											}
+										}}
 										role="button"
 										tabIndex={0}
 										onKeyDown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
 												e.preventDefault();
 												setActiveMainTabId(tab.id);
+												if (tab.kind === 'agent') {
+													setSelectedSessionTreeNodeOverride(null);
+													void openAgentPanel(tab.threadId);
+												}
 											}
 										}}
 									>
-										<span className="truncate">{tab.title}</span>
-										{tab.kind === 'file' ? (
-											<button
-												type="button"
-												className="rounded p-0.5 text-text-muted hover:text-text-main"
-												onClick={(e) => {
-													e.stopPropagation();
-													closeFileTab(tab.id);
-												}}
-												aria-label={`Close ${tab.title}`}
-											>
-												<X className="h-3 w-3" />
-											</button>
-										) : null}
+										<span className="truncate">{title}</span>
+										<button
+											type="button"
+											className="rounded p-0.5 text-text-muted hover:text-text-main"
+											onClick={(e) => {
+												e.stopPropagation();
+												void closePanelTab(tab.id);
+											}}
+											aria-label={`Close ${tab.title}`}
+										>
+											<X className="h-3 w-3" />
+										</button>
 									</div>
 								);
 							})}
@@ -4744,7 +4898,7 @@ export function CodexChat() {
 							</div>
 						) : null}
 
-						{activeMainTabId === MAIN_TAB_CHAT_ID ? (
+						{activeAgentTab ? (
 							<>
 								<div className="mt-3 min-h-0 flex-1 flex gap-4">
 									{isWorkbenchEnabled ? (
@@ -5293,34 +5447,74 @@ export function CodexChat() {
 							</div>
 					</>
 					) : (
-					<div className="mt-3 min-h-0 flex-1 overflow-hidden">
-						<div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-white/10 bg-bg-panelHover/40 p-4">
+						<div className="mt-3 min-h-0 flex-1 overflow-hidden">
 							{!activeFileTab ? (
-								<div className="text-sm text-text-muted">Select a file to preview.</div>
+								<div className="rounded-xl border border-white/10 bg-bg-panelHover/40 p-4 text-sm text-text-muted">
+									Select a session or file from the left sidebar.
+								</div>
 							) : (
-								<>
-									<div className="mb-3 flex items-center justify-between gap-3">
+								<div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-white/10 bg-bg-panelHover/40">
+									<div className="flex items-start justify-between gap-3 border-b border-white/10 px-3 py-2">
 										<div className="min-w-0">
-											<div className="truncate text-sm font-semibold">{activeFileTab.path}</div>
+											<div className="truncate text-sm font-semibold">
+												{activeFileTab.path}
+												{activeFileTab.dirty ? <span className="ml-2 text-xs text-status-warning">unsaved</span> : null}
+											</div>
 											<div className="mt-1 text-xs text-text-muted">
-												{activeFileTab.loading ? 'Loading…' : activeFileTab.error ? 'Failed to load file' : ''}
+												{activeFileTab.loading ? 'Loading…' : activeFileTab.saving ? 'Saving…' : activeFileTab.error ? 'Error' : ''}
 											</div>
 										</div>
+										<div className="flex shrink-0 items-center gap-2">
+											<button
+												type="button"
+												className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-text-main hover:border-white/20 disabled:opacity-50"
+												onClick={() => void saveFileTab(activeFileTab.id)}
+												disabled={activeFileTab.loading || activeFileTab.saving || !activeFileTab.dirty}
+												title={activeFileTab.dirty ? 'Save' : 'No changes'}
+											>
+												Save
+											</button>
+											<button
+												type="button"
+												className={[
+													'am-icon-button h-7 w-7 text-text-muted hover:text-text-main',
+													activeFileTab.showPreview ? 'bg-white/10' : '',
+												].join(' ')}
+												onClick={() => toggleFileTabPreview(activeFileTab.id)}
+												title={activeFileTab.showPreview ? 'Hide preview' : 'Show preview'}
+											>
+												<Eye className="h-4 w-4" />
+											</button>
+										</div>
 									</div>
+
 									{activeFileTab.error ? (
-										<div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{activeFileTab.error}</div>
-									) : activeFileTab.loading ? (
-										<div className="text-sm text-text-muted">Loading…</div>
-									) : activeFileTab.content ? (
-										renderTextPreview(activeFileTab.content, activeFileTab.path)
-									) : (
-										<div className="text-sm text-text-muted">No content.</div>
-									)}
-								</>
+										<div className="m-3 rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
+											{activeFileTab.error}
+										</div>
+									) : null}
+
+									<div className="min-h-0 flex flex-1">
+										<div className={activeFileTab.showPreview ? 'min-h-0 w-1/2 border-r border-white/10 p-3' : 'min-h-0 w-full p-3'}>
+											<textarea
+												className="h-full min-h-[360px] w-full resize-none rounded-lg border border-white/10 bg-black/20 p-3 font-mono text-[12px] text-text-main outline-none focus:border-border-active disabled:opacity-60"
+												value={activeFileTab.draft}
+												onChange={(e) => setFileTabDraft(activeFileTab.id, e.target.value)}
+												spellCheck={false}
+												disabled={activeFileTab.loading || activeFileTab.saving}
+											/>
+										</div>
+
+										{activeFileTab.showPreview ? (
+											<div className="min-h-0 w-1/2 overflow-y-auto p-3">
+												{renderTextPreview(activeFileTab.draft, activeFileTab.path)}
+											</div>
+										) : null}
+									</div>
+								</div>
 							)}
 						</div>
-					</div>
-						)}
+					)}
 
 					{isConfigOpen ? (
 						<div className="fixed inset-0 z-50 flex">

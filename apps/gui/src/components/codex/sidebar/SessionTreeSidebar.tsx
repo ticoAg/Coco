@@ -80,7 +80,7 @@ export function SessionTreeSidebar({
 				/>
 			);
 		},
-		[expandedNodes, selectedNodeId, handleNodeSelect, onToggleExpand, onContextMenu, isExpanded, widthPx]
+		[expandedNodes, selectedNodeId, handleNodeSelect, onToggleExpand, onContextMenu, handleNodeAction]
 	);
 
 	const sidebarWidth = isExpanded ? widthPx ?? SIDEBAR_EXPANDED_WIDTH_PX : SIDEBAR_WIDTH_PX;

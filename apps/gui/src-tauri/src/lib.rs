@@ -130,6 +130,7 @@ pub fn run() {
             task_read_text_file,
             task_list_directory,
             workspace_list_directory,
+            workspace_write_file,
             list_shared_artifacts,
             read_shared_artifact,
             workspace_root_get,
@@ -1242,6 +1243,40 @@ fn workspace_list_directory(
     });
 
     Ok(entries)
+}
+
+#[tauri::command]
+fn workspace_write_file(cwd: String, relative_path: String, content: String) -> Result<(), String> {
+    if cwd.trim().is_empty() {
+        return Err("cwd cannot be empty".to_string());
+    }
+    let base_dir = std::path::PathBuf::from(cwd.trim());
+    if !base_dir.exists() || !base_dir.is_dir() {
+        return Err("cwd is not a directory".to_string());
+    }
+
+    let rel_path = validate_task_rel_path(&relative_path)?;
+    let target_file = base_dir.join(&rel_path);
+    if !target_file.exists() {
+        return Err("file does not exist".to_string());
+    }
+    if !target_file.is_file() {
+        return Err("path is not a file".to_string());
+    }
+
+    // Limit content size to 1MB (keep parity with read_file_content).
+    if content.as_bytes().len() > 1_000_000 {
+        return Err("content too large (max 1MB)".to_string());
+    }
+
+    let canonical_base = std::fs::canonicalize(&base_dir).map_err(|e| e.to_string())?;
+    let canonical_target = std::fs::canonicalize(&target_file).map_err(|e| e.to_string())?;
+    if !canonical_target.starts_with(&canonical_base) {
+        return Err("path escapes workspace root".to_string());
+    }
+
+    std::fs::write(&canonical_target, content.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]

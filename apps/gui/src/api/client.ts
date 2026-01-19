@@ -119,6 +119,14 @@ export async function workspaceListDirectory(cwd: string, relativePath: string):
 	});
 }
 
+export async function workspaceWriteFile(cwd: string, relativePath: string, content: string): Promise<void> {
+	await invoke<void>('workspace_write_file', {
+		cwd,
+		relative_path: relativePath,
+		content,
+	});
+}
+
 export async function listSharedArtifacts(taskId: string, category: SharedArtifactCategory): Promise<SharedArtifactSummary[]> {
 	return invoke<SharedArtifactSummary[]>('list_shared_artifacts', {
 		task_id: taskId,
@@ -388,6 +396,7 @@ export const apiClient = {
 	workspaceRootGet,
 	workspaceRootSet,
 	workspaceRecentList,
+	workspaceWriteFile,
 	windowNew,
 	// Context management APIs
 	searchWorkspaceFiles,
