@@ -244,8 +244,21 @@ type TaskContextMenuState = {
 	threadId: string;
 };
 
+type PanelTabContextMenuState = {
+	x: number;
+	y: number;
+	tabId: string;
+};
+
 type RenameTaskState = {
 	threadId: string;
+	value: string;
+	error: string | null;
+};
+
+type RenameFileState = {
+	tabId: string;
+	fromPath: string;
 	value: string;
 	error: string | null;
 };
@@ -261,7 +274,9 @@ export function CodexChat() {
 	const [sessionTreeExpandedNodes, setSessionTreeExpandedNodes] = useState<Set<string>>(new Set());
 	const [selectedSessionTreeNodeOverride, setSelectedSessionTreeNodeOverride] = useState<string | null>(null);
 	const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenuState | null>(null);
+	const [panelTabContextMenu, setPanelTabContextMenu] = useState<PanelTabContextMenuState | null>(null);
 	const [renameTaskDialog, setRenameTaskDialog] = useState<RenameTaskState | null>(null);
+	const [renameFileDialog, setRenameFileDialog] = useState<RenameFileState | null>(null);
 	type RerunDialogState = {
 		entry: Extract<ChatEntry, { kind: 'user' }>;
 	};
@@ -272,6 +287,7 @@ export function CodexChat() {
 	const listSessionsRef = useRef<() => Promise<void>>(async () => { });
 	const archiveTaskInFlightRef = useRef<Set<string>>(new Set());
 	const renameTaskInputRef = useRef<HTMLInputElement>(null);
+	const renameFileInputRef = useRef<HTMLInputElement>(null);
 
 	const [panelTabs, setPanelTabs] = useState<PanelTab[]>([]);
 	const [activeMainTabId, setActiveMainTabId] = useState<string | null>(null);
@@ -504,6 +520,24 @@ export function CodexChat() {
 	useEffect(() => {
 		panelTabsRef.current = panelTabs;
 	}, [panelTabs]);
+
+	// Keep agent tab titles in sync with the latest session summaries (e.g. after renames).
+	useEffect(() => {
+		setPanelTabs((prev) => {
+			let changed = false;
+			const next = prev.map((tab) => {
+				if (tab.kind !== 'agent') return tab;
+				const nextTitle = labelForThread(
+					sessions.find((s) => s.id === tab.threadId),
+					tab.threadId
+				);
+				if (tab.title === nextTitle) return tab;
+				changed = true;
+				return { ...tab, title: nextTitle };
+			});
+			return changed ? next : prev;
+		});
+	}, [sessions]);
 
 	useEffect(() => {
 		activeMainTabIdRef.current = activeMainTabId;
@@ -1651,6 +1685,7 @@ export function CodexChat() {
 	);
 
 	const closeTaskContextMenu = useCallback(() => setTaskContextMenu(null), []);
+	const closePanelTabContextMenu = useCallback(() => setPanelTabContextMenu(null), []);
 
 	useEffect(() => {
 		if (!taskContextMenu) return;
@@ -1674,6 +1709,28 @@ export function CodexChat() {
 		};
 	}, [taskContextMenu]);
 
+	useEffect(() => {
+		if (!panelTabContextMenu) return;
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				setPanelTabContextMenu(null);
+			}
+		};
+		const handlePointerDown = () => setPanelTabContextMenu(null);
+
+		window.addEventListener('keydown', handleKeyDown);
+		window.addEventListener('mousedown', handlePointerDown);
+		// Close on scroll too (captures scroll in nested containers).
+		window.addEventListener('scroll', handlePointerDown, true);
+
+		return () => {
+			window.removeEventListener('keydown', handleKeyDown);
+			window.removeEventListener('mousedown', handlePointerDown);
+			window.removeEventListener('scroll', handlePointerDown, true);
+		};
+	}, [panelTabContextMenu]);
+
 	const renameTaskDialogThreadId = renameTaskDialog?.threadId;
 	useEffect(() => {
 		// Only focus/select when the dialog opens (or the target thread changes).
@@ -1683,6 +1740,16 @@ export function CodexChat() {
 		renameTaskInputRef.current?.focus();
 		renameTaskInputRef.current?.select();
 	}, [renameTaskDialogThreadId]);
+
+	const renameFileDialogTabId = renameFileDialog?.tabId;
+	useEffect(() => {
+		// Only focus/select when the dialog opens (or the target tab changes).
+		// Depending on the full `renameFileDialog` object would re-run on every keystroke
+		// because `value` changes on input.
+		if (!renameFileDialogTabId) return;
+		renameFileInputRef.current?.focus();
+		renameFileInputRef.current?.select();
+	}, [renameFileDialogTabId]);
 
 
 	const handleSessionTreeContextMenu = useCallback(
@@ -1742,6 +1809,91 @@ export function CodexChat() {
 			setRenameTaskDialog((prev) => (prev ? { ...prev, error: errorMessage(err, 'Failed to rename task') } : prev));
 		}
 	}, [listSessions, renameTaskDialog]);
+
+	const renameFileTab = useCallback((tabId: string) => {
+		const tab = panelTabsRef.current.find((t): t is FilePanelTab => t.id === tabId && t.kind === 'file');
+		if (!tab) return;
+		setRenameFileDialog({ tabId, fromPath: tab.path, value: baseName(tab.path), error: null });
+	}, []);
+
+	const closeRenameFileDialog = useCallback(() => {
+		setRenameFileDialog(null);
+	}, []);
+
+	const submitRenameFile = useCallback(async () => {
+		if (!renameFileDialog) return;
+
+		const nextName = renameFileDialog.value.trim();
+		if (!nextName) {
+			setRenameFileDialog((prev) => (prev ? { ...prev, error: 'File name must not be empty.' } : prev));
+			return;
+		}
+		if (nextName.includes('/') || nextName.includes('\\')) {
+			setRenameFileDialog((prev) =>
+				prev
+					? { ...prev, error: 'Only same-folder renames are supported. Please enter a file name without / or \\.' }
+					: prev
+			);
+			return;
+		}
+
+		if (!workspaceBasePath) {
+			setRenameFileDialog((prev) => (prev ? { ...prev, error: 'Workspace root not set.' } : prev));
+			return;
+		}
+
+		const fromPath = renameFileDialog.fromPath.replace(/\\/g, '/');
+		if (fromPath.startsWith('/')) {
+			setRenameFileDialog((prev) =>
+				prev ? { ...prev, error: 'Renaming absolute paths is not supported in this build.' } : prev
+			);
+			return;
+		}
+
+		const lastSlash = fromPath.lastIndexOf('/');
+		const parentDir = lastSlash >= 0 ? fromPath.slice(0, lastSlash) : '';
+		const toPath = parentDir ? `${parentDir}/${nextName}` : nextName;
+		if (toPath === fromPath) {
+			setRenameFileDialog(null);
+			return;
+		}
+
+		const nextTabId = `file:${toPath}`;
+		if (panelTabsRef.current.some((t) => t.id === nextTabId)) {
+			setRenameFileDialog((prev) =>
+				prev ? { ...prev, error: 'A tab for the target file path is already open. Close it first.' } : prev
+			);
+			return;
+		}
+
+		try {
+			await apiClient.workspaceRenameFile(workspaceBasePath, fromPath, toPath);
+
+			// Update the open tab to point at the new file path.
+			setPanelTabs((prev) =>
+				prev.map((t) => {
+					if (t.id !== renameFileDialog.tabId || t.kind !== 'file') return t;
+					return { ...t, id: nextTabId, path: toPath, title: baseName(toPath) };
+				})
+			);
+			setActiveMainTabId((prev) => (prev === renameFileDialog.tabId ? nextTabId : prev));
+
+			// Keep the session tree selection consistent when a selected file is renamed.
+			setSelectedSessionTreeNodeOverride((prev) => {
+				if (!prev) return prev;
+				const suffix = `:${fromPath}`;
+				if (!prev.endsWith(suffix)) return prev;
+				return `${prev.slice(0, prev.length - suffix.length)}:${toPath}`;
+			});
+
+			// Refresh just the parent directory listing (avoid a full tree reload).
+			await loadWorkspaceDirectory(parentDir);
+
+			setRenameFileDialog(null);
+		} catch (err) {
+			setRenameFileDialog((prev) => (prev ? { ...prev, error: errorMessage(err, 'Failed to rename file') } : prev));
+		}
+	}, [loadWorkspaceDirectory, renameFileDialog, workspaceBasePath]);
 
 	const archiveTaskNode = useCallback(
 		async (taskNodeId: string) => {
@@ -3425,6 +3577,57 @@ export function CodexChat() {
 					})()
 					: null}
 
+				{panelTabContextMenu
+					? (() => {
+						const menuWidth = 188;
+						const menuHeight = 40;
+						const x =
+							typeof window !== 'undefined'
+								? Math.min(panelTabContextMenu.x, Math.max(8, window.innerWidth - menuWidth - 8))
+								: panelTabContextMenu.x;
+						const y =
+							typeof window !== 'undefined'
+								? Math.min(panelTabContextMenu.y, Math.max(8, window.innerHeight - menuHeight - 8))
+								: panelTabContextMenu.y;
+
+						const tab = panelTabs.find((t) => t.id === panelTabContextMenu.tabId) ?? null;
+						if (!tab) return null;
+						const canRename = tab.kind === 'agent' || (tab.kind === 'file' && !tab.path.startsWith('/'));
+
+						return (
+							<div
+								className="fixed z-50 w-[188px] rounded-md border border-white/10 bg-bg-popover p-1 text-[11px] text-text-main shadow-lg"
+								style={{ left: x, top: y }}
+								onMouseDown={(e) => e.stopPropagation()}
+								onContextMenu={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+								}}
+							>
+								<button
+									type="button"
+									disabled={!canRename}
+									className={[
+										'flex w-full items-center rounded px-2 py-1.5',
+										canRename ? 'hover:bg-white/5' : 'cursor-not-allowed opacity-50',
+									].join(' ')}
+									onClick={() => {
+										if (!canRename) return;
+										closePanelTabContextMenu();
+										if (tab.kind === 'agent') {
+											renameTaskThread(tab.threadId);
+											return;
+										}
+										renameFileTab(tab.id);
+									}}
+								>
+									Rename…
+								</button>
+							</div>
+						);
+					})()
+					: null}
+
 				{renameTaskDialog ? (
 					<div
 						className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
@@ -3483,6 +3686,74 @@ export function CodexChat() {
 									type="button"
 									className="rounded-md border border-primary/40 bg-primary/20 px-3 py-1 text-xs text-text-main hover:bg-primary/30"
 									onClick={() => void submitRenameTask()}
+								>
+									Save
+								</button>
+							</div>
+						</div>
+					</div>
+				) : null}
+
+				{renameFileDialog ? (
+					<div
+						className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+						onMouseDown={(event) => {
+							if (event.target === event.currentTarget) closeRenameFileDialog();
+						}}
+					>
+						<div className="w-full max-w-sm rounded-xl border border-white/10 bg-bg-popover p-4 text-sm text-text-main">
+							<div className="mb-3 flex items-center justify-between gap-2">
+								<div className="text-sm font-semibold">Rename file</div>
+								<button
+									type="button"
+									className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-xs hover:border-white/20"
+									onClick={closeRenameFileDialog}
+								>
+									✕
+								</button>
+							</div>
+
+							<div className="mb-2 truncate text-[11px] text-text-muted">{renameFileDialog.fromPath}</div>
+
+							{renameFileDialog.error ? (
+								<div className="mb-3 rounded-md border border-status-error/30 bg-status-error/10 px-2 py-1 text-xs text-status-error">
+									{renameFileDialog.error}
+								</div>
+							) : null}
+
+							<input
+								ref={renameFileInputRef}
+								className="w-full rounded-md border border-white/10 bg-bg-panelHover px-2 py-1.5 text-xs outline-none focus:border-border-active"
+								value={renameFileDialog.value}
+								maxLength={255}
+								onChange={(event) => {
+									const value = event.target.value;
+									setRenameFileDialog((prev) => (prev ? { ...prev, value, error: null } : prev));
+								}}
+								onKeyDown={(event) => {
+									if (event.key === 'Escape') {
+										event.preventDefault();
+										closeRenameFileDialog();
+									}
+									if (event.key === 'Enter') {
+										event.preventDefault();
+										void submitRenameFile();
+									}
+								}}
+							/>
+
+							<div className="mt-3 flex justify-end gap-2">
+								<button
+									type="button"
+									className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-1 text-xs hover:border-white/20"
+									onClick={closeRenameFileDialog}
+								>
+									Cancel
+								</button>
+								<button
+									type="button"
+									className="rounded-md border border-primary/40 bg-primary/20 px-3 py-1 text-xs text-text-main hover:bg-primary/30"
+									onClick={() => void submitRenameFile()}
 								>
 									Save
 								</button>
@@ -3556,6 +3827,11 @@ export function CodexChat() {
 												void openAgentPanel(tab.threadId);
 											}
 										}}
+										onContextMenu={(e) => {
+											e.preventDefault();
+											e.stopPropagation();
+											setPanelTabContextMenu({ x: e.clientX, y: e.clientY, tabId: tab.id });
+										}}
 										role="button"
 										tabIndex={0}
 										onKeyDown={(e) => {
@@ -3569,7 +3845,7 @@ export function CodexChat() {
 											}
 										}}
 									>
-										<span className="truncate">{title}</span>
+										<span className="truncate select-none">{title}</span>
 										<button
 											type="button"
 											className="rounded p-0.5 text-text-muted hover:text-text-main"

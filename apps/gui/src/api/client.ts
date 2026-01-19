@@ -128,6 +128,14 @@ export async function workspaceWriteFile(cwd: string, relativePath: string, cont
 	});
 }
 
+export async function workspaceRenameFile(cwd: string, fromRelativePath: string, toRelativePath: string): Promise<void> {
+	await invoke<void>('workspace_rename_file', {
+		cwd,
+		fromRelativePath,
+		toRelativePath,
+	});
+}
+
 export async function listSharedArtifacts(taskId: string, category: SharedArtifactCategory): Promise<SharedArtifactSummary[]> {
 	return invoke<SharedArtifactSummary[]>('list_shared_artifacts', {
 		task_id: taskId,
@@ -432,6 +440,7 @@ export const apiClient = {
 	workspaceRootSet,
 	workspaceRecentList,
 	workspaceWriteFile,
+	workspaceRenameFile,
 	windowNew,
 	// Context management APIs
 	searchWorkspaceFiles,

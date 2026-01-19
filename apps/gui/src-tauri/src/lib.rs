@@ -131,6 +131,7 @@ pub fn run() {
             task_list_directory,
             workspace_list_directory,
             workspace_write_file,
+            workspace_rename_file,
             list_shared_artifacts,
             read_shared_artifact,
             workspace_root_get,
@@ -1279,6 +1280,67 @@ fn workspace_write_file(cwd: String, relative_path: String, content: String) -> 
     }
 
     std::fs::write(&canonical_target, content.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn workspace_rename_file(
+    cwd: String,
+    from_relative_path: String,
+    to_relative_path: String,
+) -> Result<(), String> {
+    use std::path::Path;
+
+    if cwd.trim().is_empty() {
+        return Err("cwd cannot be empty".to_string());
+    }
+    let base_dir = std::path::PathBuf::from(cwd.trim());
+    if !base_dir.exists() || !base_dir.is_dir() {
+        return Err("cwd is not a directory".to_string());
+    }
+
+    let from_rel = validate_task_rel_path(&from_relative_path)?;
+    let to_rel = validate_task_rel_path(&to_relative_path)?;
+
+    // Only allow renaming within the same directory (no moves).
+    let from_parent = from_rel.parent().unwrap_or(Path::new(""));
+    let to_parent = to_rel.parent().unwrap_or(Path::new(""));
+    if from_parent != to_parent {
+        return Err("renaming across directories is not allowed".to_string());
+    }
+
+    let from_path = base_dir.join(&from_rel);
+    if !from_path.exists() {
+        return Err("source file does not exist".to_string());
+    }
+    if !from_path.is_file() {
+        return Err("source path is not a file".to_string());
+    }
+
+    let canonical_base = std::fs::canonicalize(&base_dir).map_err(|e| e.to_string())?;
+    let canonical_from = std::fs::canonicalize(&from_path).map_err(|e| e.to_string())?;
+    if !canonical_from.starts_with(&canonical_base) {
+        return Err("path escapes workspace root".to_string());
+    }
+
+    let to_file_name = to_rel
+        .file_name()
+        .ok_or_else(|| "destination path must be a file".to_string())?;
+    let to_parent_path = base_dir.join(to_parent);
+    if !to_parent_path.exists() || !to_parent_path.is_dir() {
+        return Err("destination directory does not exist".to_string());
+    }
+    let canonical_to_parent = std::fs::canonicalize(&to_parent_path).map_err(|e| e.to_string())?;
+    if !canonical_to_parent.starts_with(&canonical_base) {
+        return Err("path escapes workspace root".to_string());
+    }
+
+    let canonical_to = canonical_to_parent.join(to_file_name);
+    if canonical_to.exists() {
+        return Err("destination already exists".to_string());
+    }
+
+    std::fs::rename(&canonical_from, &canonical_to).map_err(|e| e.to_string())?;
     Ok(())
 }
 
