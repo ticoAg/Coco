@@ -7,7 +7,8 @@ import { SkillMenu } from '../codex/SkillMenu';
 import { SlashCommandMenu } from '../codex/SlashCommandMenu';
 
 function ShortSlashIcon({ className }: { className?: string }) {
-	// Keep icon size the same (h-4 w-4), but shorten the slash stroke to 80% of lucide's default.
+	// Keep icon size the same (h-4 w-4), but shorten the slash stroke to 70% of lucide's default
+	// and rotate it slightly counter-clockwise so it doesn't visually "touch" the container.
 	return (
 		<svg
 			viewBox="0 0 24 24"
@@ -20,7 +21,9 @@ function ShortSlashIcon({ className }: { className?: string }) {
 			aria-hidden="true"
 			focusable="false"
 		>
-			<path d="M20 4 4 20" />
+			<g transform="rotate(-10 12 12)">
+				<path d="M19 5 5 19" />
+			</g>
 		</svg>
 	);
 }
