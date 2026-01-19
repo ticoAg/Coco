@@ -7,13 +7,13 @@
 ## 2. Implementation
 - [x] 2.1 建立 `apps/gui/src/features/codex-chat/` 目录骨架（`index.ts` / `ui/` / `model/` / `lib/` / `types/`）。
 - [x] 2.2 迁移 `apps/gui/src/components/codex/**` 到 `features/codex-chat/`（优先保持文件名与相对结构，减少一次性改动）。
-- [ ] 2.3 将 `apps/gui/src/components/CodexChat.tsx` 拆分为“容器组件 + hooks + 纯函数模块”：
+- [x] 2.3 将 `apps/gui/src/components/CodexChat.tsx` 拆分为“容器组件 + hooks + 纯函数模块”：
   - [x] localStorage/settings/pinned items → `lib/storage.ts`
-  - [ ] 事件 ingest / thread 状态聚合 → `model/*`（hooks + reducer/纯函数）
-  - [ ] workbench panels / header / composer → `ui/*`
-- [ ] 2.4 将 `apps/gui/src/components/codex/TurnBlock.tsx` 拆分：
+  - [x] 事件 ingest / thread 状态聚合 → `model/*`（hooks + reducer/纯函数）
+  - [x] workbench panels / header / composer → `ui/*`
+- [x] 2.4 将 `apps/gui/src/components/codex/TurnBlock.tsx` 拆分：
   - [x] 纯函数（extract/count/format）→ `lib/turn/*`
-  - [ ] 复杂分支渲染拆成小组件 → `ui/turn/*`
+  - [x] 复杂分支渲染拆成小组件 → `ui/turn/*`
 - [x] 2.5 收敛跨模块 import：
   - App/其他 feature 仅从 `@/features/codex-chat`（Facade）导入
   - 迁移期必要时保留旧路径薄 shim（re-export），并在本 change 末尾尽量清理
