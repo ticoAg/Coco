@@ -1,7 +1,7 @@
 # gui-frontend-architecture Specification
 
 ## Purpose
-TBD - created by archiving change add-gui-frontend-architecture. Update Purpose after archive.
+定义 GUI 前端源码组织结构与模块边界：采用 Feature-first（`app/ + features/ + shared/`）以降低耦合、提升可维护性，并约束依赖方向与 Facade import 规则；迁移过程中保持可渐进落地且构建始终可用。
 ## Requirements
 ### Requirement: Feature-first source layout
 系统 SHALL 在 `apps/gui/src` 采用 Feature-first 的源码结构，以明确 app 装配、业务域 feature 与跨域复用 shared 的边界：
@@ -58,4 +58,3 @@ TBD - created by archiving change add-gui-frontend-architecture. Update Purpose 
 - **GIVEN** 文档引用了 `apps/gui/src/components/CodexChat.tsx`
 - **WHEN** 该文件被迁移到 `src/features/codex-chat/...`
 - **THEN** 文档引用被同步更新（或替换为新的稳定入口）
-
