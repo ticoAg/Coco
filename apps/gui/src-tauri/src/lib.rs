@@ -163,6 +163,9 @@ pub fn run() {
             search_workspace_files,
             read_file_content,
             get_auto_context,
+            git_worktree_list,
+            git_branch_list,
+            git_worktree_create,
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
@@ -1606,6 +1609,8 @@ async fn codex_thread_list(
     app: tauri::AppHandle,
     cursor: Option<String>,
     limit: Option<u32>,
+    cwd_filter: Option<String>,
+    pinned_thread_id: Option<String>,
     app_server_id: Option<String>,
 ) -> Result<CodexThreadListResponse, String> {
     // Get current workspace for filtering
@@ -1615,6 +1620,12 @@ async fn codex_thread_list(
         .unwrap_or_else(|e| e.into_inner())
         .workspace_root()
         .to_path_buf();
+
+    let filter_path = cwd_filter
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| workspace_root.clone());
 
     let codex_home = default_codex_home_dir()?;
     let _ = restore_recent_archived_sessions(
@@ -1652,10 +1663,13 @@ async fn codex_thread_list(
             .and_then(|v| v.as_str())
             .map(std::path::PathBuf::from);
 
-        // Filter: skip threads not in current workspace
-        if let Some(ref cwd) = thread_cwd {
-            if cwd != &workspace_root {
-                continue;
+        // Filter: skip threads not in requested cwd unless pinned (threads without cwd remain visible)
+        let is_pinned = pinned_thread_id.as_deref() == Some(id);
+        if !is_pinned {
+            if let Some(ref cwd) = thread_cwd {
+                if !paths_match(cwd, &filter_path) {
+                    continue;
+                }
             }
         }
 
@@ -1716,6 +1730,15 @@ async fn codex_thread_list(
         (None, Some(_)) => std::cmp::Ordering::Greater,
         (None, None) => b.created_at.cmp(&a.created_at),
     });
+
+    if let Some(pinned_id) = pinned_thread_id.as_deref() {
+        if let Some(idx) = threads.iter().position(|t| t.id == pinned_id) {
+            if idx != 0 {
+                let pinned = threads.remove(idx);
+                threads.insert(0, pinned);
+            }
+        }
+    }
 
     Ok(CodexThreadListResponse {
         data: threads,
@@ -1827,16 +1850,23 @@ async fn codex_thread_start(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
     model: Option<String>,
+    cwd: Option<String>,
     app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let codex = get_or_start_codex(&state, app, app_server_id).await?;
-    let cwd = state
+    let default_cwd = state
         .orchestrator
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .workspace_root()
         .to_string_lossy()
         .to_string();
+    let cwd = cwd
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_string())
+        .unwrap_or(default_cwd);
     let params = serde_json::json!({
         "cwd": cwd,
         "model": model,
@@ -1935,6 +1965,7 @@ async fn codex_turn_start(
     model: Option<String>,
     effort: Option<String>,
     approval_policy: Option<String>,
+    cwd: Option<String>,
     app_server_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let codex = get_or_start_codex(&state, app, app_server_id).await?;
@@ -1957,12 +1988,19 @@ async fn codex_turn_start(
         }
     };
 
+    let cwd = cwd
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_string());
+
     let params = serde_json::json!({
         "threadId": thread_id,
         "input": input,
         "model": model,
         "effort": effort,
         "approvalPolicy": approval_policy,
+        "cwd": cwd,
     });
 
     codex.request("turn/start", Some(params)).await
@@ -2356,6 +2394,13 @@ struct AutoContextInfo {
     git_status: Option<GitStatus>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorktreeInfo {
+    path: String,
+    branch: Option<String>,
+}
+
 #[tauri::command]
 async fn search_workspace_files(
     cwd: String,
@@ -2490,6 +2535,153 @@ async fn get_auto_context(cwd: String) -> Result<AutoContextInfo, String> {
     })
 }
 
+fn ensure_git_repo(cwd: &std::path::Path) -> Result<(), String> {
+    let output = run_git_command(cwd, &["rev-parse", "--is-inside-work-tree"])?;
+    if output.trim() == "true" {
+        Ok(())
+    } else {
+        Err("not a git repository".to_string())
+    }
+}
+
+fn run_git_command(cwd: &std::path::Path, args: &[&str]) -> Result<String, String> {
+    use std::process::Command;
+
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "git command failed".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[tauri::command]
+async fn git_worktree_list(cwd: String) -> Result<Vec<WorktreeInfo>, String> {
+    let cwd_path = std::path::PathBuf::from(cwd.trim());
+    if cwd_path.as_os_str().is_empty() {
+        return Err("cwd cannot be empty".to_string());
+    }
+    if !cwd_path.exists() || !cwd_path.is_dir() {
+        return Err("cwd is not a directory".to_string());
+    }
+    ensure_git_repo(&cwd_path)?;
+
+    let output = run_git_command(&cwd_path, &["worktree", "list", "--porcelain"])?;
+    let mut worktrees = Vec::new();
+    let mut current_path: Option<String> = None;
+    let mut current_branch: Option<String> = None;
+
+    for raw_line in output.lines() {
+        let line = raw_line.trim();
+        if let Some(rest) = line.strip_prefix("worktree ") {
+            if let Some(path) = current_path.take() {
+                worktrees.push(WorktreeInfo {
+                    path,
+                    branch: current_branch.take(),
+                });
+            }
+            current_path = Some(rest.trim().to_string());
+            current_branch = None;
+        } else if let Some(rest) = line.strip_prefix("branch ") {
+            let trimmed = rest.trim();
+            let branch = trimmed.strip_prefix("refs/heads/").unwrap_or(trimmed);
+            current_branch = Some(branch.to_string());
+        } else if line == "detached" {
+            current_branch = None;
+        }
+    }
+
+    if let Some(path) = current_path.take() {
+        worktrees.push(WorktreeInfo {
+            path,
+            branch: current_branch.take(),
+        });
+    }
+
+    Ok(worktrees)
+}
+
+#[tauri::command]
+async fn git_branch_list(cwd: String) -> Result<Vec<String>, String> {
+    let cwd_path = std::path::PathBuf::from(cwd.trim());
+    if cwd_path.as_os_str().is_empty() {
+        return Err("cwd cannot be empty".to_string());
+    }
+    if !cwd_path.exists() || !cwd_path.is_dir() {
+        return Err("cwd is not a directory".to_string());
+    }
+    ensure_git_repo(&cwd_path)?;
+
+    let output = run_git_command(
+        &cwd_path,
+        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+    )?;
+    let mut branches: Vec<String> = output
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect();
+    branches.sort();
+    Ok(branches)
+}
+
+#[tauri::command]
+async fn git_worktree_create(cwd: String, worktree_name: String, branch: String) -> Result<String, String> {
+    let cwd_path = std::path::PathBuf::from(cwd.trim());
+    if cwd_path.as_os_str().is_empty() {
+        return Err("cwd cannot be empty".to_string());
+    }
+    if !cwd_path.exists() || !cwd_path.is_dir() {
+        return Err("cwd is not a directory".to_string());
+    }
+    ensure_git_repo(&cwd_path)?;
+
+    let trimmed_name = worktree_name.trim();
+    if trimmed_name.is_empty() {
+        return Err("worktree name cannot be empty".to_string());
+    }
+    if trimmed_name.contains('/') || trimmed_name.contains('\\') {
+        return Err("worktree name cannot contain path separators".to_string());
+    }
+
+    let repo_root = run_git_command(&cwd_path, &["rev-parse", "--show-toplevel"])?;
+    let repo_root = std::path::PathBuf::from(repo_root.trim());
+    let repo_name = repo_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "failed to resolve repo name".to_string())?;
+    let parent = repo_root
+        .parent()
+        .ok_or_else(|| "failed to resolve repo parent".to_string())?;
+    let target_path = parent.join(format!("{repo_name}-{trimmed_name}"));
+    if target_path.exists() {
+        return Err("target worktree path already exists".to_string());
+    }
+
+    let branch_name = branch.trim();
+    if branch_name.is_empty() {
+        return Err("branch cannot be empty".to_string());
+    }
+
+    let target_str = target_path.to_string_lossy().to_string();
+    run_git_command(
+        &cwd_path,
+        &["worktree", "add", &target_str, branch_name],
+    )?;
+
+    Ok(target_str)
+}
+
 fn get_recent_files(cwd: &std::path::Path, limit: usize) -> Vec<String> {
     use std::time::{Duration, SystemTime};
 
@@ -2559,6 +2751,19 @@ fn collect_recent_files(
             }
         }
     }
+}
+
+fn normalize_for_path_compare(path: &std::path::Path) -> String {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut out = resolved.to_string_lossy().to_string();
+    if cfg!(windows) {
+        out = out.to_lowercase();
+    }
+    out
+}
+
+fn paths_match(a: &std::path::Path, b: &std::path::Path) -> bool {
+    normalize_for_path_compare(a) == normalize_for_path_compare(b)
 }
 
 fn get_git_status(cwd: &std::path::Path) -> Option<GitStatus> {

@@ -22,6 +22,7 @@ import type {
 	FileInfo,
 	PromptsListResponse,
 	SkillsListResponse,
+	WorktreeInfo,
 } from '../types/codex';
 
 export async function listTasks(): Promise<Task[]> {
@@ -156,11 +157,21 @@ export async function codexAppServerShutdown(appServerId: string): Promise<void>
 	await invoke<void>('codex_app_server_shutdown', { appServerId });
 }
 
-export async function codexThreadList(cursor?: string | null, limit?: number | null, appServerId?: string | null): Promise<CodexThreadListResponse> {
+export async function codexThreadList(
+	cursor?: string | null,
+	limit?: number | null,
+	options?: {
+		cwdFilter?: string | null;
+		pinnedThreadId?: string | null;
+		appServerId?: string | null;
+	}
+): Promise<CodexThreadListResponse> {
 	return invoke<CodexThreadListResponse>('codex_thread_list', {
 		cursor: cursor ?? null,
 		limit: limit ?? null,
-		appServerId: appServerId ?? null,
+		cwdFilter: options?.cwdFilter ?? null,
+		pinnedThreadId: options?.pinnedThreadId ?? null,
+		appServerId: options?.appServerId ?? null,
 	});
 }
 
@@ -180,8 +191,18 @@ export async function codexThreadArchive(threadId: string, appServerId?: string 
 	await invoke<void>('codex_thread_archive', { threadId, appServerId: appServerId ?? null });
 }
 
-export async function codexThreadStart(model?: string | null, appServerId?: string | null): Promise<unknown> {
-	return invoke<unknown>('codex_thread_start', { model: model ?? null, appServerId: appServerId ?? null });
+export async function codexThreadStart(
+	model?: string | null,
+	options?: {
+		cwd?: string | null;
+		appServerId?: string | null;
+	}
+): Promise<unknown> {
+	return invoke<unknown>('codex_thread_start', {
+		model: model ?? null,
+		cwd: options?.cwd ?? null,
+		appServerId: options?.appServerId ?? null,
+	});
 }
 
 export async function codexThreadResume(threadId: string, appServerId?: string | null): Promise<unknown> {
@@ -216,6 +237,7 @@ export async function codexTurnStart(
 	model?: string | null,
 	effort?: string | null,
 	approvalPolicy?: string | null,
+	cwd?: string | null,
 	appServerId?: string | null
 ): Promise<unknown> {
 	return invoke<unknown>('codex_turn_start', {
@@ -224,6 +246,7 @@ export async function codexTurnStart(
 		model: model ?? null,
 		effort: effort ?? null,
 		approvalPolicy: approvalPolicy ?? null,
+		cwd: cwd ?? null,
 		appServerId: appServerId ?? null,
 	});
 }
@@ -347,6 +370,18 @@ export async function getAutoContext(cwd: string): Promise<AutoContextInfo> {
 	return invoke<AutoContextInfo>('get_auto_context', { cwd });
 }
 
+export async function gitWorktreeList(cwd: string): Promise<WorktreeInfo[]> {
+	return invoke<WorktreeInfo[]>('git_worktree_list', { cwd });
+}
+
+export async function gitBranchList(cwd: string): Promise<string[]> {
+	return invoke<string[]>('git_branch_list', { cwd });
+}
+
+export async function gitWorktreeCreate(cwd: string, worktreeName: string, branch: string): Promise<string> {
+	return invoke<string>('git_worktree_create', { cwd, worktreeName, branch });
+}
+
 export async function codexSkillList(appServerId?: string | null): Promise<SkillsListResponse> {
 	return invoke<SkillsListResponse>('codex_skill_list', { appServerId: appServerId ?? null });
 }
@@ -402,6 +437,9 @@ export const apiClient = {
 	searchWorkspaceFiles,
 	readFileContent,
 	getAutoContext,
+	gitWorktreeList,
+	gitBranchList,
+	gitWorktreeCreate,
 };
 
 export default apiClient;

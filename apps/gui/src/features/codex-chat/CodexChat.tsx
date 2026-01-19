@@ -64,6 +64,7 @@ import type {
 	FileInfo,
 	ReasoningEffort,
 	SkillMetadata,
+	WorktreeInfo,
 } from '@/types/codex';
 import type { TaskDirectoryEntry, TreeNodeData } from '@/types/sidebar';
 
@@ -349,9 +350,22 @@ export function CodexChat() {
 	const itemToTurnRef = useRef<Record<string, string>>({});
 	const relatedRepoPathsByThreadIdRef = useRef<Record<string, string[]>>({});
 	const skipAutoScrollRef = useRef(false);
+	const lastSelectedThreadIdRef = useRef<string | null>(null);
 
 	// Context management state
 	const [autoContext, setAutoContext] = useState<AutoContextInfo | null>(null);
+	const [activeWorktreePath, setActiveWorktreePath] = useState<string | null>(null);
+	const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
+	const [worktreesError, setWorktreesError] = useState<string | null>(null);
+	const [worktreesLoading, setWorktreesLoading] = useState(false);
+	const [branches, setBranches] = useState<string[]>([]);
+	const [branchesError, setBranchesError] = useState<string | null>(null);
+	const [branchesLoading, setBranchesLoading] = useState(false);
+	const [isWorktreeMenuOpen, setIsWorktreeMenuOpen] = useState(false);
+	const [newWorktreeName, setNewWorktreeName] = useState('');
+	const [newWorktreeBranch, setNewWorktreeBranch] = useState<string | null>(null);
+	const [worktreeActionError, setWorktreeActionError] = useState<string | null>(null);
+	const [worktreeCreating, setWorktreeCreating] = useState(false);
 	const [relatedRepoPaths, setRelatedRepoPaths] = useState<string[]>([]);
 	const [fileAttachments, setFileAttachments] = useState<FileAttachment[]>([]);
 	const [isAddContextOpen, setIsAddContextOpen] = useState(false);
@@ -374,13 +388,25 @@ export function CodexChat() {
 		const fileInputRef = useRef<HTMLInputElement>(null);
 		const textareaRef = useRef<HTMLTextAreaElement>(null);
 		const menuListRef = useRef<HTMLDivElement>(null);
-		const computedWorkspaceBasePath = activeThread?.cwd ?? workspaceRoot ?? null;
+		const effectiveCwd = activeWorktreePath ?? activeThread?.cwd ?? workspaceRoot ?? null;
+		const computedWorkspaceBasePath = effectiveCwd;
 		const workspaceBasePath = workspaceBasePathOverride ?? computedWorkspaceBasePath;
 
 	// Reset the override when the source base path changes (e.g. switching sessions / selecting a new project).
 		useEffect(() => {
 			setWorkspaceBasePathOverride(null);
 		}, [computedWorkspaceBasePath]);
+
+		useEffect(() => {
+			if (selectedThreadId && selectedThreadId !== lastSelectedThreadIdRef.current) {
+				lastSelectedThreadIdRef.current = selectedThreadId;
+				setActiveWorktreePath(activeThread?.cwd ?? workspaceRoot ?? null);
+				return;
+			}
+			if (!selectedThreadId && !activeWorktreePath && workspaceRoot) {
+				setActiveWorktreePath(workspaceRoot);
+			}
+		}, [activeThread?.cwd, activeWorktreePath, selectedThreadId, workspaceRoot]);
 
 		useEffect(() => {
 			persistPinnedInputItems(pinnedInputItems);
@@ -435,6 +461,22 @@ export function CodexChat() {
 			}
 			return out;
 		}, [pinnedInputItems, prompts, skills]);
+
+		const normalizePath = useCallback((value: string) => value.replace(/\\/g, '/').replace(/\/+$/, ''), []);
+
+		const activeWorktreeInfo = useMemo(() => {
+			if (!activeWorktreePath) return null;
+			const target = normalizePath(activeWorktreePath);
+			return worktrees.find((wt) => normalizePath(wt.path) === target) ?? null;
+		}, [activeWorktreePath, normalizePath, worktrees]);
+
+		const activeWorktreeBranch = activeWorktreeInfo?.branch ?? autoContext?.gitStatus?.branch ?? null;
+		const activeWorktreeLabel = useMemo(() => {
+			if (!activeWorktreePath) return 'Worktree';
+			const name = repoNameFromPath(activeWorktreePath);
+			const branchLabel = activeWorktreeBranch ?? 'detached';
+			return `${name} · ${branchLabel}`;
+		}, [activeWorktreeBranch, activeWorktreePath]);
 
 		useLayoutEffect(() => {
 			adjustTextareaHeight();
@@ -583,6 +625,54 @@ export function CodexChat() {
 			setRecentWorkspaces([]);
 		}
 	}, []);
+
+	const loadWorktrees = useCallback(
+		async (cwdOverride?: string | null) => {
+			const cwd = cwdOverride ?? effectiveCwd;
+			if (!cwd) {
+				setWorktrees([]);
+				return;
+			}
+			setWorktreesLoading(true);
+			setWorktreesError(null);
+			try {
+				const list = await apiClient.gitWorktreeList(cwd);
+				setWorktrees(list);
+			} catch (err) {
+				setWorktreesError(errorMessage(err, 'Failed to load worktrees'));
+				setWorktrees([]);
+			} finally {
+				setWorktreesLoading(false);
+			}
+		},
+		[effectiveCwd]
+	);
+
+	const loadBranches = useCallback(
+		async (cwdOverride?: string | null) => {
+			const cwd = cwdOverride ?? effectiveCwd;
+			if (!cwd) {
+				setBranches([]);
+				return;
+			}
+			setBranchesLoading(true);
+			setBranchesError(null);
+			try {
+				const list = await apiClient.gitBranchList(cwd);
+				setBranches(list);
+				if (!newWorktreeBranch) {
+					const fallback = autoContext?.gitStatus?.branch ?? list[0] ?? null;
+					setNewWorktreeBranch(fallback);
+				}
+			} catch (err) {
+				setBranchesError(errorMessage(err, 'Failed to load branches'));
+				setBranches([]);
+			} finally {
+				setBranchesLoading(false);
+			}
+		},
+		[autoContext?.gitStatus?.branch, effectiveCwd, newWorktreeBranch]
+	);
 
 	const seedRunningThreads = useCallback(async () => {
 		try {
@@ -1254,7 +1344,7 @@ export function CodexChat() {
 			archivedGroupThreadIdsByKey,
 			archivedGroupKeyByNodeId,
 		};
-	}, [sessions, runningThreadIds, activeThread?.cwd, workspaceRoot, workbenchGraph.edges, workspaceDirEntriesByPath]);
+	}, [activeThread?.cwd, sessions, runningThreadIds, workspaceRoot, workbenchGraph.edges, workspaceDirEntriesByPath]);
 
 	useEffect(() => {
 		setSessionTreeExpandedNodes((prev) => {
@@ -1887,7 +1977,7 @@ export function CodexChat() {
 		setActiveTurnId(null);
 		setSelectedThreadId(null);
 		try {
-			const res = await apiClient.codexThreadStart(selectedModel);
+			const res = await apiClient.codexThreadStart(selectedModel, { cwd: activeWorktreePath ?? workspaceRoot ?? null });
 			const thread = normalizeThreadFromResponse(res);
 			if (thread?.id) {
 				await openAgentPanel(thread.id);
@@ -1911,7 +2001,7 @@ export function CodexChat() {
 				},
 			});
 		}
-	}, [listSessions, openAgentPanel, selectedModel]);
+	}, [activeWorktreePath, listSessions, openAgentPanel, selectedModel, workspaceRoot]);
 
 	const forkFromTurn = useCallback(
 		async (requestedTurnId: string) => {
@@ -2128,15 +2218,16 @@ export function CodexChat() {
 			}
 
 			let threadId = selectedThreadId;
-			let currentRepoPath = activeThread?.cwd ?? null;
+			let currentRepoPath = effectiveCwd;
 			if (!threadId) {
-				const res = await apiClient.codexThreadStart(selectedModel);
+				const res = await apiClient.codexThreadStart(selectedModel, { cwd: activeWorktreePath ?? workspaceRoot ?? null });
 				const thread = normalizeThreadFromResponse(res);
 				if (!thread) throw new Error('Failed to start thread');
 				threadId = thread.id;
 				currentRepoPath = thread.cwd ?? null;
 				setSelectedThreadId(threadId);
 				setActiveThread(thread);
+				setActiveWorktreePath(thread.cwd ?? activeWorktreePath ?? workspaceRoot ?? null);
 				await listSessions();
 			}
 
@@ -2196,7 +2287,14 @@ export function CodexChat() {
 			setSelectedSkill(null);
 			setSelectedPrompt(null);
 			setFileAttachments([]);
-			await apiClient.codexTurnStart(threadId, codexInput, selectedModel, selectedEffort, approvalPolicy);
+			await apiClient.codexTurnStart(
+				threadId,
+				codexInput,
+				selectedModel,
+				selectedEffort,
+				approvalPolicy,
+				activeWorktreePath ?? null
+			);
 		} catch (err) {
 			const systemEntry: ChatEntry = {
 				kind: 'system',
@@ -2226,14 +2324,16 @@ export function CodexChat() {
 		}
 	}, [
 		approvalPolicy,
+		activeWorktreePath,
+		autoContextEnabled,
+		effectiveCwd,
 		input,
 		listSessions,
+		relatedRepoPaths,
+		workspaceRoot,
 		selectedEffort,
 		selectedModel,
 		selectedThreadId,
-		autoContextEnabled,
-		activeThread?.cwd,
-		relatedRepoPaths,
 		fileAttachments,
 		selectedSkill,
 		selectedPrompt,
@@ -2331,7 +2431,7 @@ export function CodexChat() {
 				const nextPrompt = nextPromptName ? prompts.find((prompt) => prompt.name === nextPromptName) ?? null : null;
 
 				const isAbsolutePath = (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
-				const cwd = activeThread?.cwd ?? '.';
+				const cwd = effectiveCwd ?? '.';
 				const fileItems = normalizedAttachments.filter((att) => att.type === 'file') as Extract<AttachmentItem, { type: 'file' }>[];
 				const imageItems = normalizedAttachments.filter((att) => att.type === 'image') as Extract<AttachmentItem, { type: 'image' }>[];
 				const localImageItems = normalizedAttachments.filter((att) => att.type === 'localImage') as Extract<AttachmentItem, { type: 'localImage' }>[];
@@ -2386,7 +2486,7 @@ export function CodexChat() {
 				return true;
 			},
 		[
-			activeThread?.cwd,
+			effectiveCwd,
 			activeTurnId,
 			listSessions,
 			normalizeRerunAttachments,
@@ -2449,7 +2549,7 @@ export function CodexChat() {
 	// Context management callbacks
 	const addRelatedRepoDir = useCallback(async () => {
 		if (!selectedThreadId) return;
-		const currentRepoPath = activeThread?.cwd;
+		const currentRepoPath = effectiveCwd;
 		if (!currentRepoPath) return;
 
 		const selection = await openDialog({ directory: true, multiple: false });
@@ -2464,7 +2564,7 @@ export function CodexChat() {
 			relatedRepoPathsByThreadIdRef.current[selectedThreadId] = next;
 			return next;
 		});
-	}, [activeThread?.cwd, selectedThreadId]);
+	}, [effectiveCwd, selectedThreadId]);
 
 	const removeRelatedRepoDir = useCallback(
 		(path: string) => {
@@ -2478,13 +2578,60 @@ export function CodexChat() {
 		[selectedThreadId]
 	);
 
+	const toggleWorktreeMenu = useCallback(() => {
+		setIsWorktreeMenuOpen((prev) => {
+			const next = !prev;
+			if (next) {
+				setWorktreeActionError(null);
+				void loadWorktrees();
+				void loadBranches();
+			}
+			return next;
+		});
+	}, [loadBranches, loadWorktrees]);
+
+	const closeWorktreeMenu = useCallback(() => {
+		setIsWorktreeMenuOpen(false);
+	}, []);
+
+	const selectWorktree = useCallback((path: string) => {
+		setActiveWorktreePath(path);
+		setIsWorktreeMenuOpen(false);
+		setWorktreeActionError(null);
+	}, []);
+
+	const createWorktree = useCallback(async () => {
+		if (!effectiveCwd) return;
+		if (!newWorktreeBranch) {
+			setWorktreeActionError('请选择一个分支');
+			return;
+		}
+		if (!newWorktreeName.trim()) {
+			setWorktreeActionError('请输入 worktree 名称');
+			return;
+		}
+		setWorktreeCreating(true);
+		setWorktreeActionError(null);
+		try {
+			const path = await apiClient.gitWorktreeCreate(effectiveCwd, newWorktreeName.trim(), newWorktreeBranch);
+			setActiveWorktreePath(path);
+			setNewWorktreeName('');
+			setIsWorktreeMenuOpen(false);
+			await loadWorktrees(path);
+		} catch (err) {
+			setWorktreeActionError(errorMessage(err, 'Failed to create worktree'));
+		} finally {
+			setWorktreeCreating(false);
+		}
+	}, [effectiveCwd, loadWorktrees, newWorktreeBranch, newWorktreeName]);
+
 	const loadAutoContext = useCallback(async () => {
 		if (!autoContextEnabled) {
 			setAutoContext(null);
 			return;
 		}
 		try {
-			const cwd = activeThread?.cwd;
+			const cwd = effectiveCwd;
 			if (!cwd) {
 				setAutoContext(null);
 				return;
@@ -2494,7 +2641,7 @@ export function CodexChat() {
 		} catch {
 			setAutoContext(null);
 		}
-	}, [autoContextEnabled, activeThread?.cwd]);
+	}, [autoContextEnabled, effectiveCwd]);
 
 	const searchFiles = useCallback(
 		async (query: string) => {
@@ -2504,20 +2651,20 @@ export function CodexChat() {
 				return;
 			}
 			try {
-				const cwd = activeThread?.cwd ?? '.';
+				const cwd = effectiveCwd ?? '.';
 				const results = await apiClient.searchWorkspaceFiles(cwd, query, 8);
 				setFileSearchResults(results);
 			} catch {
 				setFileSearchResults([]);
 			}
 		},
-		[activeThread?.cwd]
+		[effectiveCwd]
 	);
 
 	const addFileAttachment = useCallback(
 		async (file: FileInfo) => {
 			try {
-				const cwd = activeThread?.cwd ?? '.';
+				const cwd = effectiveCwd ?? '.';
 				const fullPath = file.path.startsWith('/') ? file.path : `${cwd}/${file.path}`;
 				const content = await apiClient.readFileContent(fullPath);
 				setFileAttachments((prev) => {
@@ -2540,7 +2687,7 @@ export function CodexChat() {
 				// ignore
 			}
 		},
-		[activeThread?.cwd]
+		[effectiveCwd]
 	);
 
 	const removeFileAttachment = useCallback((id: string) => {
@@ -3076,6 +3223,11 @@ export function CodexChat() {
 	}, [loadAutoContext]);
 
 	useEffect(() => {
+		void loadWorktrees();
+		void loadBranches();
+	}, [loadBranches, loadWorktrees]);
+
+	useEffect(() => {
 		listSessions();
 		void seedRunningThreads();
 		loadModelsAndChatDefaults();
@@ -3550,6 +3702,25 @@ export function CodexChat() {
 											autoContextEnabled={autoContextEnabled}
 											setAutoContextEnabled={setAutoContextEnabled}
 											autoContext={autoContext}
+											worktreeLabel={activeWorktreeLabel}
+											activeWorktreePath={activeWorktreePath}
+											worktrees={worktrees}
+											worktreesLoading={worktreesLoading}
+											worktreesError={worktreesError}
+											branches={branches}
+											branchesLoading={branchesLoading}
+											branchesError={branchesError}
+											isWorktreeMenuOpen={isWorktreeMenuOpen}
+											toggleWorktreeMenu={toggleWorktreeMenu}
+											closeWorktreeMenu={closeWorktreeMenu}
+											selectWorktree={selectWorktree}
+											newWorktreeName={newWorktreeName}
+											setNewWorktreeName={setNewWorktreeName}
+											newWorktreeBranch={newWorktreeBranch}
+											setNewWorktreeBranch={setNewWorktreeBranch}
+											worktreeActionError={worktreeActionError}
+											worktreeCreating={worktreeCreating}
+											createWorktree={createWorktree}
 											activeTurnId={activeTurnId}
 											selectedThreadId={selectedThreadId}
 											stopTurn={() => {

@@ -194,6 +194,11 @@ export interface AutoContextInfo {
 	gitStatus: GitStatus | null;
 }
 
+export interface WorktreeInfo {
+	path: string;
+	branch: string | null;
+}
+
 export type FileAttachment =
 	| {
 			kind: 'file';

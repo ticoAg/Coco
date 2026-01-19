@@ -1,6 +1,6 @@
-import { ArrowUp, File, FileText, Folder, Image, Plus, X, Zap } from 'lucide-react';
+import { ArrowUp, File, FileText, Folder, GitBranch, Image, Plus, X, Zap } from 'lucide-react';
 import type { ChangeEvent, ClipboardEvent, Dispatch, KeyboardEvent, RefObject, SetStateAction } from 'react';
-import type { AutoContextInfo, CustomPrompt, FileAttachment, FileInfo, SkillMetadata } from '@/types/codex';
+import type { AutoContextInfo, CustomPrompt, FileAttachment, FileInfo, SkillMetadata, WorktreeInfo } from '@/types/codex';
 import type { SlashCommand } from '../codex/slash-commands';
 import { MENU_STYLES } from '../codex/styles/menu-styles';
 import { SkillMenu } from '../codex/SkillMenu';
@@ -94,6 +94,25 @@ type Props = {
 	autoContextEnabled: boolean;
 	setAutoContextEnabled: Dispatch<SetStateAction<boolean>>;
 	autoContext: AutoContextInfo | null;
+	worktreeLabel: string;
+	activeWorktreePath: string | null;
+	worktrees: WorktreeInfo[];
+	worktreesLoading: boolean;
+	worktreesError: string | null;
+	branches: string[];
+	branchesLoading: boolean;
+	branchesError: string | null;
+	isWorktreeMenuOpen: boolean;
+	toggleWorktreeMenu: () => void;
+	closeWorktreeMenu: () => void;
+	selectWorktree: (path: string) => void;
+	newWorktreeName: string;
+	setNewWorktreeName: Dispatch<SetStateAction<string>>;
+	newWorktreeBranch: string | null;
+	setNewWorktreeBranch: Dispatch<SetStateAction<string | null>>;
+	worktreeActionError: string | null;
+	worktreeCreating: boolean;
+	createWorktree: () => Promise<void>;
 
 	activeTurnId: string | null;
 	selectedThreadId: string | null;
@@ -161,12 +180,39 @@ export function CodexChatComposer({
 	autoContextEnabled,
 	setAutoContextEnabled,
 	autoContext,
+	worktreeLabel,
+	activeWorktreePath,
+	worktrees,
+	worktreesLoading,
+	worktreesError,
+	branches,
+	branchesLoading,
+	branchesError,
+	isWorktreeMenuOpen,
+	toggleWorktreeMenu,
+	closeWorktreeMenu,
+	selectWorktree,
+	newWorktreeName,
+	setNewWorktreeName,
+	newWorktreeBranch,
+	setNewWorktreeBranch,
+	worktreeActionError,
+	worktreeCreating,
+	createWorktree,
 
 	activeTurnId,
 	selectedThreadId,
 	stopTurn,
 	sendMessage,
 }: Props) {
+	const normalizePath = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '');
+	const activeWorktreeKey = activeWorktreePath ? normalizePath(activeWorktreePath) : null;
+	const worktreeNameFromPath = (value: string) => {
+		const normalized = normalizePath(value);
+		const parts = normalized.split('/').filter(Boolean);
+		return parts[parts.length - 1] ?? value;
+	};
+
 	return (
 		<div className="group relative mt-4 flex flex-col gap-2 rounded-[26px] border border-white/5 bg-[#2b2d31] px-4 pt-3 pb-2 transition-colors focus-within:border-white/10">
 			{/* Floating pinned prompt/skill shortcuts (shown while composer is focused) */}
@@ -494,6 +540,88 @@ export function CodexChatComposer({
 						</span>
 						<span>Auto context</span>
 					</button>
+
+					<div className="relative">
+						<button
+							type="button"
+							className="ml-2 inline-flex max-w-[200px] items-center gap-2 rounded-full px-2.5 py-1 text-[11px] leading-none text-text-muted hover:bg-white/10 hover:text-text-main"
+							onClick={toggleWorktreeMenu}
+							title={activeWorktreePath ?? 'Worktree'}
+						>
+							<GitBranch className="h-3.5 w-3.5 text-text-menuLabel" />
+							<span className="truncate">{worktreeLabel}</span>
+						</button>
+
+						{isWorktreeMenuOpen ? (
+							<>
+								<div className="fixed inset-0 z-40" onClick={closeWorktreeMenu} role="button" tabIndex={0} />
+								<div className={`absolute bottom-full left-0 z-50 mb-2 w-[260px] p-2 ${MENU_STYLES.popover}`}>
+									<div className={MENU_STYLES.popoverTitle}>Worktrees</div>
+									<div className="max-h-[180px] overflow-auto">
+										{worktreesLoading ? <div className="px-2 py-1 text-[11px] text-text-dim">Loading…</div> : null}
+										{!worktreesLoading && worktrees.length === 0 ? (
+											<div className="px-2 py-1 text-[11px] text-text-dim">No worktrees found</div>
+										) : null}
+										{worktrees.map((wt) => {
+											const key = normalizePath(wt.path);
+											const isActive = activeWorktreeKey === key;
+											const branchLabel = wt.branch ?? 'detached';
+											return (
+												<button
+													key={wt.path}
+													type="button"
+													className={`${MENU_STYLES.popoverItem} ${isActive ? 'bg-white/10' : ''}`}
+													onClick={() => selectWorktree(wt.path)}
+													title={wt.path}
+												>
+													<span className="truncate">{worktreeNameFromPath(wt.path)}</span>
+													<span className="ml-auto text-[10px] text-text-dim">{branchLabel}</span>
+												</button>
+											);
+										})}
+										{worktreesError ? <div className="px-2 py-1 text-[11px] text-status-warning">{worktreesError}</div> : null}
+									</div>
+
+									<div className="my-2 border-t border-white/10" />
+
+									<div className={MENU_STYLES.popoverTitle}>Create worktree</div>
+									<div className="flex flex-col gap-2">
+										<input
+											type="text"
+											className="w-full rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-[11px] text-text-main outline-none focus:border-border-active"
+											placeholder="worktree name"
+											value={newWorktreeName}
+											onChange={(e) => setNewWorktreeName(e.target.value)}
+										/>
+										<select
+											className="w-full rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-[11px] text-text-main outline-none focus:border-border-active"
+											value={newWorktreeBranch ?? ''}
+											onChange={(e) => setNewWorktreeBranch(e.target.value || null)}
+											disabled={branchesLoading || branches.length === 0}
+										>
+											{branchesLoading ? <option value="">Loading branches…</option> : null}
+											{!branchesLoading && branches.length === 0 ? <option value="">No branches</option> : null}
+											{branches.map((branch) => (
+												<option key={branch} value={branch}>
+													{branch}
+												</option>
+											))}
+										</select>
+										<button
+											type="button"
+											className="rounded-md border border-white/10 bg-bg-panelHover px-2 py-1 text-[11px] text-text-main hover:border-white/20 disabled:opacity-50"
+											onClick={() => void createWorktree()}
+											disabled={worktreeCreating || branchesLoading}
+										>
+											{worktreeCreating ? 'Creating…' : 'Create'}
+										</button>
+										{branchesError ? <div className="text-[11px] text-status-warning">{branchesError}</div> : null}
+										{worktreeActionError ? <div className="text-[11px] text-status-warning">{worktreeActionError}</div> : null}
+									</div>
+								</div>
+							</>
+						) : null}
+					</div>
 				</div>
 
 				{activeTurnId && selectedThreadId ? (

@@ -88,6 +88,7 @@ macOS-only 的 `.app` 里可以包含：
 - Profile 选择：当 `config.toml` 定义 `profiles` 时，底部状态栏展示 profile 下拉；切换仅影响当前 GUI 会话，会重启 app-server 并恢复当前 session（若当前 turn 进行中需确认）。
 - Fork/Rollback（增强）：在 Codex Chat 中暴露 `thread/fork` 与 `thread/rollback`，用于验证 fork 继承与“清理主线程历史”的交互边界（注意：rollback 只回滚历史，不回滚文件修改）。
 - Auto context（轻量 repo 包装）：当开启 Auto context 时，GUI 会在发送给 Codex 的文本前追加一个固定格式的 header（包含当前 repo 与最多 3 个 related repo 的绝对路径），以便模型自行按路径读取/定位相关文件；聊天区展示实际发送给 Codex 的文本；GUI 顶部 repo selector 仅显示 repo 名称，悬停显示绝对路径，related repo 悬停右侧出现红色 `-` 可移除（会话级，new session 重置）。
+- Worktree 切换（底部）：输入区底部展示当前 worktree + branch；可切换到现有 worktree，切换后**不重置当前 thread**，后续 turn 通过 `turn/start` 的 `cwd` 覆盖生效；可选择已有本地分支创建新 worktree（默认路径为当前 repo 同级 `repoName-<worktreeName>`）。
 - 配置入口：在 GUI 内打开一个面板，直接编辑 `~/.codex/config.toml`（路径按平台 HOME 目录解析）。
 - 审批交互：当 Codex 请求命令/文件变更审批时，不弹模态框；以**会话消息**形式渲染「批准/拒绝」按钮，点击后回传给 Codex。
 - macOS 注意：从 Finder 启动 `.app` 时，GUI app 可能不继承 shell 的 PATH。GUI 会尝试通过 `$SHELL -lic` 同步 PATH；如仍遇到 “codex not found on PATH”，可设置环境变量 `AGENTMESH_CODEX_BIN=/opt/homebrew/bin/codex`（或从 Terminal 启动）。
