@@ -1584,11 +1584,15 @@ export function CodexChat() {
 		};
 	}, [taskContextMenu]);
 
+	const renameTaskDialogThreadId = renameTaskDialog?.threadId;
 	useEffect(() => {
-		if (!renameTaskDialog) return;
+		// Only focus/select when the dialog opens (or the target thread changes).
+		// Depending on the full `renameTaskDialog` object would re-run on every keystroke
+		// because `value` changes on input.
+		if (!renameTaskDialogThreadId) return;
 		renameTaskInputRef.current?.focus();
 		renameTaskInputRef.current?.select();
-	}, [renameTaskDialog]);
+	}, [renameTaskDialogThreadId]);
 
 
 	const handleSessionTreeContextMenu = useCallback(
