@@ -19,7 +19,7 @@ export const MENU_STYLES = {
 	/** 搜索输入框 */
 	searchInput: 'w-full bg-transparent text-[12px] text-text-muted outline-none placeholder:text-text-menuDesc',
 	/** 弹出菜单位置 */
-	popoverPosition: 'absolute bottom-full left-0 right-0 z-50 mb-2 p-2',
+	popoverPosition: 'absolute bottom-full left-0 right-0 z-40 mb-2 p-2',
 	/** 列表容器 */
 	// Keep the popover bounded to ~11 visible items (11 * 28px = 308px).
 	listContainer: 'max-h-[min(308px,40vh)] overflow-auto',

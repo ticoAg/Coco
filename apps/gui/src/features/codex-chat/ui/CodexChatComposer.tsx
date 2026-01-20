@@ -217,13 +217,13 @@ export function CodexChatComposer({
 		<div className="group relative mt-4 flex flex-col gap-2 rounded-[26px] border border-white/5 bg-[#2b2d31] px-4 pt-3 pb-2 transition-colors focus-within:border-white/10">
 			{/* Floating pinned prompt/skill shortcuts (shown while composer is focused) */}
 			{pinnedResolvedItems.length > 0 ? (
-				<div className="pointer-events-none absolute bottom-full left-0 right-0 z-30 mb-2 flex flex-wrap gap-1.5 px-4 opacity-0 translate-y-2 transition-all duration-150 ease-out group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-y-0">
+				<div className="pointer-events-none absolute bottom-full left-0 right-0 z-50 mb-2 flex flex-wrap gap-1.5 px-4 opacity-0 translate-y-2 transition-all duration-150 ease-out group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-y-0">
 					{pinnedResolvedItems.map((item) =>
 						item.type === 'prompt' ? (
 							<button
 								key={`prompt:${item.prompt.name}`}
 								type="button"
-								className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-[11px] text-text-muted hover:bg-white/10 hover:text-text-main"
+								className="inline-flex items-center gap-1.5 rounded-md bg-bg-panelHover px-2 py-1 text-[11px] text-text-muted hover:bg-bg-popover hover:text-text-main"
 								onClick={() => executePromptSelection(item.prompt)}
 								title={`prompts:${item.prompt.name}`}
 							>
@@ -234,7 +234,7 @@ export function CodexChatComposer({
 							<button
 								key={`skill:${item.skill.name}`}
 								type="button"
-								className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-[11px] text-text-muted hover:bg-white/10 hover:text-text-main"
+								className="inline-flex items-center gap-1.5 rounded-md bg-bg-panelHover px-2 py-1 text-[11px] text-text-muted hover:bg-bg-popover hover:text-text-main"
 								onClick={() => executeSkillSelection(item.skill)}
 								title={item.skill.name}
 							>
