@@ -109,18 +109,10 @@ target/
 ############################
 # Coco Specific
 ############################
-# Runtime task directories (generated data)
-.coco/tasks/*
-!.coco/tasks/.gitkeep
-
-# Codex Chat session title sidecars (workspace-local data)
-.coco/codex/
-
-# Local logs
-.coco/logs/
-
-# Local registry caches
-.coco/registry/
+# Local workspace data (keep out of git)
+.coco/
+.feat/
+openspec/
 
 # Codex repository (now in sibling directory ../codex, not inside this repo)
 # /codex/
@@ -130,8 +122,3 @@ CLAUDE.md
 docs/implementation-notes/codex-vscode-plugin/plugin-index.js
 .claude
 /legacy/
-
-# --- Codex feature notes (tracked) ---
-!.feat/
-!.feat/**
-# --- End Codex feature notes ---
