@@ -240,6 +240,14 @@ export async function codexThreadRollback(threadId: string, numTurns?: number | 
 	});
 }
 
+export async function codexThreadWatchStart(threadId: string, path: string): Promise<void> {
+	await invoke<void>('codex_thread_watch_start', { threadId, path });
+}
+
+export async function codexThreadWatchStop(): Promise<void> {
+	await invoke<void>('codex_thread_watch_stop');
+}
+
 export async function codexTurnStart(
 	threadId: string,
 	input: CodexUserInput[],
@@ -424,6 +432,8 @@ export const apiClient = {
 	codexThreadResume,
 	codexThreadFork,
 	codexThreadRollback,
+	codexThreadWatchStart,
+	codexThreadWatchStop,
 	codexTurnStart,
 	codexTurnInterrupt,
 	codexRespondApproval,

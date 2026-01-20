@@ -1,4 +1,5 @@
 import { getVersion } from '@tauri-apps/api/app';
+import { listen } from '@tauri-apps/api/event';
 import { confirm as dialogConfirm, message as dialogMessage, open as openDialog } from '@tauri-apps/plugin-dialog';
 import { Eye, Plus, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -48,6 +49,7 @@ import type {
 	CodexThread,
 	CodexThreadItem,
 	CodexThreadSummary,
+	CodexThreadWatchEvent,
 	CodexUserInput,
 	CustomPrompt,
 	FileAttachment,
@@ -60,6 +62,9 @@ import type { TaskDirectoryEntry, TreeNodeData } from '@/types/sidebar';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const TURN_APPEAR_ANIM_MS = 180;
+const EXTERNAL_REFRESH_RECENT_MS = 2 * 60 * 1000;
+const EXTERNAL_REFRESH_ARCHIVE_MS = 60 * 60 * 1000;
+const EXTERNAL_REFRESH_THROTTLE_MS = 1000;
 
 function extractProfileModels(value: unknown): string[] {
 	if (typeof value === 'string') return [value];
@@ -276,6 +281,10 @@ export function CodexChat() {
 	const autoRefreshTimerRef = useRef<number | null>(null);
 	const autoRefreshUntilRef = useRef<number>(0);
 	const listSessionsRef = useRef<() => Promise<void>>(async () => {});
+	const externalRefreshInFlightRef = useRef(false);
+	const externalRefreshPendingRef = useRef<{ threadId: string; updatedAtMs: number | null } | null>(null);
+	const lastExternalRefreshAtRef = useRef(0);
+	const threadWatchSeqRef = useRef(0);
 	const archiveTaskInFlightRef = useRef<Set<string>>(new Set());
 	const renameTaskInputRef = useRef<HTMLInputElement>(null);
 	const renameFileInputRef = useRef<HTMLInputElement>(null);
@@ -1044,6 +1053,100 @@ export function CodexChat() {
 			}
 		},
 		[ingestCollabItems, settings.defaultCollapseDetails]
+	);
+
+	const resolveExternalUpdatedAtMs = useCallback(
+		(threadId: string, updatedAtMs?: number | null) => {
+			if (updatedAtMs != null && Number.isFinite(updatedAtMs)) return updatedAtMs;
+			const summary = sessions.find((session) => session.id === threadId);
+			return summary?.updatedAtMs ?? null;
+		},
+		[sessions]
+	);
+
+	const shouldApplyExternalRefresh = useCallback(
+		(threadId: string, updatedAtMs?: number | null, allowStale?: boolean) => {
+			if (!threadId || threadId !== selectedThreadId) {
+				return { ok: false, updatedAtMs: null as number | null };
+			}
+			const resolved = resolveExternalUpdatedAtMs(threadId, updatedAtMs);
+			if (resolved == null) return { ok: false, updatedAtMs: null as number | null };
+			const ageMs = Date.now() - resolved;
+			if (!allowStale && ageMs > EXTERNAL_REFRESH_RECENT_MS) {
+				return { ok: false, updatedAtMs: resolved };
+			}
+			if (ageMs > EXTERNAL_REFRESH_ARCHIVE_MS) {
+				return { ok: false, updatedAtMs: resolved };
+			}
+			return { ok: true, updatedAtMs: resolved };
+		},
+		[resolveExternalUpdatedAtMs, selectedThreadId]
+	);
+
+	const refreshSelectedThread = useCallback(
+		async (threadId: string, updatedAtMs?: number | null, options?: { allowStale?: boolean }) => {
+			if (!threadId || threadId !== selectedThreadId) return;
+			if (externalRefreshInFlightRef.current) return;
+			const now = Date.now();
+			if (now - lastExternalRefreshAtRef.current < EXTERNAL_REFRESH_THROTTLE_MS) return;
+
+			const { ok, updatedAtMs: resolved } = shouldApplyExternalRefresh(threadId, updatedAtMs, options?.allowStale);
+			if (!ok || resolved == null) return;
+
+			externalRefreshInFlightRef.current = true;
+			lastExternalRefreshAtRef.current = now;
+			try {
+				const res = await apiClient.codexThreadResume(threadId);
+				const thread = normalizeThreadFromResponse(res);
+				if (!thread || thread.id !== threadId) return;
+				if (selectedThreadId !== threadId) return;
+
+				setActiveThread(thread);
+				const collabItems: Array<Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>> = [];
+				for (const turn of thread.turns ?? []) {
+					for (const item of turn.items ?? []) {
+						const rawType = safeString((item as unknown as { type?: unknown })?.type);
+						const typeKey = rawType.replace(/[-_]/g, '').toLowerCase();
+						if (typeKey === 'collabagenttoolcall') {
+							collabItems.push(item as Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>);
+						}
+					}
+				}
+				ingestCollabItems(thread.id, collabItems);
+
+				const timeline = deriveTimelineFromThread(thread, {
+					defaultCollapseDetails: settings.defaultCollapseDetails,
+				});
+				setTurnOrder(timeline.order);
+				setTurnsById(timeline.turnsById);
+				setItemToTurnId(timeline.itemToTurnId);
+				itemToTurnRef.current = timeline.itemToTurnId;
+				setCollapsedByEntryId((prev) => {
+					const next: Record<string, boolean> = { ...timeline.collapsedByEntryId };
+					for (const [entryId, collapsed] of Object.entries(prev)) {
+						if (Object.prototype.hasOwnProperty.call(next, entryId)) {
+							next[entryId] = collapsed;
+						}
+					}
+					return next;
+				});
+				setCollapsedWorkingByTurnId((prev) => {
+					const next = { ...prev };
+					for (const id of Object.keys(next)) {
+						if (!timeline.turnsById[id]) {
+							delete next[id];
+						}
+					}
+					return next;
+				});
+				void listSessionsRef.current();
+			} catch {
+				// Best-effort; ignore refresh failures.
+			} finally {
+				externalRefreshInFlightRef.current = false;
+			}
+		},
+		[ingestCollabItems, selectedThreadId, settings.defaultCollapseDetails, shouldApplyExternalRefresh]
 	);
 
 	const workbenchGraph = useMemo(() => {
@@ -3348,6 +3451,73 @@ export function CodexChat() {
 		void loadSkills();
 		void loadPrompts();
 	}, [listSessions, seedRunningThreads, loadModelsAndChatDefaults, loadWorkspaceRoot, loadRecentWorkspaces, loadSkills, loadPrompts]);
+
+	useEffect(() => {
+		externalRefreshPendingRef.current = null;
+	}, [selectedThreadId]);
+
+	useEffect(() => {
+		const seq = ++threadWatchSeqRef.current;
+		const threadId = selectedThreadId;
+		const path = activeThread?.path ?? null;
+		void (async () => {
+			try {
+				await apiClient.codexThreadWatchStop();
+			} catch {
+				// ignore
+			}
+			if (seq !== threadWatchSeqRef.current) return;
+			if (threadId && path) {
+				try {
+					await apiClient.codexThreadWatchStart(threadId, path);
+				} catch {
+					// ignore
+				}
+			}
+		})();
+		return () => {
+			if (seq === threadWatchSeqRef.current) {
+				void apiClient.codexThreadWatchStop().catch(() => {
+					// ignore
+				});
+			}
+		};
+	}, [activeThread?.path, selectedThreadId]);
+
+	useEffect(() => {
+		let mounted = true;
+		const unlistenPromise = listen<CodexThreadWatchEvent>('codex_thread_fs_update', (event) => {
+			if (!mounted) return;
+			const payload = event.payload;
+			if (!payload || typeof payload !== 'object') return;
+			if (!selectedThreadId || payload.threadId !== selectedThreadId) return;
+
+			const { ok, updatedAtMs } = shouldApplyExternalRefresh(payload.threadId, payload.updatedAtMs);
+			if (!ok || updatedAtMs == null) return;
+			if (activeTurnId) {
+				externalRefreshPendingRef.current = { threadId: payload.threadId, updatedAtMs };
+				return;
+			}
+			void refreshSelectedThread(payload.threadId, updatedAtMs);
+		});
+
+		return () => {
+			mounted = false;
+			unlistenPromise
+				.then((unlisten) => unlisten())
+				.catch(() => {
+					// ignore
+				});
+		};
+	}, [activeTurnId, refreshSelectedThread, selectedThreadId, shouldApplyExternalRefresh]);
+
+	useEffect(() => {
+		if (activeTurnId) return;
+		const pending = externalRefreshPendingRef.current;
+		if (!pending) return;
+		externalRefreshPendingRef.current = null;
+		void refreshSelectedThread(pending.threadId, pending.updatedAtMs, { allowStale: true });
+	}, [activeTurnId, refreshSelectedThread]);
 
 	useCodexJsonRpcEvents({
 		selectedThreadId,

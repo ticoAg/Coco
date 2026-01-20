@@ -6,6 +6,12 @@ export interface CodexJsonRpcEvent {
 	message: unknown;
 }
 
+export interface CodexThreadWatchEvent {
+	threadId: string;
+	path: string;
+	updatedAtMs: number | null;
+}
+
 export interface CodexThreadSummary {
 	id: string;
 	preview: string;

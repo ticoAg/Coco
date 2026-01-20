@@ -4,10 +4,12 @@ mod codex_app_server;
 mod codex_app_server_pool;
 mod codex_patch_diff;
 mod codex_rollout_restore;
+mod thread_watch;
 
 use codex_app_server::CodexAppServer;
 use codex_app_server::CodexDiagnostics;
 use codex_app_server_pool::CodexAppServerPool;
+use thread_watch::ThreadWatchState;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 use tokio::sync::Mutex as TokioMutex;
@@ -150,6 +152,8 @@ pub fn run() {
             codex_thread_resume,
             codex_thread_fork,
             codex_thread_rollback,
+            codex_thread_watch_start,
+            codex_thread_watch_stop,
             codex_turn_start,
             codex_turn_interrupt,
             codex_respond_approval,
@@ -189,6 +193,7 @@ pub fn run() {
                 )),
                 codex_pool: TokioMutex::new(CodexAppServerPool::new(CODEX_APP_SERVER_POOL_MAX)),
                 codex_profile: TokioMutex::new(None),
+                thread_watch: TokioMutex::new(ThreadWatchState::default()),
             });
 
             if cfg!(debug_assertions) {
@@ -208,6 +213,7 @@ struct AppState {
     orchestrator: std::sync::Mutex<coco_orchestrator::Orchestrator>,
     codex_pool: TokioMutex<CodexAppServerPool>,
     codex_profile: TokioMutex<Option<String>>,
+    thread_watch: TokioMutex<ThreadWatchState>,
 }
 
 static NEXT_WINDOW_ID: AtomicU32 = AtomicU32::new(2);
@@ -2012,6 +2018,33 @@ async fn codex_thread_rollback(
     }
 
     codex_rollout_restore::augment_thread_resume_response(res, &resolved_thread_id).await
+}
+
+#[tauri::command]
+async fn codex_thread_watch_start(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    thread_id: String,
+    path: String,
+) -> Result<(), String> {
+    let thread_id = thread_id.trim().to_string();
+    if thread_id.is_empty() {
+        return Err("threadId must not be empty".to_string());
+    }
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("path must not be empty".to_string());
+    }
+    let path = std::path::PathBuf::from(path);
+    let mut watcher = state.thread_watch.lock().await;
+    watcher.start(app, thread_id, path)
+}
+
+#[tauri::command]
+async fn codex_thread_watch_stop(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut watcher = state.thread_watch.lock().await;
+    watcher.stop();
+    Ok(())
 }
 
 #[tauri::command]
