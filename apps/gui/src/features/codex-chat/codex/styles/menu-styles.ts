@@ -11,6 +11,8 @@ export const MENU_STYLES = {
 		'flex h-7 w-full items-center gap-1.5 rounded-lg px-2.5 text-left text-[12px] leading-4 bg-bg-menuItemHover text-text-main transition-colors group',
 	/** 弹出菜单选项描述 */
 	popoverItemDesc: 'ml-2 shrink-0 max-w-[220px] truncate text-[10px] text-text-menuDesc',
+	/** 弹出菜单选项描述（占满剩余空间，超出截断） */
+	popoverItemDescFill: 'min-w-0 flex-1 truncate text-[10px] text-text-menuDesc',
 	/** 图标尺寸 */
 	iconSm: 'h-3 w-3',
 	iconMd: 'h-4 w-4',

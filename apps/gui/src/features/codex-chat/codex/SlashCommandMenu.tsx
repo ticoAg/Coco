@@ -152,17 +152,20 @@ export function SlashCommandMenu({
 								onMouseEnter={() => onHighlight(globalIdx)}
 							>
 								<FileText className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-								<span className="min-w-0 flex-1 truncate">
-									{indices && indices.length > 0 ? highlightMatches(`prompts:${prompt.name}`, indices) : `prompts:${prompt.name}`}
-								</span>
-								<span className={MENU_STYLES.popoverItemDesc} title={prompt.description || 'send saved prompt'}>
-									{prompt.description || 'send saved prompt'}
-								</span>
+								<div className="min-w-0 flex flex-1 items-center">
+									<span className="min-w-0 max-w-[50%] truncate">
+										{indices && indices.length > 0 ? highlightMatches(`prompts:${prompt.name}`, indices) : `prompts:${prompt.name}`}
+									</span>
+									<span aria-hidden className="shrink-0 w-[3ch]" />
+									<span className={MENU_STYLES.popoverItemDescFill} title={prompt.description || 'send saved prompt'}>
+										{prompt.description || 'send saved prompt'}
+									</span>
+								</div>
 								<span
 									role="button"
 									aria-label={isPinned ? '取消固定 prompt' : '固定 prompt'}
 									className={[
-										'ml-1.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded',
+										'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded',
 										isPinned ? 'text-primary' : 'text-text-menuLabel hover:bg-white/10 hover:text-text-main',
 									].join(' ')}
 									onClick={(e) => {
@@ -201,15 +204,20 @@ export function SlashCommandMenu({
 								onMouseEnter={() => onHighlight(globalIdx)}
 							>
 								<Zap className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-								<span className="min-w-0 flex-1 truncate">{indices && indices.length > 0 ? highlightMatches(skill.name, indices) : skill.name}</span>
-								<span className={MENU_STYLES.popoverItemDesc} title={skill.shortDescription || skill.description}>
-									{skill.shortDescription || skill.description}
-								</span>
+								<div className="min-w-0 flex flex-1 items-center">
+									<span className="min-w-0 max-w-[50%] truncate">
+										{indices && indices.length > 0 ? highlightMatches(skill.name, indices) : skill.name}
+									</span>
+									<span aria-hidden className="shrink-0 w-[3ch]" />
+									<span className={MENU_STYLES.popoverItemDescFill} title={skill.shortDescription || skill.description}>
+										{skill.shortDescription || skill.description}
+									</span>
+								</div>
 								<span
 									role="button"
 									aria-label={isPinned ? '取消固定 skill' : '固定 skill'}
 									className={[
-										'ml-1.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded',
+										'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded',
 										isPinned ? 'text-primary' : 'text-text-menuLabel hover:bg-white/10 hover:text-text-main',
 									].join(' ')}
 									onClick={(e) => {
