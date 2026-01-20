@@ -467,13 +467,13 @@ export function CodexChatComposer({
 			{/* Input area with inline tags for skill/prompt */}
 			<div className="flex flex-wrap items-start gap-1.5">
 				{selectedPrompt ? (
-					<div className="inline-flex shrink-0 items-center gap-1.5 rounded bg-blue-500/10 px-1.5 py-0.5 text-[11px] text-blue-400">
+					<div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-blue-500/10 px-1.5 py-0.5 text-[11px] text-blue-400">
 						<FileText className="h-3 w-3" />
 						<span className="max-w-[160px] truncate">prompts:{selectedPrompt.name}</span>
 					</div>
 				) : null}
 				{selectedSkill ? (
-					<div className="inline-flex shrink-0 items-center gap-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
+					<div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
 						<Zap className="h-3 w-3" />
 						<span className="max-w-[160px] truncate">{selectedSkill.name}</span>
 					</div>
@@ -481,7 +481,7 @@ export function CodexChatComposer({
 				<textarea
 					ref={textareaRef}
 					rows={1}
-					className="m-0 h-5 min-w-[100px] flex-1 resize-none overflow-y-auto bg-transparent p-0 text-[13px] leading-5 outline-none placeholder:text-text-muted/40"
+					className="m-0 h-5 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent p-0 text-[13px] leading-5 outline-none placeholder:text-text-muted/40"
 					placeholder={selectedSkill || selectedPrompt ? '' : 'Ask for follow-up changes'}
 					value={input}
 					onChange={(e) => {
