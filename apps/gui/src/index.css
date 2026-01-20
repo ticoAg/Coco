@@ -235,6 +235,29 @@
 	.am-row-hover:hover .am-row-title {
 		color: rgb(var(--am-text-main) / 0.86);
 	}
+
+	/* New turn blocks: subtle appear animation (fade + small translate) */
+	@keyframes am-turn-appear {
+		from {
+			opacity: 0;
+			transform: translate3d(0, 6px, 0);
+		}
+		to {
+			opacity: 1;
+			transform: translate3d(0, 0, 0);
+		}
+	}
+
+	.am-turn-animate-in {
+		will-change: transform, opacity;
+		animation: am-turn-appear 180ms ease-out both;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.am-turn-animate-in {
+			animation: none;
+		}
+	}
 }
 
 html,

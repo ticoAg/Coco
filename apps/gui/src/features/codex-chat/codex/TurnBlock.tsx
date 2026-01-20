@@ -31,6 +31,7 @@ interface TurnBlockProps {
 	approve: (requestId: number, decision: 'accept' | 'decline') => void;
 	onForkFromTurn?: (turnId: string) => void;
 	onEditUserEntry?: (entry: Extract<ChatEntry, { kind: 'user' }>) => void;
+	animateIn?: boolean;
 }
 
 function turnStatusLabel(status: TurnBlockStatus): string {
@@ -59,6 +60,7 @@ export function TurnBlock({
 	approve,
 	onForkFromTurn,
 	onEditUserEntry,
+	animateIn,
 }: TurnBlockProps) {
 	const [didCopyUser, setDidCopyUser] = useState(false);
 	const [didCopyAssistant, setDidCopyAssistant] = useState(false);
@@ -128,7 +130,12 @@ export function TurnBlock({
 	const hasWorking = turn.workingItemCount > 0;
 
 	return (
-		<div className="group/turn space-y-2 min-w-0 max-w-full">
+		<div
+			className={[
+				'group/turn space-y-2 min-w-0 max-w-full',
+				animateIn ? 'am-turn-animate-in' : '',
+			].join(' ')}
+		>
 			{/* Turn title bar */}
 			<div className="group flex items-center justify-end px-1">
 				<div className="flex shrink-0 items-center gap-1.5">
