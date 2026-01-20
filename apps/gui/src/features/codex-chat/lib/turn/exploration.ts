@@ -44,4 +44,3 @@ export function formatExplorationCounts(counts: ExplorationCounts): string {
 	if (counts.listCount > 0) parts.push(`${counts.listCount} list`);
 	return parts.join(', ');
 }
-

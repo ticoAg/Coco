@@ -1,10 +1,10 @@
-use coco_core::task::CreateTaskRequest;
-use coco_core::task::TaskTopology;
-use coco_orchestrator::Orchestrator;
 use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
 use clap::ValueEnum;
+use coco_core::task::CreateTaskRequest;
+use coco_core::task::TaskTopology;
+use coco_orchestrator::Orchestrator;
 use directories::ProjectDirs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -30,11 +30,7 @@ enum CliError {
 }
 
 #[derive(Parser, Debug)]
-#[command(
-    name = "coco",
-    version,
-    about = "Coco CLI (MVP: tasks + events)"
-)]
+#[command(name = "coco", version, about = "Coco CLI (MVP: tasks + events)")]
 struct Cli {
     /// Output JSON (stable structure) for programmatic consumption.
     #[arg(long, global = true)]
@@ -466,9 +462,9 @@ fn exit_code_for_error(err: &CliError) -> u8 {
         CliError::Orchestrator(coco_orchestrator::OrchestratorError::SubagentNotFound {
             ..
         }) => EXIT_CODE_NOT_FOUND,
-        CliError::Orchestrator(coco_orchestrator::OrchestratorError::WaitAnyTimeout {
-            ..
-        }) => EXIT_CODE_TIMEOUT,
+        CliError::Orchestrator(coco_orchestrator::OrchestratorError::WaitAnyTimeout { .. }) => {
+            EXIT_CODE_TIMEOUT
+        }
         CliError::InvalidTaskId { .. } => EXIT_CODE_USAGE,
         _ => 1,
     }

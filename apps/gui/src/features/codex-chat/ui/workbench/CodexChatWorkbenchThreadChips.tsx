@@ -66,4 +66,3 @@ export function CodexChatWorkbenchThreadChips({ enabled, workbenchGraph, selecte
 		</div>
 	);
 }
-

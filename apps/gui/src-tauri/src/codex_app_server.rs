@@ -329,8 +329,7 @@ async fn compute_shell_env_snapshot() -> Result<ShellEnvSnapshot, String> {
     // Use NUL-separated output so values are unambiguous. Surround with sentinels so we can
     // ignore any stray stdout from shell init plugins.
     let cmd =
-        "printf '__COCO_ENV_BEGIN__\\0'; /usr/bin/env -0; printf '__COCO_ENV_END__\\0'"
-            .to_string();
+        "printf '__COCO_ENV_BEGIN__\\0'; /usr/bin/env -0; printf '__COCO_ENV_END__\\0'".to_string();
 
     let mut proc = Command::new(&shell);
     proc.arg(flag)

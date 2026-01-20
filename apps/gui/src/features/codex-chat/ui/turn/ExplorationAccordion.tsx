@@ -102,12 +102,7 @@ export function ExplorationAccordion({
 							{items.map((item) => {
 								const key = isReadingGroup(item) ? item.id : (item as ChatEntry).id;
 								return (
-									<div
-										key={key}
-										className="first:pt-0 last:mb-0 mb-0.5 [&>*]:py-0 min-w-0"
-										onMouseDown={requestExpand}
-										onFocusCapture={requestExpand}
-									>
+									<div key={key} className="first:pt-0 last:mb-0 mb-0.5 [&>*]:py-0 min-w-0" onMouseDown={requestExpand} onFocusCapture={requestExpand}>
 										{renderItem(item)}
 									</div>
 								);

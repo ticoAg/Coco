@@ -143,7 +143,9 @@ export function StatusBar({
 }: StatusBarProps) {
 	return (
 		<>
-			<div className={`mt-2 flex h-8 items-center justify-between gap-2 bg-bg-panel/40 px-4 text-xs text-text-muted ${isWorkbenchEnabled ? '-ml-4 w-[calc(100%_+_1rem)]' : '-ml-8 w-[calc(100%_+_2rem)]'}`}>
+			<div
+				className={`mt-2 flex h-8 items-center justify-between gap-2 bg-bg-panel/40 px-4 text-xs text-text-muted ${isWorkbenchEnabled ? '-ml-4 w-[calc(100%_+_1rem)]' : '-ml-8 w-[calc(100%_+_2rem)]'}`}
+			>
 				<div className="flex min-w-0 flex-nowrap items-center gap-1">
 					{/* Switch mode dropdown */}
 					<div className="relative">
@@ -198,92 +200,93 @@ export function StatusBar({
 									<FileText className={`${MENU_STYLES.iconSm} text-text-menuLabel`} />
 									<span>Custom (config.toml)</span>
 									<Check
-										className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${approvalPolicy === 'on-request' || approvalPolicy === 'on-failure' ? '' : 'invisible'
-											}`}
+										className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${
+											approvalPolicy === 'on-request' || approvalPolicy === 'on-failure' ? '' : 'invisible'
+										}`}
 									/>
 								</button>
 							</div>
 						) : null}
-						</div>
+					</div>
 
-						{profiles.length > 0 ? (
-							<div className="relative">
-								<button
-									type="button"
-									className={statusBarItemClass(openStatusPopover === 'config_profile')}
-									onClick={() => {
-										clearStatusPopoverError();
-										setOpenStatusPopover((prev) => (prev === 'config_profile' ? null : 'config_profile'));
-									}}
-									title="profile"
-								>
-									<span className="truncate">{selectedProfile ?? 'profile'}</span>
-									<ChevronDown className="h-3 w-3" />
-								</button>
-
-								{openStatusPopover === 'config_profile' ? (
-									<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
-										<div className={MENU_STYLES.popoverTitle}>Select profile</div>
-										<div className="max-h-[40vh] overflow-auto">
-											{profiles.map((profile) => {
-												const selected = selectedProfile === profile;
-												return (
-													<button key={profile} type="button" className={MENU_STYLES.popoverItem} onClick={() => void applyProfile(profile)}>
-														<span>{profile}</span>
-														<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
-													</button>
-												);
-											})}
-											{statusPopoverError ? <div className="px-3 py-1 text-[11px] text-status-warning">{statusPopoverError}</div> : null}
-										</div>
-									</div>
-								) : null}
-							</div>
-						) : null}
-
+					{profiles.length > 0 ? (
 						<div className="relative">
 							<button
 								type="button"
-								className={statusBarItemClass(openStatusPopover === 'model')}
+								className={statusBarItemClass(openStatusPopover === 'config_profile')}
 								onClick={() => {
 									clearStatusPopoverError();
-									setOpenStatusPopover((prev) => (prev === 'model' ? null : 'model'));
+									setOpenStatusPopover((prev) => (prev === 'config_profile' ? null : 'config_profile'));
 								}}
-								title="model"
+								title="profile"
 							>
-								<Box className="h-3.5 w-3.5 text-text-menuLabel" />
-								<span className="truncate">{selectedModelInfo?.displayName ?? selectedModel ?? 'model'}</span>
+								<span className="truncate">{selectedProfile ?? 'profile'}</span>
 								<ChevronDown className="h-3 w-3" />
-								</button>
+							</button>
 
-								{openStatusPopover === 'model' ? (
-									<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
-										<div className={MENU_STYLES.popoverTitle}>Select model</div>
-										<div className="max-h-[40vh] overflow-auto">
-											{models.length === 0 ? (
-												<div className="px-3 py-1.5 text-[12px] text-text-muted">(unavailable)</div>
-										) : (
-											models.map((m) => {
-												const selected = selectedModel === m.model;
-												return (
-													<button
-														key={m.id}
-														type="button"
-														className={MENU_STYLES.popoverItem}
-														onClick={() => void applyModel(m.model)}
-														title={translateModelDesc(m.description)}
-													>
-														<span>{m.displayName}</span>
-														<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
-													</button>
-												);
-											})
-										)}
-										{modelsError ? <div className="px-3 py-1 text-[11px] text-status-warning">{modelsError}</div> : null}
+							{openStatusPopover === 'config_profile' ? (
+								<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
+									<div className={MENU_STYLES.popoverTitle}>Select profile</div>
+									<div className="max-h-[40vh] overflow-auto">
+										{profiles.map((profile) => {
+											const selected = selectedProfile === profile;
+											return (
+												<button key={profile} type="button" className={MENU_STYLES.popoverItem} onClick={() => void applyProfile(profile)}>
+													<span>{profile}</span>
+													<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
+												</button>
+											);
+										})}
+										{statusPopoverError ? <div className="px-3 py-1 text-[11px] text-status-warning">{statusPopoverError}</div> : null}
 									</div>
 								</div>
 							) : null}
 						</div>
+					) : null}
+
+					<div className="relative">
+						<button
+							type="button"
+							className={statusBarItemClass(openStatusPopover === 'model')}
+							onClick={() => {
+								clearStatusPopoverError();
+								setOpenStatusPopover((prev) => (prev === 'model' ? null : 'model'));
+							}}
+							title="model"
+						>
+							<Box className="h-3.5 w-3.5 text-text-menuLabel" />
+							<span className="truncate">{selectedModelInfo?.displayName ?? selectedModel ?? 'model'}</span>
+							<ChevronDown className="h-3 w-3" />
+						</button>
+
+						{openStatusPopover === 'model' ? (
+							<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
+								<div className={MENU_STYLES.popoverTitle}>Select model</div>
+								<div className="max-h-[40vh] overflow-auto">
+									{models.length === 0 ? (
+										<div className="px-3 py-1.5 text-[12px] text-text-muted">(unavailable)</div>
+									) : (
+										models.map((m) => {
+											const selected = selectedModel === m.model;
+											return (
+												<button
+													key={m.id}
+													type="button"
+													className={MENU_STYLES.popoverItem}
+													onClick={() => void applyModel(m.model)}
+													title={translateModelDesc(m.description)}
+												>
+													<span>{m.displayName}</span>
+													<Check className={`ml-auto ${MENU_STYLES.iconSm} shrink-0 ${selected ? '' : 'invisible'}`} />
+												</button>
+											);
+										})
+									)}
+									{modelsError ? <div className="px-3 py-1 text-[11px] text-status-warning">{modelsError}</div> : null}
+								</div>
+							</div>
+						) : null}
+					</div>
 
 					<div className="relative">
 						<button
@@ -297,14 +300,14 @@ export function StatusBar({
 						>
 							<span className="truncate">{approvalPolicy}</span>
 							<ChevronDown className="h-3 w-3" />
-							</button>
+						</button>
 
-							{openStatusPopover === 'approval_policy' ? (
-								<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
-									<div className={MENU_STYLES.popoverTitle}>Approval policy</div>
-									<div>
-										{(['untrusted', 'on-request', 'on-failure', 'never'] as const).map((policy) => {
-											const selected = approvalPolicy === policy;
+						{openStatusPopover === 'approval_policy' ? (
+							<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
+								<div className={MENU_STYLES.popoverTitle}>Approval policy</div>
+								<div>
+									{(['untrusted', 'on-request', 'on-failure', 'never'] as const).map((policy) => {
+										const selected = approvalPolicy === policy;
 										const policyTitles: Record<string, string> = {
 											untrusted: '不信任模式，所有操作需要批准',
 											'on-request': '按需批准，仅在请求时需要批准',
@@ -342,14 +345,14 @@ export function StatusBar({
 							{selectedEffort ? reasoningEffortIcon(selectedEffort, 'h-3.5 w-3.5 text-text-menuLabel') : <Brain className="h-3.5 w-3.5 text-text-menuLabel" />}
 							<span className="truncate">{selectedEffort ? reasoningEffortLabelEn(selectedEffort) : 'Default'}</span>
 							<ChevronDown className="h-3 w-3" />
-							</button>
+						</button>
 
-							{openStatusPopover === 'model_reasoning_effort' ? (
-								<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
-									<div className={MENU_STYLES.popoverTitle}>Select reasoning</div>
-									<div>
-										{effortOptions.length === 0 ? (
-											<div className="px-3 py-1.5 text-[12px] text-text-muted">Default</div>
+						{openStatusPopover === 'model_reasoning_effort' ? (
+							<div className={`absolute bottom-[28px] left-0 z-50 w-max py-1.5 ${STATUS_SELECT_POPOVER_CLASS}`}>
+								<div className={MENU_STYLES.popoverTitle}>Select reasoning</div>
+								<div>
+									{effortOptions.length === 0 ? (
+										<div className="px-3 py-1.5 text-[12px] text-text-muted">Default</div>
 									) : (
 										effortOptions.map((opt) => {
 											const selected = selectedEffort === opt.reasoningEffort;

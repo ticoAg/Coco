@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiClient } from '@/api/client';
-import type {
-	SharedArtifactCategory,
-	SharedArtifactContent,
-	SharedArtifactSummary,
-	Task,
-	TaskDirEntry,
-	TaskEvent,
-	TaskTextFileContent,
-} from '@/types/task';
+import type { SharedArtifactCategory, SharedArtifactContent, SharedArtifactSummary, Task, TaskDirEntry, TaskEvent, TaskTextFileContent } from '@/types/task';
 import { useSharedArtifacts, useSubagentSessions } from '../model';
 import { type WorkbenchNode, workbenchNodeKey } from '../model/workbench';
 import { StatusBadge } from './StatusBadge';

@@ -23,10 +23,8 @@ fn write_executable(path: &PathBuf, content: &str) {
 
 #[test]
 fn controller_loop_spawns_workers_writes_stateboard_and_joined_reports() {
-    let tmp = std::env::temp_dir().join(format!(
-        "coco-controller-loop-test-{}",
-        std::process::id()
-    ));
+    let tmp =
+        std::env::temp_dir().join(format!("coco-controller-loop-test-{}", std::process::id()));
     let _ = fs::remove_dir_all(&tmp);
     fs::create_dir_all(&tmp).expect("create tmp dir");
 

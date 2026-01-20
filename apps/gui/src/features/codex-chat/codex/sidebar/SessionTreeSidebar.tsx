@@ -74,16 +74,14 @@ export function SessionTreeSidebar({
 					onToggleExpand={onToggleExpand}
 					onContextMenu={onContextMenu}
 					onAction={handleNodeAction}
-					renderChildren={
-						node.children ? () => node.children!.map((child) => renderNode(child, depth + 1)) : undefined
-					}
+					renderChildren={node.children ? () => node.children!.map((child) => renderNode(child, depth + 1)) : undefined}
 				/>
 			);
 		},
 		[expandedNodes, selectedNodeId, handleNodeSelect, onToggleExpand, onContextMenu, handleNodeAction]
 	);
 
-	const sidebarWidth = isExpanded ? widthPx ?? SIDEBAR_EXPANDED_WIDTH_PX : SIDEBAR_WIDTH_PX;
+	const sidebarWidth = isExpanded ? (widthPx ?? SIDEBAR_EXPANDED_WIDTH_PX) : SIDEBAR_WIDTH_PX;
 	const minWidth = minWidthPx ?? 200;
 	const maxWidth = maxWidthPx ?? 520;
 	const resizeStartRef = useRef<{ x: number; width: number } | null>(null);
@@ -157,12 +155,7 @@ export function SessionTreeSidebar({
 					</div>
 					<div className="flex items-center gap-1 shrink-0">
 						{onRefresh ? (
-							<button
-								type="button"
-								className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-white/10"
-								onClick={onRefresh}
-								title="Refresh"
-							>
+							<button type="button" className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-white/10" onClick={onRefresh} title="Refresh">
 								<RefreshCw size={12} />
 							</button>
 						) : null}
@@ -203,10 +196,7 @@ export function SessionTreeSidebar({
 				<div
 					role="separator"
 					aria-orientation="vertical"
-					className={[
-						'absolute top-0 right-0 h-full w-1 cursor-col-resize transition-colors',
-						isResizing ? 'bg-primary/40' : 'hover:bg-white/10',
-					].join(' ')}
+					className={['absolute top-0 right-0 h-full w-1 cursor-col-resize transition-colors', isResizing ? 'bg-primary/40' : 'hover:bg-white/10'].join(' ')}
 					onMouseDown={(event) => {
 						if (!onWidthChange) return;
 						event.preventDefault();

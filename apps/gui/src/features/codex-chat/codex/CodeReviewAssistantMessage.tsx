@@ -29,7 +29,9 @@ function MarkdownBody({ text }: { text: string }) {
 					ol: ({ children }) => <ol className="my-0.5 list-decimal pl-5">{children}</ol>,
 					li: ({ children }) => <li className="my-0.5">{children}</li>,
 					pre: ({ children }) => (
-						<pre className="my-1.5 max-w-full overflow-x-auto rounded-md bg-black/25 px-2 py-1.5 font-mono text-[10px] leading-snug text-text-menuDesc">{children}</pre>
+						<pre className="my-1.5 max-w-full overflow-x-auto rounded-md bg-black/25 px-2 py-1.5 font-mono text-[10px] leading-snug text-text-menuDesc">
+							{children}
+						</pre>
 					),
 					code: ({ className, children }) => {
 						const isBlock = typeof className === 'string' && className.includes('language-');

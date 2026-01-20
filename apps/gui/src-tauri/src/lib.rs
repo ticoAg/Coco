@@ -336,10 +336,7 @@ fn validate_id(value: &str, label: &str) -> Result<(), String> {
 }
 
 fn codex_thread_sidecar_dir(workspace_root: &std::path::Path) -> std::path::PathBuf {
-    workspace_root
-        .join(".coco")
-        .join("codex")
-        .join("threads")
+    workspace_root.join(".coco").join("codex").join("threads")
 }
 
 fn codex_thread_sidecar_path(
@@ -604,11 +601,9 @@ fn interaction_count_from_rollout(path: &std::path::Path) -> Option<u32> {
                         }
                     }
                     _ => {
-                        if event_type.starts_with("agent_") {
-                            if ai_pending {
-                                ai_count = ai_count.saturating_add(1);
-                                ai_pending = false;
-                            }
+                        if event_type.starts_with("agent_") && ai_pending {
+                            ai_count = ai_count.saturating_add(1);
+                            ai_pending = false;
                         }
                     }
                 }
@@ -643,10 +638,7 @@ fn task_agents_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path
 }
 
 fn task_root_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path::PathBuf {
-    workspace_root
-        .join(".coco")
-        .join("tasks")
-        .join(task_id)
+    workspace_root.join(".coco").join("tasks").join(task_id)
 }
 
 fn task_shared_dir(workspace_root: &std::path::Path, task_id: &str) -> std::path::PathBuf {
@@ -764,9 +756,7 @@ fn cluster_status(state: tauri::State<'_, AppState>) -> coco_core::task::Cluster
 }
 
 #[tauri::command]
-fn list_tasks(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<coco_core::task::TaskFile>, String> {
+fn list_tasks(state: tauri::State<'_, AppState>) -> Result<Vec<coco_core::task::TaskFile>, String> {
     state
         .orchestrator
         .lock()
@@ -1271,7 +1261,7 @@ fn workspace_write_file(cwd: String, relative_path: String, content: String) -> 
     }
 
     // Limit content size to 1MB (keep parity with read_file_content).
-    if content.as_bytes().len() > 1_000_000 {
+    if content.len() > 1_000_000 {
         return Err("content too large (max 1MB)".to_string());
     }
 
@@ -2025,6 +2015,7 @@ async fn codex_thread_rollback(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn codex_turn_start(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
@@ -2704,7 +2695,11 @@ async fn git_branch_list(cwd: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-async fn git_worktree_create(cwd: String, worktree_name: String, branch: String) -> Result<String, String> {
+async fn git_worktree_create(
+    cwd: String,
+    worktree_name: String,
+    branch: String,
+) -> Result<String, String> {
     let cwd_path = std::path::PathBuf::from(cwd.trim());
     if cwd_path.as_os_str().is_empty() {
         return Err("cwd cannot be empty".to_string());
@@ -2742,10 +2737,7 @@ async fn git_worktree_create(cwd: String, worktree_name: String, branch: String)
     }
 
     let target_str = target_path.to_string_lossy().to_string();
-    run_git_command(
-        &cwd_path,
-        &["worktree", "add", &target_str, branch_name],
-    )?;
+    run_git_command(&cwd_path, &["worktree", "add", &target_str, branch_name])?;
 
     Ok(target_str)
 }

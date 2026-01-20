@@ -15,17 +15,7 @@ interface TreeNodeProps {
 	onAction?: (node: TreeNodeData, actionId: string) => void;
 }
 
-export function TreeNode({
-	node,
-	depth,
-	isExpanded,
-	isSelected,
-	onSelect,
-	onToggleExpand,
-	onContextMenu,
-	renderChildren,
-	onAction,
-}: TreeNodeProps) {
+export function TreeNode({ node, depth, isExpanded, isSelected, onSelect, onToggleExpand, onContextMenu, renderChildren, onAction }: TreeNodeProps) {
 	const indentPx = 8 + depth * 12;
 	const hasChildren = Array.isArray(node.children);
 
@@ -38,22 +28,17 @@ export function TreeNode({
 		onToggleExpand(node.id);
 	};
 
-	const showInteractionCount =
-		node.interactionCount != null && (node.type === 'task' || node.type === 'orchestrator' || node.type === 'worker');
+	const showInteractionCount = node.interactionCount != null && (node.type === 'task' || node.type === 'orchestrator' || node.type === 'worker');
 
 	const labelTitle = node.label;
 	const wtLabel = node.metadata?.wtLabel ?? null;
-	const showWtLabel = Boolean(
-		wtLabel && (node.type === 'task' || node.type === 'orchestrator' || node.type === 'worker')
-	);
+	const showWtLabel = Boolean(wtLabel && (node.type === 'task' || node.type === 'orchestrator' || node.type === 'worker'));
 	const action = node.actions?.[0] ?? null;
 
 	return (
 		<div>
 			<div
-				className={`group flex items-center gap-1 rounded-lg px-1 py-0.5 cursor-pointer transition-colors ${
-					isSelected ? 'bg-primary/20' : 'hover:bg-white/5'
-				}`}
+				className={`group flex items-center gap-1 rounded-lg px-1 py-0.5 cursor-pointer transition-colors ${isSelected ? 'bg-primary/20' : 'hover:bg-white/5'}`}
 				style={{ paddingLeft: indentPx }}
 				onClick={handleClick}
 				onContextMenu={(event) => {
@@ -68,10 +53,7 @@ export function TreeNode({
 					onClick={handleChevronClick}
 					disabled={!hasChildren}
 				>
-					<ChevronRight
-						size={12}
-						className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-					/>
+					<ChevronRight size={12} className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
 				</button>
 
 				{/* Icon */}
@@ -85,11 +67,7 @@ export function TreeNode({
 						{node.interactionCount}
 					</div>
 				) : (
-					<SessionTreeIcon
-						type={node.type}
-						isExpanded={isExpanded}
-						className={getStatusColor(node.status)}
-					/>
+					<SessionTreeIcon type={node.type} isExpanded={isExpanded} className={getStatusColor(node.status)} />
 				)}
 
 				{/* Running indicator */}
@@ -101,10 +79,7 @@ export function TreeNode({
 				</span>
 
 				{showWtLabel ? (
-					<span
-						className="ml-1 min-w-0 max-w-[120px] truncate rounded bg-white/5 px-1 py-0.5 text-[9px] text-text-muted"
-						title={wtLabel ?? undefined}
-					>
+					<span className="ml-1 min-w-0 max-w-[120px] truncate rounded bg-white/5 px-1 py-0.5 text-[9px] text-text-muted" title={wtLabel ?? undefined}>
 						{wtLabel}
 					</span>
 				) : null}
@@ -126,9 +101,7 @@ export function TreeNode({
 
 				{/* Status badge */}
 				{node.status && node.type !== 'repo' ? (
-					<span className={`shrink-0 rounded px-1 py-0.5 text-[9px] ${getStatusColor(node.status)} bg-white/5`}>
-						{node.status}
-					</span>
+					<span className={`shrink-0 rounded px-1 py-0.5 text-[9px] ${getStatusColor(node.status)} bg-white/5`}>{node.status}</span>
 				) : null}
 			</div>
 

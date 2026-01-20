@@ -6,9 +6,7 @@ import { isReadingGroup, isReasoningGroup } from '../lib/turn/exploration';
 
 export const PENDING_TURN_ID = '__pending__';
 
-export function isCollapsibleEntry(
-	entry: ChatEntry
-): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'webSearch' | 'mcp' | 'collab' }> {
+export function isCollapsibleEntry(entry: ChatEntry): entry is Extract<ChatEntry, { kind: 'command' | 'fileChange' | 'webSearch' | 'mcp' | 'collab' }> {
 	return entry.kind === 'command' || entry.kind === 'fileChange' || entry.kind === 'webSearch' || entry.kind === 'mcp' || entry.kind === 'collab';
 }
 
@@ -470,9 +468,7 @@ export function mergeEntry(entries: ChatEntry[], next: ChatEntry): ChatEntry[] {
 	// the UI only shows the message that actually gets sent/persisted.
 	if (next.kind === 'user') {
 		const incoming = next as Extract<ChatEntry, { kind: 'user' }>;
-		const matchIdx = entries.findIndex(
-			(e): e is Extract<ChatEntry, { kind: 'user' }> => e.kind === 'user' && e.text === incoming.text
-		);
+		const matchIdx = entries.findIndex((e): e is Extract<ChatEntry, { kind: 'user' }> => e.kind === 'user' && e.text === incoming.text);
 		if (matchIdx !== -1) {
 			const prev = entries[matchIdx] as Extract<ChatEntry, { kind: 'user' }>;
 

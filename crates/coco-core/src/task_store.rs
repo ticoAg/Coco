@@ -273,10 +273,8 @@ mod tests {
 
     #[test]
     fn create_task_scaffolds_human_notes_context_manifest_and_evidence_index() {
-        let workspace_root = std::env::temp_dir().join(format!(
-            "coco-core-test-{}",
-            uuid::Uuid::new_v4().simple()
-        ));
+        let workspace_root =
+            std::env::temp_dir().join(format!("coco-core-test-{}", uuid::Uuid::new_v4().simple()));
         let store = TaskStore::new(workspace_root.clone());
         let resp = store
             .create_task(CreateTaskRequest {

@@ -91,4 +91,3 @@ export function persistSessionTreeWidth(next: number) {
 		// ignore
 	}
 }
-

@@ -152,7 +152,9 @@ export function SlashCommandMenu({
 								onMouseEnter={() => onHighlight(globalIdx)}
 							>
 								<FileText className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
-								<span className="min-w-0 flex-1 truncate">{indices && indices.length > 0 ? highlightMatches(`prompts:${prompt.name}`, indices) : `prompts:${prompt.name}`}</span>
+								<span className="min-w-0 flex-1 truncate">
+									{indices && indices.length > 0 ? highlightMatches(`prompts:${prompt.name}`, indices) : `prompts:${prompt.name}`}
+								</span>
 								<span className={MENU_STYLES.popoverItemDesc} title={prompt.description || 'send saved prompt'}>
 									{prompt.description || 'send saved prompt'}
 								</span>

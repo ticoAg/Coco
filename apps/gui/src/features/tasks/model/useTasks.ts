@@ -332,7 +332,7 @@ export function useSubagentSessions(
 				const running = sessions.filter((s) => s.status === 'running');
 				const bestRunning = running.sort((a, b) => (b.lastUpdatedAtMs ?? 0) - (a.lastUpdatedAtMs ?? 0))[0]?.agentInstance ?? null;
 				const selectedAgentInstance = autoFollow
-					? bestRunning ?? (selectedStillValid ? state.selectedAgentInstance : (sessions[0]?.agentInstance ?? null))
+					? (bestRunning ?? (selectedStillValid ? state.selectedAgentInstance : (sessions[0]?.agentInstance ?? null)))
 					: selectedStillValid
 						? state.selectedAgentInstance
 						: (sessions[0]?.agentInstance ?? null);

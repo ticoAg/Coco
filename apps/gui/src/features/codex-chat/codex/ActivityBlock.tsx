@@ -89,12 +89,7 @@ export function ActivityBlock({
 
 	return (
 		<div
-			className={[
-				'min-w-0 max-w-full am-block',
-				showOpenBorder ? 'am-block-open' : '',
-				summaryHover ? 'am-block-hover' : '',
-				containerClassName ?? '',
-			]
+			className={['min-w-0 max-w-full am-block', showOpenBorder ? 'am-block-open' : '', summaryHover ? 'am-block-hover' : '', containerClassName ?? '']
 				.filter(Boolean)
 				.join(' ')}
 		>
@@ -176,7 +171,11 @@ export function ActivityBlock({
 								className={[
 									'min-w-0 am-shell-body text-text-muted',
 									useMono ? 'font-mono font-medium' : 'font-sans',
-									effectiveVariant === 'markdown' ? 'whitespace-normal' : effectiveVariant === 'ansi' ? 'whitespace-pre-wrap break-words' : 'whitespace-pre-wrap break-words',
+									effectiveVariant === 'markdown'
+										? 'whitespace-normal'
+										: effectiveVariant === 'ansi'
+											? 'whitespace-pre-wrap break-words'
+											: 'whitespace-pre-wrap break-words',
 									contentClassName ?? '',
 								].join(' ')}
 							>

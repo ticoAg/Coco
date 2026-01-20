@@ -74,17 +74,7 @@ export function WorkbenchTab({
 	const isSelected = (node: WorkbenchNode) => (workbenchSelectionKey ? workbenchNodeKey(node) === workbenchSelectionKey : false);
 	const indentPx = (depth: number) => 8 + depth * 14;
 
-	const TreeButton = ({
-		node,
-		label,
-		depth,
-		meta,
-	}: {
-		node: WorkbenchNode;
-		label: string;
-		depth: number;
-		meta?: string | null;
-	}) => {
+	const TreeButton = ({ node, label, depth, meta }: { node: WorkbenchNode; label: string; depth: number; meta?: string | null }) => {
 		const selected = isSelected(node);
 		return (
 			<button
@@ -116,11 +106,7 @@ export function WorkbenchTab({
 						<input type="checkbox" checked={sessionAutoFollow} onChange={(e) => onToggleAutoFollow(e.target.checked)} />
 						<span>Auto-follow</span>
 					</label>
-					<button
-						type="button"
-						className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-sm hover:border-white/20"
-						onClick={onRefresh}
-					>
+					<button type="button" className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-sm hover:border-white/20" onClick={onRefresh}>
 						Refresh
 					</button>
 				</div>
@@ -277,11 +263,7 @@ export function WorkbenchTab({
 
 												{expanded(agentKey) ? (
 													<div className="space-y-1">
-														<TreeButton
-															node={{ kind: 'agent', agentInstance: s.agentInstance, section: 'session' }}
-															label="session.json"
-															depth={2}
-														/>
+														<TreeButton node={{ kind: 'agent', agentInstance: s.agentInstance, section: 'session' }} label="session.json" depth={2} />
 
 														<div
 															className="w-full rounded-md px-2 py-1 text-left text-[11px] font-semibold text-text-muted"
@@ -289,16 +271,8 @@ export function WorkbenchTab({
 														>
 															runtime/
 														</div>
-														<TreeButton
-															node={{ kind: 'agent', agentInstance: s.agentInstance, section: 'events' }}
-															label="events.jsonl"
-															depth={3}
-														/>
-														<TreeButton
-															node={{ kind: 'agent', agentInstance: s.agentInstance, section: 'stderr' }}
-															label="stderr.log"
-															depth={3}
-														/>
+														<TreeButton node={{ kind: 'agent', agentInstance: s.agentInstance, section: 'events' }} label="events.jsonl" depth={3} />
+														<TreeButton node={{ kind: 'agent', agentInstance: s.agentInstance, section: 'stderr' }} label="stderr.log" depth={3} />
 
 														<div
 															className="w-full rounded-md px-2 py-1 text-left text-[11px] font-semibold text-text-muted"
@@ -306,11 +280,7 @@ export function WorkbenchTab({
 														>
 															artifacts/
 														</div>
-														<TreeButton
-															node={{ kind: 'agent', agentInstance: s.agentInstance, section: 'final' }}
-															label="final.json"
-															depth={3}
-														/>
+														<TreeButton node={{ kind: 'agent', agentInstance: s.agentInstance, section: 'final' }} label="final.json" depth={3} />
 													</div>
 												) : null}
 											</div>
@@ -330,9 +300,7 @@ export function WorkbenchTab({
 					{(() => {
 						if (!workbenchSelected) {
 							return (
-								<div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">
-									Select a node to preview.
-								</div>
+								<div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">Select a node to preview.</div>
 							);
 						}
 

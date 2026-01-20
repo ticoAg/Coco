@@ -559,9 +559,7 @@ export function CodexChatComposer({
 									<div className={MENU_STYLES.popoverTitle}>Worktrees</div>
 									<div className="max-h-[180px] overflow-auto">
 										{worktreesLoading ? <div className="px-2 py-1 text-[11px] text-text-dim">Loading…</div> : null}
-										{!worktreesLoading && worktrees.length === 0 ? (
-											<div className="px-2 py-1 text-[11px] text-text-dim">No worktrees found</div>
-										) : null}
+										{!worktreesLoading && worktrees.length === 0 ? <div className="px-2 py-1 text-[11px] text-text-dim">No worktrees found</div> : null}
 										{worktrees.map((wt) => {
 											const key = normalizePath(wt.path);
 											const isActive = activeWorktreeKey === key;

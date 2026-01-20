@@ -72,11 +72,7 @@ export function FileChangeEntryCard({ change, isPending, defaultCollapsed }: Fil
 			<Collapse open={open} innerClassName="pt-0">
 				<div className="am-shell min-w-0">
 					<div className="am-shell-scroll am-scroll-fade min-w-0">
-						{hasDiff ? (
-							<SideBySideDiff parsed={change.parsed} />
-						) : (
-							<div className="text-[10px] italic text-text-muted">No diff content</div>
-						)}
+						{hasDiff ? <SideBySideDiff parsed={change.parsed} /> : <div className="text-[10px] italic text-text-muted">No diff content</div>}
 					</div>
 				</div>
 			</Collapse>
@@ -193,54 +189,54 @@ function SideBySideDiff({ parsed }: { parsed: ParsedDiff }) {
 			<div className="flex-1 min-w-0 border-r border-white/5">
 				<div className="overflow-x-auto h-full">
 					{rows.map((row, idx) => {
-					if (row.isEllipsis) {
+						if (row.isEllipsis) {
+							return (
+								<div key={`left-${idx}`} className="flex text-text-muted/40 px-1">
+									<span className="text-right pr-1 shrink-0" style={{ width: `${gutterWidth}ch` }} />
+									<span>⋮</span>
+								</div>
+							);
+						}
+						const left = row.left;
+						if (!left) return <div key={`left-${idx}`} className="h-[1.35em]" />;
+						const bgClass = left.kind === 'delete' ? 'bg-red-500/10' : left.kind === 'empty' ? 'bg-white/[0.02]' : '';
+						const textClass = left.kind === 'delete' ? 'text-red-400' : 'text-text-muted';
 						return (
-							<div key={`left-${idx}`} className="flex text-text-muted/40 px-1">
-								<span className="text-right pr-1 shrink-0" style={{ width: `${gutterWidth}ch` }} />
-								<span>⋮</span>
+							<div key={`left-${idx}`} className={`flex ${bgClass}`}>
+								<span className="text-right text-text-muted/50 pr-1 shrink-0" style={{ width: `${gutterWidth}ch` }}>
+									{formatLineNumber(left.lineNo)}
+								</span>
+								<span className={`whitespace-pre-wrap break-words ${textClass}`}>{left.text}</span>
 							</div>
 						);
-					}
-					const left = row.left;
-					if (!left) return <div key={`left-${idx}`} className="h-[1.35em]" />;
-					const bgClass = left.kind === 'delete' ? 'bg-red-500/10' : left.kind === 'empty' ? 'bg-white/[0.02]' : '';
-					const textClass = left.kind === 'delete' ? 'text-red-400' : 'text-text-muted';
-					return (
-						<div key={`left-${idx}`} className={`flex ${bgClass}`}>
-							<span className="text-right text-text-muted/50 pr-1 shrink-0" style={{ width: `${gutterWidth}ch` }}>
-								{formatLineNumber(left.lineNo)}
-							</span>
-							<span className={`whitespace-pre-wrap break-words ${textClass}`}>{left.text}</span>
-						</div>
-					);
-				})}
+					})}
 				</div>
 			</div>
 			{/* Right side (new) */}
 			<div className="flex-1 min-w-0">
 				<div className="overflow-x-auto h-full">
 					{rows.map((row, idx) => {
-					if (row.isEllipsis) {
+						if (row.isEllipsis) {
+							return (
+								<div key={`right-${idx}`} className="flex text-text-muted/40 px-1">
+									<span className="text-right pr-1 shrink-0" style={{ width: `${gutterWidth}ch` }} />
+									<span>⋮</span>
+								</div>
+							);
+						}
+						const right = row.right;
+						if (!right) return <div key={`right-${idx}`} className="h-[1.35em]" />;
+						const bgClass = right.kind === 'insert' ? 'bg-green-500/10' : right.kind === 'empty' ? 'bg-white/[0.02]' : '';
+						const textClass = right.kind === 'insert' ? 'text-green-400' : 'text-text-muted';
 						return (
-							<div key={`right-${idx}`} className="flex text-text-muted/40 px-1">
-								<span className="text-right pr-1 shrink-0" style={{ width: `${gutterWidth}ch` }} />
-								<span>⋮</span>
+							<div key={`right-${idx}`} className={`flex ${bgClass}`}>
+								<span className="text-right text-text-muted/50 pr-1 shrink-0" style={{ width: `${gutterWidth}ch` }}>
+									{formatLineNumber(right.lineNo)}
+								</span>
+								<span className={`whitespace-pre-wrap break-words ${textClass}`}>{right.text}</span>
 							</div>
 						);
-					}
-					const right = row.right;
-					if (!right) return <div key={`right-${idx}`} className="h-[1.35em]" />;
-					const bgClass = right.kind === 'insert' ? 'bg-green-500/10' : right.kind === 'empty' ? 'bg-white/[0.02]' : '';
-					const textClass = right.kind === 'insert' ? 'text-green-400' : 'text-text-muted';
-					return (
-						<div key={`right-${idx}`} className={`flex ${bgClass}`}>
-							<span className="text-right text-text-muted/50 pr-1 shrink-0" style={{ width: `${gutterWidth}ch` }}>
-								{formatLineNumber(right.lineNo)}
-							</span>
-							<span className={`whitespace-pre-wrap break-words ${textClass}`}>{right.text}</span>
-						</div>
-					);
-				})}
+					})}
 				</div>
 			</div>
 		</div>

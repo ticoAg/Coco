@@ -4,19 +4,9 @@ import { Eye, Plus, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { apiClient } from '@/api/client';
-import type {
-	AttachmentItem,
-	ChatEntry,
-	CodexChatSettings,
-	TurnBlockData,
-} from './codex/types';
+import type { AttachmentItem, ChatEntry, CodexChatSettings, TurnBlockData } from './codex/types';
 import type { ApprovalPolicy } from './codex/types';
-import {
-	errorMessage,
-	formatTokenCount,
-	fuzzyMatch,
-	safeString,
-} from './codex/utils';
+import { errorMessage, formatTokenCount, fuzzyMatch, safeString } from './codex/utils';
 import { SIDEBAR_EXPANDED_WIDTH_PX } from './codex/styles/menu-styles';
 import { StatusBar, type StatusPopover } from './codex/StatusBar';
 import { SessionTreeSidebar } from './codex/sidebar';
@@ -284,7 +274,7 @@ export function CodexChat() {
 	const [sessionTreeWidthPx, setSessionTreeWidthPx] = useState(() => loadSessionTreeWidth(SIDEBAR_EXPANDED_WIDTH_PX));
 	const autoRefreshTimerRef = useRef<number | null>(null);
 	const autoRefreshUntilRef = useRef<number>(0);
-	const listSessionsRef = useRef<() => Promise<void>>(async () => { });
+	const listSessionsRef = useRef<() => Promise<void>>(async () => {});
 	const archiveTaskInFlightRef = useRef<Set<string>>(new Set());
 	const renameTaskInputRef = useRef<HTMLInputElement>(null);
 	const renameFileInputRef = useRef<HTMLInputElement>(null);
@@ -305,7 +295,9 @@ export function CodexChat() {
 	const [workbenchRootThreadId, setWorkbenchRootThreadId] = useState<string | null>(null);
 	const [workbenchAutoFocus, setWorkbenchAutoFocus] = useState(true);
 	const [forkParentByThreadId, setForkParentByThreadId] = useState<Record<string, string>>({});
-	const [collabItemsByThreadId, setCollabItemsByThreadId] = useState<Record<string, Record<string, Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>>>>({});
+	const [collabItemsByThreadId, setCollabItemsByThreadId] = useState<Record<string, Record<string, Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>>>>(
+		{}
+	);
 	const [collabSeqByItemId, setCollabSeqByItemId] = useState<Record<string, number>>({});
 	const collabSeqRef = useRef(0);
 	const autoFocusInFlightRef = useRef(false);
@@ -396,107 +388,104 @@ export function CodexChat() {
 	const [skillSearchQuery, setSkillSearchQuery] = useState('');
 	const [skillHighlightIndex, setSkillHighlightIndex] = useState(0);
 	const [selectedSkill, setSelectedSkill] = useState<SkillMetadata | null>(null);
-		// Prompts state
-		const [prompts, setPrompts] = useState<CustomPrompt[]>([]);
-		const [selectedPrompt, setSelectedPrompt] = useState<CustomPrompt | null>(null);
-		// Slash menu pins (skill/prompt only)
-		const [pinnedInputItems, setPinnedInputItems] = useState<PinnedInputItem[]>(() => loadPinnedInputItems());
-		const fileInputRef = useRef<HTMLInputElement>(null);
-		const textareaRef = useRef<HTMLTextAreaElement>(null);
-		const menuListRef = useRef<HTMLDivElement>(null);
-		const effectiveCwd = activeWorktreePath ?? activeThread?.cwd ?? workspaceRoot ?? null;
-		const computedWorkspaceBasePath = effectiveCwd;
-		const workspaceBasePath = workspaceBasePathOverride ?? computedWorkspaceBasePath;
+	// Prompts state
+	const [prompts, setPrompts] = useState<CustomPrompt[]>([]);
+	const [selectedPrompt, setSelectedPrompt] = useState<CustomPrompt | null>(null);
+	// Slash menu pins (skill/prompt only)
+	const [pinnedInputItems, setPinnedInputItems] = useState<PinnedInputItem[]>(() => loadPinnedInputItems());
+	const fileInputRef = useRef<HTMLInputElement>(null);
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const menuListRef = useRef<HTMLDivElement>(null);
+	const effectiveCwd = activeWorktreePath ?? activeThread?.cwd ?? workspaceRoot ?? null;
+	const computedWorkspaceBasePath = effectiveCwd;
+	const workspaceBasePath = workspaceBasePathOverride ?? computedWorkspaceBasePath;
 
 	// Reset the override when the source base path changes (e.g. switching sessions / selecting a new project).
-		useEffect(() => {
-			setWorkspaceBasePathOverride(null);
-		}, [computedWorkspaceBasePath]);
+	useEffect(() => {
+		setWorkspaceBasePathOverride(null);
+	}, [computedWorkspaceBasePath]);
 
-		useEffect(() => {
-			if (selectedThreadId && selectedThreadId !== lastSelectedThreadIdRef.current) {
-				lastSelectedThreadIdRef.current = selectedThreadId;
-				setActiveWorktreePath(activeThread?.cwd ?? workspaceRoot ?? null);
-				return;
+	useEffect(() => {
+		if (selectedThreadId && selectedThreadId !== lastSelectedThreadIdRef.current) {
+			lastSelectedThreadIdRef.current = selectedThreadId;
+			setActiveWorktreePath(activeThread?.cwd ?? workspaceRoot ?? null);
+			return;
+		}
+		if (!selectedThreadId && !activeWorktreePath && workspaceRoot) {
+			setActiveWorktreePath(workspaceRoot);
+		}
+	}, [activeThread?.cwd, activeWorktreePath, selectedThreadId, workspaceRoot]);
+
+	useEffect(() => {
+		persistPinnedInputItems(pinnedInputItems);
+	}, [pinnedInputItems]);
+
+	const adjustTextareaHeight = useCallback(() => {
+		const textarea = textareaRef.current;
+		if (!textarea) return;
+		textarea.style.height = 'auto';
+		textarea.style.height = `${Math.min(textarea.scrollHeight, 264)}px`;
+	}, []);
+
+	const pinnedPromptNames = useMemo(() => {
+		return new Set(pinnedInputItems.filter((item) => item.type === 'prompt').map((item) => item.name));
+	}, [pinnedInputItems]);
+
+	const pinnedSkillNames = useMemo(() => {
+		return new Set(pinnedInputItems.filter((item) => item.type === 'skill').map((item) => item.name));
+	}, [pinnedInputItems]);
+
+	const togglePinnedPromptName = useCallback((promptName: string) => {
+		setPinnedInputItems((prev) => {
+			const idx = prev.findIndex((item) => item.type === 'prompt' && item.name === promptName);
+			if (idx >= 0) return prev.filter((_, i) => i !== idx);
+			return [{ type: 'prompt', name: promptName }, ...prev];
+		});
+	}, []);
+
+	const togglePinnedSkillName = useCallback((skillName: string) => {
+		setPinnedInputItems((prev) => {
+			const idx = prev.findIndex((item) => item.type === 'skill' && item.name === skillName);
+			if (idx >= 0) return prev.filter((_, i) => i !== idx);
+			return [{ type: 'skill', name: skillName }, ...prev];
+		});
+	}, []);
+
+	const pinnedResolvedItems = useMemo(() => {
+		const out: Array<{ type: 'prompt'; prompt: CustomPrompt } | { type: 'skill'; skill: SkillMetadata }> = [];
+		for (const item of pinnedInputItems) {
+			if (item.type === 'prompt') {
+				const prompt = prompts.find((p) => p.name === item.name);
+				if (prompt) out.push({ type: 'prompt', prompt });
+				continue;
 			}
-			if (!selectedThreadId && !activeWorktreePath && workspaceRoot) {
-				setActiveWorktreePath(workspaceRoot);
+			if (item.type === 'skill') {
+				const skill = skills.find((s) => s.name === item.name);
+				if (skill) out.push({ type: 'skill', skill });
 			}
-		}, [activeThread?.cwd, activeWorktreePath, selectedThreadId, workspaceRoot]);
+		}
+		return out;
+	}, [pinnedInputItems, prompts, skills]);
 
-		useEffect(() => {
-			persistPinnedInputItems(pinnedInputItems);
-		}, [pinnedInputItems]);
+	const normalizePath = useCallback((value: string) => value.replace(/\\/g, '/').replace(/\/+$/, ''), []);
 
-		const adjustTextareaHeight = useCallback(() => {
-			const textarea = textareaRef.current;
-			if (!textarea) return;
-			textarea.style.height = 'auto';
-			textarea.style.height = `${Math.min(textarea.scrollHeight, 264)}px`;
-		}, []);
+	const activeWorktreeInfo = useMemo(() => {
+		if (!activeWorktreePath) return null;
+		const target = normalizePath(activeWorktreePath);
+		return worktrees.find((wt) => normalizePath(wt.path) === target) ?? null;
+	}, [activeWorktreePath, normalizePath, worktrees]);
 
-		const pinnedPromptNames = useMemo(() => {
-			return new Set(pinnedInputItems.filter((item) => item.type === 'prompt').map((item) => item.name));
-		}, [pinnedInputItems]);
+	const activeWorktreeBranch = activeWorktreeInfo?.branch ?? autoContext?.gitStatus?.branch ?? null;
+	const activeWorktreeLabel = useMemo(() => {
+		if (!activeWorktreePath) return 'Worktree';
+		const name = repoNameFromPath(activeWorktreePath);
+		const branchLabel = activeWorktreeBranch ?? 'detached';
+		return `${name} · ${branchLabel}`;
+	}, [activeWorktreeBranch, activeWorktreePath]);
 
-		const pinnedSkillNames = useMemo(() => {
-			return new Set(pinnedInputItems.filter((item) => item.type === 'skill').map((item) => item.name));
-		}, [pinnedInputItems]);
-
-		const togglePinnedPromptName = useCallback((promptName: string) => {
-			setPinnedInputItems((prev) => {
-				const idx = prev.findIndex((item) => item.type === 'prompt' && item.name === promptName);
-				if (idx >= 0) return prev.filter((_, i) => i !== idx);
-				return [{ type: 'prompt', name: promptName }, ...prev];
-			});
-		}, []);
-
-		const togglePinnedSkillName = useCallback((skillName: string) => {
-			setPinnedInputItems((prev) => {
-				const idx = prev.findIndex((item) => item.type === 'skill' && item.name === skillName);
-				if (idx >= 0) return prev.filter((_, i) => i !== idx);
-				return [{ type: 'skill', name: skillName }, ...prev];
-			});
-		}, []);
-
-		const pinnedResolvedItems = useMemo(() => {
-			const out: Array<
-				| { type: 'prompt'; prompt: CustomPrompt }
-				| { type: 'skill'; skill: SkillMetadata }
-			> = [];
-			for (const item of pinnedInputItems) {
-				if (item.type === 'prompt') {
-					const prompt = prompts.find((p) => p.name === item.name);
-					if (prompt) out.push({ type: 'prompt', prompt });
-					continue;
-				}
-				if (item.type === 'skill') {
-					const skill = skills.find((s) => s.name === item.name);
-					if (skill) out.push({ type: 'skill', skill });
-				}
-			}
-			return out;
-		}, [pinnedInputItems, prompts, skills]);
-
-		const normalizePath = useCallback((value: string) => value.replace(/\\/g, '/').replace(/\/+$/, ''), []);
-
-		const activeWorktreeInfo = useMemo(() => {
-			if (!activeWorktreePath) return null;
-			const target = normalizePath(activeWorktreePath);
-			return worktrees.find((wt) => normalizePath(wt.path) === target) ?? null;
-		}, [activeWorktreePath, normalizePath, worktrees]);
-
-		const activeWorktreeBranch = activeWorktreeInfo?.branch ?? autoContext?.gitStatus?.branch ?? null;
-		const activeWorktreeLabel = useMemo(() => {
-			if (!activeWorktreePath) return 'Worktree';
-			const name = repoNameFromPath(activeWorktreePath);
-			const branchLabel = activeWorktreeBranch ?? 'detached';
-			return `${name} · ${branchLabel}`;
-		}, [activeWorktreeBranch, activeWorktreePath]);
-
-		useLayoutEffect(() => {
-			adjustTextareaHeight();
-		}, [adjustTextareaHeight, input]);
+	useLayoutEffect(() => {
+		adjustTextareaHeight();
+	}, [adjustTextareaHeight, input]);
 
 	const showWorkspaceListToast = useCallback((message: string) => {
 		setWorkspaceListToast(message);
@@ -576,9 +565,7 @@ export function CodexChat() {
 				setWorkspaceDirEntriesByPath((prev) => ({ ...prev, [relativePath]: entries }));
 			} catch (err) {
 				const message = errorMessage(err, 'Failed to list directory');
-				const target = relativePath.trim()
-					? `${workspaceBasePath.replace(/\/$/, '')}/${relativePath.replace(/^\//, '')}`
-					: workspaceBasePath;
+				const target = relativePath.trim() ? `${workspaceBasePath.replace(/\/$/, '')}/${relativePath.replace(/^\//, '')}` : workspaceBasePath;
 				setWorkspaceDirEntriesByPath((prev) => ({ ...prev, [relativePath]: [] }));
 
 				// When the current thread's cwd goes stale (deleted/moved), keep the UI usable by
@@ -832,7 +819,7 @@ export function CodexChat() {
 
 			// Read from the selected profile if one is active, otherwise use top-level config
 			const profileConfig = config.profile && config.profiles?.[config.profile] ? config.profiles[config.profile] : {};
-			const configuredModel = typeof profileConfig.model === 'string' ? profileConfig.model : (typeof config.model === 'string' ? config.model : null);
+			const configuredModel = typeof profileConfig.model === 'string' ? profileConfig.model : typeof config.model === 'string' ? config.model : null;
 			const configuredEffort = parseReasoningEffortValue(profileConfig.model_reasoning_effort ?? config.model_reasoning_effort);
 			const configuredApproval = parseApprovalPolicyValue(profileConfig.approval_policy ?? config.approval_policy);
 
@@ -942,51 +929,48 @@ export function CodexChat() {
 		[selectedEffort, selectedProfile]
 	);
 
-	const ingestCollabItems = useCallback(
-		(threadId: string, items: Array<Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>>) => {
-			if (!threadId || items.length === 0) return;
+	const ingestCollabItems = useCallback((threadId: string, items: Array<Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>>) => {
+		if (!threadId || items.length === 0) return;
 
-			setCollabItemsByThreadId((prev) => {
-				const existing = prev[threadId] ?? {};
-				let changed = false;
-				const nextForThread: Record<string, Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>> = { ...existing };
-				for (const item of items) {
-					if (!item?.id) continue;
-					const prevItem = nextForThread[item.id];
-					if (prevItem !== item) {
-						nextForThread[item.id] = item;
-						changed = true;
-					}
+		setCollabItemsByThreadId((prev) => {
+			const existing = prev[threadId] ?? {};
+			let changed = false;
+			const nextForThread: Record<string, Extract<CodexThreadItem, { type: 'collabAgentToolCall' }>> = { ...existing };
+			for (const item of items) {
+				if (!item?.id) continue;
+				const prevItem = nextForThread[item.id];
+				if (prevItem !== item) {
+					nextForThread[item.id] = item;
+					changed = true;
 				}
-				if (!changed) return prev;
-				return { ...prev, [threadId]: nextForThread };
-			});
+			}
+			if (!changed) return prev;
+			return { ...prev, [threadId]: nextForThread };
+		});
 
-			setCollabSeqByItemId((prev) => {
-				let next: Record<string, number> | null = null;
-				for (const item of items) {
-					if (!item?.id) continue;
-					if (Object.prototype.hasOwnProperty.call(prev, item.id)) continue;
-					if (!next) next = { ...prev };
-					next[item.id] = collabSeqRef.current++;
-				}
-				return next ?? prev;
-			});
-		},
-		[]
-	);
+		setCollabSeqByItemId((prev) => {
+			let next: Record<string, number> | null = null;
+			for (const item of items) {
+				if (!item?.id) continue;
+				if (Object.prototype.hasOwnProperty.call(prev, item.id)) continue;
+				if (!next) next = { ...prev };
+				next[item.id] = collabSeqRef.current++;
+			}
+			return next ?? prev;
+		});
+	}, []);
 
 	const selectSession = useCallback(
-			async (threadId: string, options?: { setAsWorkbenchRoot?: boolean }) => {
-				setSelectedThreadId(threadId);
-				setTurnOrder([]);
-				setTurnsById({});
-				setThreadTokenUsage(null);
-				setCollapsedWorkingByTurnId({});
-				setCollapsedByEntryId({});
-				setItemToTurnId({});
-				itemToTurnRef.current = {};
-				setActiveThread(null);
+		async (threadId: string, options?: { setAsWorkbenchRoot?: boolean }) => {
+			setSelectedThreadId(threadId);
+			setTurnOrder([]);
+			setTurnsById({});
+			setThreadTokenUsage(null);
+			setCollapsedWorkingByTurnId({});
+			setCollapsedByEntryId({});
+			setItemToTurnId({});
+			itemToTurnRef.current = {};
+			setActiveThread(null);
 			setActiveTurnId(null);
 			if (options?.setAsWorkbenchRoot) {
 				setWorkbenchRootThreadId(threadId);
@@ -1099,9 +1083,7 @@ export function CodexChat() {
 
 		const rootThreadId = workbenchRootThreadId ?? selectedThreadId ?? rootCandidates[0] ?? null;
 
-		const firstSpawnFromRoot = edges
-			.filter((e) => e.kind === 'spawn' && e.from === rootThreadId)
-			.sort((a, b) => a.seq - b.seq)[0];
+		const firstSpawnFromRoot = edges.filter((e) => e.kind === 'spawn' && e.from === rootThreadId).sort((a, b) => a.seq - b.seq)[0];
 		const orchestratorThreadId = firstSpawnFromRoot?.to ?? null;
 
 		const workerThreadIds = Array.from(
@@ -1203,9 +1185,7 @@ export function CodexChat() {
 		};
 
 		const collectSpawnChildren = (fromId: string): string[] => {
-			const ordered = spawnEdges
-				.filter((edge) => edge.from === fromId)
-				.sort((a, b) => a.seq - b.seq);
+			const ordered = spawnEdges.filter((edge) => edge.from === fromId).sort((a, b) => a.seq - b.seq);
 			const out: string[] = [];
 			const seen = new Set<string>();
 			for (const edge of ordered) {
@@ -1284,9 +1264,7 @@ export function CodexChat() {
 					children.push(orchestratorNode);
 				}
 
-				const candidateThreadIds = [session.id, orchestratorId, ...workerIds].filter(
-					(threadId): threadId is string => Boolean(threadId)
-				);
+				const candidateThreadIds = [session.id, orchestratorId, ...workerIds].filter((threadId): threadId is string => Boolean(threadId));
 				let latestUpdateMs: number | null = null;
 				for (const threadId of candidateThreadIds) {
 					const updatedAtMs = threadSummaryById.get(threadId)?.updatedAtMs ?? null;
@@ -1412,25 +1390,28 @@ export function CodexChat() {
 		});
 	}, [sessionTree.rootId]);
 
-	const toggleSessionTreeNode = useCallback((nodeId: string) => {
-		const isExpanded = sessionTreeExpandedNodesRef.current.has(nodeId);
-		if (!isExpanded) {
-			const node = sessionTree.nodeById[nodeId];
-			if (node?.type === 'folder' && node.metadata?.path != null) {
-				const path = node.metadata?.path ?? '';
-				ensureWorkspaceDirectoryLoaded(path);
+	const toggleSessionTreeNode = useCallback(
+		(nodeId: string) => {
+			const isExpanded = sessionTreeExpandedNodesRef.current.has(nodeId);
+			if (!isExpanded) {
+				const node = sessionTree.nodeById[nodeId];
+				if (node?.type === 'folder' && node.metadata?.path != null) {
+					const path = node.metadata?.path ?? '';
+					ensureWorkspaceDirectoryLoaded(path);
+				}
 			}
-		}
-		setSessionTreeExpandedNodes((prev) => {
-			const next = new Set(prev);
-			if (next.has(nodeId)) {
-				next.delete(nodeId);
-			} else {
-				next.add(nodeId);
-			}
-			return next;
-		});
-	}, [ensureWorkspaceDirectoryLoaded, sessionTree.nodeById]);
+			setSessionTreeExpandedNodes((prev) => {
+				const next = new Set(prev);
+				if (next.has(nodeId)) {
+					next.delete(nodeId);
+				} else {
+					next.add(nodeId);
+				}
+				return next;
+			});
+		},
+		[ensureWorkspaceDirectoryLoaded, sessionTree.nodeById]
+	);
 
 	const expandSessionTreeNodes = useCallback((nodeIds: string[]) => {
 		if (nodeIds.length === 0) return;
@@ -1503,9 +1484,7 @@ export function CodexChat() {
 						},
 					]);
 				} else if (existing.kind === 'file' && !existing.error) {
-					setPanelTabs((prev) =>
-						prev.map((tab) => (tab.id === tabId && tab.kind === 'file' ? { ...tab, error: 'Workspace root not set.' } : tab))
-					);
+					setPanelTabs((prev) => prev.map((tab) => (tab.id === tabId && tab.kind === 'file' ? { ...tab, error: 'Workspace root not set.' } : tab)));
 				}
 				return;
 			}
@@ -1531,9 +1510,7 @@ export function CodexChat() {
 					},
 				]);
 			} else {
-				setPanelTabs((prev) =>
-					prev.map((tab) => (tab.id === tabId && tab.kind === 'file' ? { ...tab, loading: true, error: null } : tab))
-				);
+				setPanelTabs((prev) => prev.map((tab) => (tab.id === tabId && tab.kind === 'file' ? { ...tab, loading: true, error: null } : tab)));
 			}
 
 			void (async () => {
@@ -1544,21 +1521,19 @@ export function CodexChat() {
 						prev.map((tab) =>
 							tab.id === tabId && tab.kind === 'file'
 								? {
-									...tab,
-									content,
-									draft: content,
-									dirty: false,
-									loading: false,
-									error: null,
-								}
+										...tab,
+										content,
+										draft: content,
+										dirty: false,
+										loading: false,
+										error: null,
+									}
 								: tab
 						)
 					);
 				} catch (err) {
 					const message = err instanceof Error ? err.message : 'Failed to load file';
-					setPanelTabs((prev) =>
-						prev.map((tab) => (tab.id === tabId && tab.kind === 'file' ? { ...tab, loading: false, error: message } : tab))
-					);
+					setPanelTabs((prev) => prev.map((tab) => (tab.id === tabId && tab.kind === 'file' ? { ...tab, loading: false, error: message } : tab)));
 				}
 			})();
 		},
@@ -1576,9 +1551,7 @@ export function CodexChat() {
 	}, []);
 
 	const toggleFileTabPreview = useCallback((tabId: string) => {
-		setPanelTabs((prev) =>
-			prev.map((tab) => (tab.id === tabId && tab.kind === 'file' ? { ...tab, showPreview: !tab.showPreview } : tab))
-		);
+		setPanelTabs((prev) => prev.map((tab) => (tab.id === tabId && tab.kind === 'file' ? { ...tab, showPreview: !tab.showPreview } : tab)));
 	}, []);
 
 	const saveFileTab = useCallback(
@@ -1586,40 +1559,26 @@ export function CodexChat() {
 			const tab = panelTabsRef.current.find((t): t is FilePanelTab => t.id === tabId && t.kind === 'file');
 			if (!tab) return;
 			if (!workspaceBasePath) {
-				setPanelTabs((prev) =>
-					prev.map((t) => (t.id === tabId && t.kind === 'file' ? { ...t, error: 'Workspace root not set.' } : t))
-				);
+				setPanelTabs((prev) => prev.map((t) => (t.id === tabId && t.kind === 'file' ? { ...t, error: 'Workspace root not set.' } : t)));
 				return;
 			}
 			if (tab.path.startsWith('/')) {
 				setPanelTabs((prev) =>
-					prev.map((t) =>
-						t.id === tabId && t.kind === 'file'
-							? { ...t, error: 'Saving absolute paths is not supported in this build.' }
-							: t
-					)
+					prev.map((t) => (t.id === tabId && t.kind === 'file' ? { ...t, error: 'Saving absolute paths is not supported in this build.' } : t))
 				);
 				return;
 			}
 
-			setPanelTabs((prev) =>
-				prev.map((t) => (t.id === tabId && t.kind === 'file' ? { ...t, saving: true, error: null } : t))
-			);
+			setPanelTabs((prev) => prev.map((t) => (t.id === tabId && t.kind === 'file' ? { ...t, saving: true, error: null } : t)));
 
 			try {
 				await apiClient.workspaceWriteFile(workspaceBasePath, tab.path, tab.draft);
 				setPanelTabs((prev) =>
-					prev.map((t) =>
-						t.id === tabId && t.kind === 'file'
-							? { ...t, saving: false, content: tab.draft, dirty: false, error: null }
-							: t
-					)
+					prev.map((t) => (t.id === tabId && t.kind === 'file' ? { ...t, saving: false, content: tab.draft, dirty: false, error: null } : t))
 				);
 			} catch (err) {
 				const message = err instanceof Error ? err.message : 'Failed to save file';
-				setPanelTabs((prev) =>
-					prev.map((t) => (t.id === tabId && t.kind === 'file' ? { ...t, saving: false, error: message } : t))
-				);
+				setPanelTabs((prev) => prev.map((t) => (t.id === tabId && t.kind === 'file' ? { ...t, saving: false, error: message } : t)));
 			}
 		},
 		[workspaceBasePath]
@@ -1774,18 +1733,14 @@ export function CodexChat() {
 		renameFileInputRef.current?.select();
 	}, [renameFileDialogTabId]);
 
-
-	const handleSessionTreeContextMenu = useCallback(
-		(node: TreeNodeData, event: React.MouseEvent) => {
-			if (node.type !== 'task') return;
-			const threadId = node.metadata?.threadId;
-			if (!threadId) return;
-			event.preventDefault();
-			event.stopPropagation();
-			setTaskContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id, threadId });
-		},
-		[]
-	);
+	const handleSessionTreeContextMenu = useCallback((node: TreeNodeData, event: React.MouseEvent) => {
+		if (node.type !== 'task') return;
+		const threadId = node.metadata?.threadId;
+		if (!threadId) return;
+		event.preventDefault();
+		event.stopPropagation();
+		setTaskContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id, threadId });
+	}, []);
 
 	const collectThreadIdsInNode = useCallback((root: TreeNodeData): string[] => {
 		const out: string[] = [];
@@ -1852,11 +1807,7 @@ export function CodexChat() {
 			return;
 		}
 		if (nextName.includes('/') || nextName.includes('\\')) {
-			setRenameFileDialog((prev) =>
-				prev
-					? { ...prev, error: 'Only same-folder renames are supported. Please enter a file name without / or \\.' }
-					: prev
-			);
+			setRenameFileDialog((prev) => (prev ? { ...prev, error: 'Only same-folder renames are supported. Please enter a file name without / or \\.' } : prev));
 			return;
 		}
 
@@ -1867,9 +1818,7 @@ export function CodexChat() {
 
 		const fromPath = renameFileDialog.fromPath.replace(/\\/g, '/');
 		if (fromPath.startsWith('/')) {
-			setRenameFileDialog((prev) =>
-				prev ? { ...prev, error: 'Renaming absolute paths is not supported in this build.' } : prev
-			);
+			setRenameFileDialog((prev) => (prev ? { ...prev, error: 'Renaming absolute paths is not supported in this build.' } : prev));
 			return;
 		}
 
@@ -1883,9 +1832,7 @@ export function CodexChat() {
 
 		const nextTabId = `file:${toPath}`;
 		if (panelTabsRef.current.some((t) => t.id === nextTabId)) {
-			setRenameFileDialog((prev) =>
-				prev ? { ...prev, error: 'A tab for the target file path is already open. Close it first.' } : prev
-			);
+			setRenameFileDialog((prev) => (prev ? { ...prev, error: 'A tab for the target file path is already open. Close it first.' } : prev));
 			return;
 		}
 
@@ -2111,13 +2058,10 @@ export function CodexChat() {
 			if (nextProfile === selectedProfile) return;
 			const runningFocusedTurn = activeTurnId ? turnsById[activeTurnId]?.status === 'inProgress' : false;
 			if (runningFocusedTurn) {
-				const confirmed = await dialogConfirm(
-					'Switching profile will stop the running turn and resume the session. Continue?',
-					{
-						title: 'Switch profile',
-						kind: 'warning',
-					}
-				);
+				const confirmed = await dialogConfirm('Switching profile will stop the running turn and resume the session. Continue?', {
+					title: 'Switch profile',
+					kind: 'warning',
+				});
 				if (!confirmed) return;
 			}
 
@@ -2369,25 +2313,25 @@ export function CodexChat() {
 		sendInFlightRef.current = true;
 		setSending(true);
 
-			try {
-				// Build attachments list for UI display
-				const attachments: AttachmentItem[] = [];
-				for (const f of fileAttachments) {
-					if (f.kind === 'file') {
-						attachments.push({ type: 'file', path: f.path, name: f.name });
-						continue;
-					}
-					if (f.kind === 'image') {
-						attachments.push({ type: 'image', url: f.dataUrl, name: f.name });
-						continue;
-					}
-					if (f.kind === 'localImage') {
-						attachments.push({ type: 'localImage', path: f.path, name: f.name });
-					}
+		try {
+			// Build attachments list for UI display
+			const attachments: AttachmentItem[] = [];
+			for (const f of fileAttachments) {
+				if (f.kind === 'file') {
+					attachments.push({ type: 'file', path: f.path, name: f.name });
+					continue;
 				}
-				if (selectedSkill) {
-					attachments.push({ type: 'skill', name: selectedSkill.name });
+				if (f.kind === 'image') {
+					attachments.push({ type: 'image', url: f.dataUrl, name: f.name });
+					continue;
 				}
+				if (f.kind === 'localImage') {
+					attachments.push({ type: 'localImage', path: f.path, name: f.name });
+				}
+			}
+			if (selectedSkill) {
+				attachments.push({ type: 'skill', name: selectedSkill.name });
+			}
 			if (selectedPrompt) {
 				attachments.push({ type: 'prompt', name: selectedPrompt.name });
 			}
@@ -2414,25 +2358,25 @@ export function CodexChat() {
 					})
 				: userInput;
 
-				// Build CodexUserInput array for API
-				const codexInput: CodexUserInput[] = [];
+			// Build CodexUserInput array for API
+			const codexInput: CodexUserInput[] = [];
 
-				// Add images first (TUI parity).
-				for (const att of fileAttachments) {
-					if (att.kind === 'image') {
-						codexInput.push({ type: 'image', url: att.dataUrl });
-					} else if (att.kind === 'localImage') {
-						codexInput.push({ type: 'localImage', path: att.path });
-					}
+			// Add images first (TUI parity).
+			for (const att of fileAttachments) {
+				if (att.kind === 'image') {
+					codexInput.push({ type: 'image', url: att.dataUrl });
+				} else if (att.kind === 'localImage') {
+					codexInput.push({ type: 'localImage', path: att.path });
 				}
+			}
 
-				// Add text input (keep old behavior: always include text, even if empty).
-				codexInput.push({ type: 'text', text: outgoingText });
+			// Add text input (keep old behavior: always include text, even if empty).
+			codexInput.push({ type: 'text', text: outgoingText });
 
-				// Add skill with name and path
-				if (selectedSkill) {
-					codexInput.push({ type: 'skill', name: selectedSkill.name, path: selectedSkill.path });
-				}
+			// Add skill with name and path
+			if (selectedSkill) {
+				codexInput.push({ type: 'skill', name: selectedSkill.name, path: selectedSkill.path });
+			}
 
 			// Create user entry with attachments
 			const userEntry: ChatEntry = {
@@ -2462,14 +2406,7 @@ export function CodexChat() {
 			setSelectedSkill(null);
 			setSelectedPrompt(null);
 			setFileAttachments([]);
-			await apiClient.codexTurnStart(
-				threadId,
-				codexInput,
-				selectedModel,
-				selectedEffort,
-				approvalPolicy,
-				activeWorktreePath ?? null
-			);
+			await apiClient.codexTurnStart(threadId, codexInput, selectedModel, selectedEffort, approvalPolicy, activeWorktreePath ?? null);
 		} catch (err) {
 			const systemEntry: ChatEntry = {
 				kind: 'system',
@@ -2532,18 +2469,18 @@ export function CodexChat() {
 			const seen = new Set<string>();
 			const hasSkillCatalog = skills.length > 0;
 			const hasPromptCatalog = prompts.length > 0;
-				for (const att of attachments) {
-					if (att.type === 'skill') {
-						if (hasSkillCatalog && !skills.some((skill) => skill.name === att.name)) continue;
-					}
-					if (att.type === 'prompt') {
-						if (hasPromptCatalog && !prompts.some((prompt) => prompt.name === att.name)) continue;
-					}
-					const key = attachmentDedupKey(att);
-					if (seen.has(key)) continue;
-					seen.add(key);
-					out.push(att);
+			for (const att of attachments) {
+				if (att.type === 'skill') {
+					if (hasSkillCatalog && !skills.some((skill) => skill.name === att.name)) continue;
 				}
+				if (att.type === 'prompt') {
+					if (hasPromptCatalog && !prompts.some((prompt) => prompt.name === att.name)) continue;
+				}
+				const key = attachmentDedupKey(att);
+				if (seen.has(key)) continue;
+				seen.add(key);
+				out.push(att);
+			}
 			return out;
 		},
 		[prompts, skills]
@@ -2556,15 +2493,15 @@ export function CodexChat() {
 				return false;
 			}
 
-				const trimmedInput = draft.text.trim();
-				const normalizedAttachments = normalizeRerunAttachments(draft.attachments);
-				const hasSkill = normalizedAttachments.some((att) => att.type === 'skill');
-				const hasPrompt = normalizedAttachments.some((att) => att.type === 'prompt');
-				const hasImage = normalizedAttachments.some((att) => att.type === 'image' || att.type === 'localImage');
-				if (!trimmedInput && !hasSkill && !hasPrompt && !hasImage) {
-					await dialogMessage('消息为空。', { title: '重新运行', kind: 'error' });
-					return false;
-				}
+			const trimmedInput = draft.text.trim();
+			const normalizedAttachments = normalizeRerunAttachments(draft.attachments);
+			const hasSkill = normalizedAttachments.some((att) => att.type === 'skill');
+			const hasPrompt = normalizedAttachments.some((att) => att.type === 'prompt');
+			const hasImage = normalizedAttachments.some((att) => att.type === 'image' || att.type === 'localImage');
+			if (!trimmedInput && !hasSkill && !hasPrompt && !hasImage) {
+				await dialogMessage('消息为空。', { title: '重新运行', kind: 'error' });
+				return false;
+			}
 
 			const targetTurnId = resolveTurnIdForEntry(entry.id);
 			if (!targetTurnId) {
@@ -2600,66 +2537,62 @@ export function CodexChat() {
 				return false;
 			}
 
-				const nextSkillName = normalizedAttachments.find((att) => att.type === 'skill')?.name ?? null;
-				const nextPromptName = normalizedAttachments.find((att) => att.type === 'prompt')?.name ?? null;
-				const nextSkill = nextSkillName ? skills.find((skill) => skill.name === nextSkillName) ?? null : null;
-				const nextPrompt = nextPromptName ? prompts.find((prompt) => prompt.name === nextPromptName) ?? null : null;
+			const nextSkillName = normalizedAttachments.find((att) => att.type === 'skill')?.name ?? null;
+			const nextPromptName = normalizedAttachments.find((att) => att.type === 'prompt')?.name ?? null;
+			const nextSkill = nextSkillName ? (skills.find((skill) => skill.name === nextSkillName) ?? null) : null;
+			const nextPrompt = nextPromptName ? (prompts.find((prompt) => prompt.name === nextPromptName) ?? null) : null;
 
-				const isAbsolutePath = (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
-				const cwd = effectiveCwd ?? '.';
-				const fileItems = normalizedAttachments.filter((att) => att.type === 'file') as Extract<AttachmentItem, { type: 'file' }>[];
-				const imageItems = normalizedAttachments.filter((att) => att.type === 'image') as Extract<AttachmentItem, { type: 'image' }>[];
-				const localImageItems = normalizedAttachments.filter((att) => att.type === 'localImage') as Extract<AttachmentItem, { type: 'localImage' }>[];
+			const isAbsolutePath = (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
+			const cwd = effectiveCwd ?? '.';
+			const fileItems = normalizedAttachments.filter((att) => att.type === 'file') as Extract<AttachmentItem, { type: 'file' }>[];
+			const imageItems = normalizedAttachments.filter((att) => att.type === 'image') as Extract<AttachmentItem, { type: 'image' }>[];
+			const localImageItems = normalizedAttachments.filter((att) => att.type === 'localImage') as Extract<AttachmentItem, { type: 'localImage' }>[];
 
-				const fileResults = await Promise.all(
-					fileItems.map(async (att) => {
-						const fullPath = isAbsolutePath(att.path) ? att.path : `${cwd}/${att.path}`;
-						try {
-							const content = await apiClient.readFileContent(fullPath);
-							return {
-								kind: 'file' as const,
-								id: att.path,
-								path: att.path,
-								name: att.name,
-								content,
-							};
-						} catch {
-							return null;
-						}
-					})
-				);
-
-					const imageResults: FileAttachment[] = imageItems.map((att) => {
-						const mimeMatch = att.url.match(/^data:(image\/[^;]+);base64,/);
-						const mimeType = mimeMatch?.[1] ?? 'image/*';
+			const fileResults = await Promise.all(
+				fileItems.map(async (att) => {
+					const fullPath = isAbsolutePath(att.path) ? att.path : `${cwd}/${att.path}`;
+					try {
+						const content = await apiClient.readFileContent(fullPath);
 						return {
-							kind: 'image',
-						id: attachmentDedupKey(att),
-						name: att.name || guessImageNameFromDataUrl(att.url),
-						sizeBytes: 0,
-						mimeType,
-						dataUrl: att.url,
-					};
-				});
+							kind: 'file' as const,
+							id: att.path,
+							path: att.path,
+							name: att.name,
+							content,
+						};
+					} catch {
+						return null;
+					}
+				})
+			);
 
-				const localImageResults: FileAttachment[] = localImageItems.map((att) => ({
-					kind: 'localImage',
+			const imageResults: FileAttachment[] = imageItems.map((att) => {
+				const mimeMatch = att.url.match(/^data:(image\/[^;]+);base64,/);
+				const mimeType = mimeMatch?.[1] ?? 'image/*';
+				return {
+					kind: 'image',
 					id: attachmentDedupKey(att),
-					name: att.name || basenameFromPath(att.path),
-					path: att.path,
-				}));
+					name: att.name || guessImageNameFromDataUrl(att.url),
+					sizeBytes: 0,
+					mimeType,
+					dataUrl: att.url,
+				};
+			});
 
-				setInput(draft.text);
-				setSelectedSkill(nextSkill);
-				setSelectedPrompt(nextPrompt);
-				setFileAttachments([
-					...((fileResults.filter(Boolean) as FileAttachment[]) ?? []),
-					...imageResults,
-					...localImageResults,
-				]);
-				setTimeout(() => textareaRef.current?.focus(), 0);
-				return true;
-			},
+			const localImageResults: FileAttachment[] = localImageItems.map((att) => ({
+				kind: 'localImage',
+				id: attachmentDedupKey(att),
+				name: att.name || basenameFromPath(att.path),
+				path: att.path,
+			}));
+
+			setInput(draft.text);
+			setSelectedSkill(nextSkill);
+			setSelectedPrompt(nextPrompt);
+			setFileAttachments([...((fileResults.filter(Boolean) as FileAttachment[]) ?? []), ...imageResults, ...localImageResults]);
+			setTimeout(() => textareaRef.current?.focus(), 0);
+			return true;
+		},
 		[
 			effectiveCwd,
 			activeTurnId,
@@ -2924,7 +2857,10 @@ export function CodexChat() {
 		}
 
 		if (skipped.length > 0) {
-			const list = skipped.slice(0, 8).map((n) => `- ${n}`).join('\n');
+			const list = skipped
+				.slice(0, 8)
+				.map((n) => `- ${n}`)
+				.join('\n');
 			const more = skipped.length > 8 ? `\n... 以及另外 ${skipped.length - 8} 个` : '';
 			await dialogMessage(`以下图片未添加（仅支持 image/* 且单张最大 5MB）：\n${list}${more}`, { title: '图片上传', kind: 'warning' });
 		}
@@ -3471,9 +3407,9 @@ export function CodexChat() {
 		return out;
 	}, [turnOrder, turnsById]);
 
-		const renderTurns = useMemo<TurnBlockView[]>(() => {
-			return buildTurnBlockViews(turnBlocks, settings.showReasoning);
-		}, [settings.showReasoning, turnBlocks]);
+	const renderTurns = useMemo<TurnBlockView[]>(() => {
+		return buildTurnBlockViews(turnBlocks, settings.showReasoning);
+	}, [settings.showReasoning, turnBlocks]);
 
 	const renderCount = useMemo(() => {
 		return renderTurns.reduce((acc, t) => {
@@ -3495,7 +3431,6 @@ export function CodexChat() {
 		}
 		el.scrollTop = el.scrollHeight;
 	}, [renderCount]);
-
 
 	return (
 		<div className="flex h-full min-w-0 flex-col overflow-x-hidden">
@@ -3552,103 +3487,89 @@ export function CodexChat() {
 
 				{taskContextMenu
 					? (() => {
-						const menuWidth = 188;
-						const menuHeight = 72;
-						const x =
-							typeof window !== 'undefined'
-								? Math.min(taskContextMenu.x, Math.max(8, window.innerWidth - menuWidth - 8))
-								: taskContextMenu.x;
-						const y =
-							typeof window !== 'undefined'
-								? Math.min(taskContextMenu.y, Math.max(8, window.innerHeight - menuHeight - 8))
-								: taskContextMenu.y;
+							const menuWidth = 188;
+							const menuHeight = 72;
+							const x = typeof window !== 'undefined' ? Math.min(taskContextMenu.x, Math.max(8, window.innerWidth - menuWidth - 8)) : taskContextMenu.x;
+							const y = typeof window !== 'undefined' ? Math.min(taskContextMenu.y, Math.max(8, window.innerHeight - menuHeight - 8)) : taskContextMenu.y;
 
-						return (
-							<div
+							return (
+								<div
 									className="fixed z-50 w-[188px] rounded-md border border-white/10 bg-bg-popover p-1 text-[11px] text-text-main shadow-lg"
-								style={{ left: x, top: y }}
-								onMouseDown={(e) => e.stopPropagation()}
-								onContextMenu={(e) => {
-									e.preventDefault();
-									e.stopPropagation();
-								}}
-							>
-								<button
-									type="button"
-									className="flex w-full items-center rounded px-2 py-1.5 hover:bg-white/5"
-									onClick={() => {
-										const threadId = taskContextMenu.threadId;
-										closeTaskContextMenu();
-										void renameTaskThread(threadId);
+									style={{ left: x, top: y }}
+									onMouseDown={(e) => e.stopPropagation()}
+									onContextMenu={(e) => {
+										e.preventDefault();
+										e.stopPropagation();
 									}}
 								>
-									Rename…
-								</button>
-								<button
-									type="button"
-									className="flex w-full items-center rounded px-2 py-1.5 text-status-error hover:bg-status-error/10"
-									onClick={() => {
-										const nodeId = taskContextMenu.nodeId;
-										closeTaskContextMenu();
-										void archiveTaskNode(nodeId);
-									}}
-								>
-									Delete (Archive)
-								</button>
-							</div>
-						);
-					})()
+									<button
+										type="button"
+										className="flex w-full items-center rounded px-2 py-1.5 hover:bg-white/5"
+										onClick={() => {
+											const threadId = taskContextMenu.threadId;
+											closeTaskContextMenu();
+											void renameTaskThread(threadId);
+										}}
+									>
+										Rename…
+									</button>
+									<button
+										type="button"
+										className="flex w-full items-center rounded px-2 py-1.5 text-status-error hover:bg-status-error/10"
+										onClick={() => {
+											const nodeId = taskContextMenu.nodeId;
+											closeTaskContextMenu();
+											void archiveTaskNode(nodeId);
+										}}
+									>
+										Delete (Archive)
+									</button>
+								</div>
+							);
+						})()
 					: null}
 
 				{panelTabContextMenu
 					? (() => {
-						const menuWidth = 188;
-						const menuHeight = 40;
-						const x =
-							typeof window !== 'undefined'
-								? Math.min(panelTabContextMenu.x, Math.max(8, window.innerWidth - menuWidth - 8))
-								: panelTabContextMenu.x;
-						const y =
-							typeof window !== 'undefined'
-								? Math.min(panelTabContextMenu.y, Math.max(8, window.innerHeight - menuHeight - 8))
-								: panelTabContextMenu.y;
+							const menuWidth = 188;
+							const menuHeight = 40;
+							const x = typeof window !== 'undefined' ? Math.min(panelTabContextMenu.x, Math.max(8, window.innerWidth - menuWidth - 8)) : panelTabContextMenu.x;
+							const y =
+								typeof window !== 'undefined' ? Math.min(panelTabContextMenu.y, Math.max(8, window.innerHeight - menuHeight - 8)) : panelTabContextMenu.y;
 
-						const tab = panelTabs.find((t) => t.id === panelTabContextMenu.tabId) ?? null;
-						if (!tab) return null;
-						const canRename = tab.kind === 'agent' || (tab.kind === 'file' && !tab.path.startsWith('/'));
+							const tab = panelTabs.find((t) => t.id === panelTabContextMenu.tabId) ?? null;
+							if (!tab) return null;
+							const canRename = tab.kind === 'agent' || (tab.kind === 'file' && !tab.path.startsWith('/'));
 
-						return (
-							<div
-								className="fixed z-50 w-[188px] rounded-md border border-white/10 bg-bg-popover p-1 text-[11px] text-text-main shadow-lg"
-								style={{ left: x, top: y }}
-								onMouseDown={(e) => e.stopPropagation()}
-								onContextMenu={(e) => {
-									e.preventDefault();
-									e.stopPropagation();
-								}}
-							>
-								<button
-									type="button"
-									disabled={!canRename}
-									className={[
-										'flex w-full items-center rounded px-2 py-1.5',
-										canRename ? 'hover:bg-white/5' : 'cursor-not-allowed opacity-50',
-									].join(' ')}
-									onClick={() => {
-										if (!canRename) return;
-										closePanelTabContextMenu();
-										if (tab.kind === 'agent') {
-											renameTaskThread(tab.threadId);
-											return;
-										}
-										renameFileTab(tab.id);
+							return (
+								<div
+									className="fixed z-50 w-[188px] rounded-md border border-white/10 bg-bg-popover p-1 text-[11px] text-text-main shadow-lg"
+									style={{ left: x, top: y }}
+									onMouseDown={(e) => e.stopPropagation()}
+									onContextMenu={(e) => {
+										e.preventDefault();
+										e.stopPropagation();
 									}}
 								>
-									Rename…
-								</button>
-							</div>
-						);
-					})()
+									<button
+										type="button"
+										disabled={!canRename}
+										className={['flex w-full items-center rounded px-2 py-1.5', canRename ? 'hover:bg-white/5' : 'cursor-not-allowed opacity-50'].join(' ')}
+										onClick={() => {
+											if (!canRename) return;
+											closePanelTabContextMenu();
+											if (tab.kind === 'agent') {
+												renameTaskThread(tab.threadId);
+												return;
+											}
+											renameFileTab(tab.id);
+										}}
+									>
+										Rename…
+									</button>
+								</div>
+							);
+						})()
 					: null}
 
 				{renameTaskDialog ? (
@@ -3658,7 +3579,7 @@ export function CodexChat() {
 							if (event.target === event.currentTarget) closeRenameTaskDialog();
 						}}
 					>
-							<div className="w-full max-w-sm rounded-xl border border-white/10 bg-bg-popover p-4 text-sm text-text-main">
+						<div className="w-full max-w-sm rounded-xl border border-white/10 bg-bg-popover p-4 text-sm text-text-main">
 							<div className="mb-3 flex items-center justify-between gap-2">
 								<div className="text-sm font-semibold">Rename task</div>
 								<button
@@ -3904,7 +3825,7 @@ export function CodexChat() {
 						{workspaceRootError ? <div className="mt-2 text-xs text-status-warning">{workspaceRootError}</div> : null}
 						{workspaceListToast ? (
 							<div className="pointer-events-none absolute left-1/2 top-2 z-50 -translate-x-1/2">
-									<div className="max-w-[720px] whitespace-pre-wrap rounded-xl border border-white/10 bg-bg-popover px-3 py-2 text-xs shadow-lg">
+								<div className="max-w-[720px] whitespace-pre-wrap rounded-xl border border-white/10 bg-bg-popover px-3 py-2 text-xs shadow-lg">
 									<div className="font-semibold text-status-warning">工作区告警</div>
 									<div className="mt-1 text-text-muted">{workspaceListToast}</div>
 								</div>
@@ -4029,258 +3950,249 @@ export function CodexChat() {
 											sendMessage={sendMessage}
 										/>
 
-									<StatusBar
-										openStatusPopover={openStatusPopover}
-										setOpenStatusPopover={setOpenStatusPopover}
-										clearStatusPopoverError={() => setStatusPopoverError(null)}
-										statusPopoverError={statusPopoverError}
-										approvalPolicy={approvalPolicy}
-										selectedModel={selectedModel}
-										selectedModelInfo={selectedModelInfo}
-										models={models}
-										modelsError={modelsError}
-										profiles={profiles}
-										selectedProfile={selectedProfile}
-										selectedEffort={selectedEffort}
-										effortOptions={effortOptions}
-										contextUsageLabel={contextUsageLabel}
-										applyApprovalPolicy={applyApprovalPolicy}
-										applyModel={applyModel}
-										applyProfile={applyProfile}
-										applyReasoningEffort={applyReasoningEffort}
-										isWorkbenchEnabled={isWorkbenchEnabled}
-									/>
+										<StatusBar
+											openStatusPopover={openStatusPopover}
+											setOpenStatusPopover={setOpenStatusPopover}
+											clearStatusPopoverError={() => setStatusPopoverError(null)}
+											statusPopoverError={statusPopoverError}
+											approvalPolicy={approvalPolicy}
+											selectedModel={selectedModel}
+											selectedModelInfo={selectedModelInfo}
+											models={models}
+											modelsError={modelsError}
+											profiles={profiles}
+											selectedProfile={selectedProfile}
+											selectedEffort={selectedEffort}
+											effortOptions={effortOptions}
+											contextUsageLabel={contextUsageLabel}
+											applyApprovalPolicy={applyApprovalPolicy}
+											applyModel={applyModel}
+											applyProfile={applyProfile}
+											applyReasoningEffort={applyReasoningEffort}
+											isWorkbenchEnabled={isWorkbenchEnabled}
+										/>
+									</div>
 								</div>
-							</div>
-					</>
-					) : (
-						<div className="mt-3 min-h-0 flex-1 overflow-hidden">
-							{!activeFileTab ? (
-								<div className="rounded-xl border border-white/10 bg-bg-panelHover/40 p-4 text-sm text-text-muted">
-									Select a session or file from the left sidebar.
-								</div>
-							) : (
-								<div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-white/10 bg-bg-panelHover/40">
-									<div className="flex items-start justify-between gap-3 border-b border-white/10 px-3 py-2">
-										<div className="min-w-0">
-											<div className="truncate text-sm font-semibold">
-												{activeFileTab.path}
-												{activeFileTab.dirty ? <span className="ml-2 text-xs text-status-warning">unsaved</span> : null}
+							</>
+						) : (
+							<div className="mt-3 min-h-0 flex-1 overflow-hidden">
+								{!activeFileTab ? (
+									<div className="rounded-xl border border-white/10 bg-bg-panelHover/40 p-4 text-sm text-text-muted">
+										Select a session or file from the left sidebar.
+									</div>
+								) : (
+									<div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-white/10 bg-bg-panelHover/40">
+										<div className="flex items-start justify-between gap-3 border-b border-white/10 px-3 py-2">
+											<div className="min-w-0">
+												<div className="truncate text-sm font-semibold">
+													{activeFileTab.path}
+													{activeFileTab.dirty ? <span className="ml-2 text-xs text-status-warning">unsaved</span> : null}
+												</div>
+												<div className="mt-1 text-xs text-text-muted">
+													{activeFileTab.loading ? 'Loading…' : activeFileTab.saving ? 'Saving…' : activeFileTab.error ? 'Error' : ''}
+												</div>
 											</div>
-											<div className="mt-1 text-xs text-text-muted">
-												{activeFileTab.loading ? 'Loading…' : activeFileTab.saving ? 'Saving…' : activeFileTab.error ? 'Error' : ''}
+											<div className="flex shrink-0 items-center gap-2">
+												<button
+													type="button"
+													className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-text-main hover:border-white/20 disabled:opacity-50"
+													onClick={() => void saveFileTab(activeFileTab.id)}
+													disabled={activeFileTab.loading || activeFileTab.saving || !activeFileTab.dirty}
+													title={activeFileTab.dirty ? 'Save' : 'No changes'}
+												>
+													Save
+												</button>
+												<button
+													type="button"
+													className={['am-icon-button h-7 w-7 text-text-muted hover:text-text-main', activeFileTab.showPreview ? 'bg-white/10' : ''].join(' ')}
+													onClick={() => toggleFileTabPreview(activeFileTab.id)}
+													title={activeFileTab.showPreview ? 'Hide preview' : 'Show preview'}
+												>
+													<Eye className="h-4 w-4" />
+												</button>
 											</div>
 										</div>
-										<div className="flex shrink-0 items-center gap-2">
-											<button
-												type="button"
-												className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-text-main hover:border-white/20 disabled:opacity-50"
-												onClick={() => void saveFileTab(activeFileTab.id)}
-												disabled={activeFileTab.loading || activeFileTab.saving || !activeFileTab.dirty}
-												title={activeFileTab.dirty ? 'Save' : 'No changes'}
-											>
-												Save
-											</button>
-											<button
-												type="button"
-												className={[
-													'am-icon-button h-7 w-7 text-text-muted hover:text-text-main',
-													activeFileTab.showPreview ? 'bg-white/10' : '',
-												].join(' ')}
-												onClick={() => toggleFileTabPreview(activeFileTab.id)}
-												title={activeFileTab.showPreview ? 'Hide preview' : 'Show preview'}
-											>
-												<Eye className="h-4 w-4" />
-											</button>
+
+										{activeFileTab.error ? (
+											<div className="m-3 rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{activeFileTab.error}</div>
+										) : null}
+
+										<div className="min-h-0 flex flex-1">
+											<div className={activeFileTab.showPreview ? 'min-h-0 w-1/2 border-r border-white/10 p-3' : 'min-h-0 w-full p-3'}>
+												<textarea
+													className="h-full min-h-[360px] w-full resize-none rounded-lg border border-white/10 bg-black/20 p-3 font-mono text-[12px] text-text-main outline-none focus:border-border-active disabled:opacity-60"
+													value={activeFileTab.draft}
+													onChange={(e) => setFileTabDraft(activeFileTab.id, e.target.value)}
+													spellCheck={false}
+													disabled={activeFileTab.loading || activeFileTab.saving}
+												/>
+											</div>
+
+											{activeFileTab.showPreview ? (
+												<div className="min-h-0 w-1/2 overflow-y-auto p-3">{renderTextPreview(activeFileTab.draft, activeFileTab.path)}</div>
+											) : null}
 										</div>
 									</div>
+								)}
+							</div>
+						)}
 
-									{activeFileTab.error ? (
-										<div className="m-3 rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
-											{activeFileTab.error}
+						{isConfigOpen ? (
+							<div className="fixed inset-0 z-50 flex">
+								<div className="flex-1 bg-black/60" onClick={() => setIsConfigOpen(false)} role="button" tabIndex={0} />
+								<div className="w-[520px] max-w-[90vw] border-l border-white/10 bg-bg-popover p-6">
+									<div className="mb-4 flex items-start justify-between gap-3">
+										<div>
+											<div className="text-sm font-semibold">~/.codex/config.toml</div>
+											<div className="mt-1 text-xs text-text-muted">Edit Codex configuration directly. Changes apply to future turns.</div>
 										</div>
+										<button
+											type="button"
+											className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
+											onClick={() => setIsConfigOpen(false)}
+										>
+											Close
+										</button>
+									</div>
+
+									{configError ? (
+										<div className="mb-3 rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{configError}</div>
 									) : null}
 
-									<div className="min-h-0 flex flex-1">
-										<div className={activeFileTab.showPreview ? 'min-h-0 w-1/2 border-r border-white/10 p-3' : 'min-h-0 w-full p-3'}>
-											<textarea
-												className="h-full min-h-[360px] w-full resize-none rounded-lg border border-white/10 bg-black/20 p-3 font-mono text-[12px] text-text-main outline-none focus:border-border-active disabled:opacity-60"
-												value={activeFileTab.draft}
-												onChange={(e) => setFileTabDraft(activeFileTab.id, e.target.value)}
-												spellCheck={false}
-												disabled={activeFileTab.loading || activeFileTab.saving}
-											/>
-										</div>
+									<textarea
+										className="h-[60vh] w-full resize-none rounded-xl border border-white/10 bg-black/30 px-4 py-3 font-mono text-[12px] text-text-main outline-none focus:border-border-active"
+										value={configText}
+										onChange={(e) => setConfigText(e.target.value)}
+										spellCheck={false}
+									/>
 
-										{activeFileTab.showPreview ? (
-											<div className="min-h-0 w-1/2 overflow-y-auto p-3">
-												{renderTextPreview(activeFileTab.draft, activeFileTab.path)}
-											</div>
-										) : null}
+									<div className="mt-4 flex items-center justify-end gap-3">
+										<button
+											type="button"
+											className="rounded-md border border-white/10 bg-bg-panelHover px-4 py-2 text-sm hover:border-white/20"
+											onClick={() => setIsConfigOpen(false)}
+										>
+											Cancel
+										</button>
+										<button
+											type="button"
+											className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50"
+											onClick={() => void saveConfig()}
+											disabled={configSaving}
+										>
+											{configSaving ? 'Saving…' : 'Save'}
+										</button>
 									</div>
-								</div>
-							)}
-						</div>
-					)}
-
-					{isConfigOpen ? (
-						<div className="fixed inset-0 z-50 flex">
-							<div className="flex-1 bg-black/60" onClick={() => setIsConfigOpen(false)} role="button" tabIndex={0} />
-								<div className="w-[520px] max-w-[90vw] border-l border-white/10 bg-bg-popover p-6">
-								<div className="mb-4 flex items-start justify-between gap-3">
-									<div>
-										<div className="text-sm font-semibold">~/.codex/config.toml</div>
-										<div className="mt-1 text-xs text-text-muted">Edit Codex configuration directly. Changes apply to future turns.</div>
-									</div>
-									<button
-										type="button"
-										className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
-										onClick={() => setIsConfigOpen(false)}
-									>
-										Close
-									</button>
-								</div>
-
-								{configError ? (
-									<div className="mb-3 rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{configError}</div>
-								) : null}
-
-								<textarea
-									className="h-[60vh] w-full resize-none rounded-xl border border-white/10 bg-black/30 px-4 py-3 font-mono text-[12px] text-text-main outline-none focus:border-border-active"
-									value={configText}
-									onChange={(e) => setConfigText(e.target.value)}
-									spellCheck={false}
-								/>
-
-								<div className="mt-4 flex items-center justify-end gap-3">
-									<button
-										type="button"
-										className="rounded-md border border-white/10 bg-bg-panelHover px-4 py-2 text-sm hover:border-white/20"
-										onClick={() => setIsConfigOpen(false)}
-									>
-										Cancel
-									</button>
-									<button
-										type="button"
-										className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50"
-										onClick={() => void saveConfig()}
-										disabled={configSaving}
-									>
-										{configSaving ? 'Saving…' : 'Save'}
-									</button>
 								</div>
 							</div>
-						</div>
-					) : null}
+						) : null}
 
-					{isSettingsOpen ? (
-						<div className="fixed inset-0 z-50 flex">
-							<div className="flex-1 bg-black/60" onClick={() => setIsSettingsOpen(false)} role="button" tabIndex={0} />
+						{isSettingsOpen ? (
+							<div className="fixed inset-0 z-50 flex">
+								<div className="flex-1 bg-black/60" onClick={() => setIsSettingsOpen(false)} role="button" tabIndex={0} />
 								<div className="w-[520px] max-w-[92vw] border-l border-white/10 bg-bg-popover p-6">
-								<div className="mb-4 flex items-start justify-between gap-3">
-									<div>
-										<div className="text-sm font-semibold">Chat Settings</div>
-										<div className="mt-1 text-xs text-text-muted">Affects rendering only; no protocol changes.</div>
+									<div className="mb-4 flex items-start justify-between gap-3">
+										<div>
+											<div className="text-sm font-semibold">Chat Settings</div>
+											<div className="mt-1 text-xs text-text-muted">Affects rendering only; no protocol changes.</div>
+										</div>
+										<button
+											type="button"
+											className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
+											onClick={() => setIsSettingsOpen(false)}
+										>
+											Close
+										</button>
 									</div>
-									<button
-										type="button"
-										className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-xs hover:border-white/20"
-										onClick={() => setIsSettingsOpen(false)}
-									>
-										Close
-									</button>
-								</div>
 
-								<div className="space-y-3">
-									<label className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3">
-										<div className="min-w-0">
-											<div className="text-sm font-semibold">Show reasoning</div>
-											<div className="mt-1 text-xs text-text-muted">Display Thought/Reasoning items in the timeline.</div>
-										</div>
-										<input
-											type="checkbox"
-											checked={settings.showReasoning}
-											onChange={(e) =>
-												setSettings((prev) => ({
-													...prev,
-													showReasoning: e.target.checked,
-												}))
-											}
-										/>
-									</label>
-
-									<label className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3">
-										<div className="min-w-0">
-											<div className="text-sm font-semibold">Default collapse details</div>
-											<div className="mt-1 text-xs text-text-muted">When enabled, command output & diffs start collapsed (you can always expand).</div>
-										</div>
-										<input
-											type="checkbox"
-											checked={settings.defaultCollapseDetails}
-											onChange={(e) =>
-												setSettings((prev) => ({
-													...prev,
-													defaultCollapseDetails: e.target.checked,
-												}))
-											}
-										/>
-									</label>
-
-									<div className="rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3">
-										<div className="flex items-start justify-between gap-3">
+									<div className="space-y-3">
+										<label className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3">
 											<div className="min-w-0">
-												<div className="text-sm font-semibold">Codex diagnostics</div>
-												<div className="mt-1 text-xs text-text-muted">
-													If you see “codex not found on PATH”, this shows the PATH that the app-server spawn uses.
-												</div>
+												<div className="text-sm font-semibold">Show reasoning</div>
+												<div className="mt-1 text-xs text-text-muted">Display Thought/Reasoning items in the timeline.</div>
 											</div>
-											<button
-												type="button"
-												className="rounded-md border border-white/10 bg-black/20 px-3 py-1 text-xs hover:border-white/20"
-												onClick={() => void loadDiagnostics()}
-											>
-												Refresh
-											</button>
+											<input
+												type="checkbox"
+												checked={settings.showReasoning}
+												onChange={(e) =>
+													setSettings((prev) => ({
+														...prev,
+														showReasoning: e.target.checked,
+													}))
+												}
+											/>
+										</label>
+
+										<label className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3">
+											<div className="min-w-0">
+												<div className="text-sm font-semibold">Default collapse details</div>
+												<div className="mt-1 text-xs text-text-muted">When enabled, command output & diffs start collapsed (you can always expand).</div>
+											</div>
+											<input
+												type="checkbox"
+												checked={settings.defaultCollapseDetails}
+												onChange={(e) =>
+													setSettings((prev) => ({
+														...prev,
+														defaultCollapseDetails: e.target.checked,
+													}))
+												}
+											/>
+										</label>
+
+										<div className="rounded-xl border border-white/10 bg-bg-panelHover px-4 py-3">
+											<div className="flex items-start justify-between gap-3">
+												<div className="min-w-0">
+													<div className="text-sm font-semibold">Codex diagnostics</div>
+													<div className="mt-1 text-xs text-text-muted">
+														If you see “codex not found on PATH”, this shows the PATH that the app-server spawn uses.
+													</div>
+												</div>
+												<button
+													type="button"
+													className="rounded-md border border-white/10 bg-black/20 px-3 py-1 text-xs hover:border-white/20"
+													onClick={() => void loadDiagnostics()}
+												>
+													Refresh
+												</button>
+											</div>
+
+											{diagnosticsError ? <div className="mt-2 text-xs text-status-warning">{diagnosticsError}</div> : null}
+
+											{diagnostics ? (
+												<div className="mt-3 space-y-2 text-[11px] text-text-muted">
+													<div className="truncate">
+														{diagnostics.resolvedCodexBin ? `resolved codex: ${diagnostics.resolvedCodexBin}` : 'resolved codex: (not found)'}
+													</div>
+													<div className="truncate">{diagnostics.envOverride ? `COCO_CODEX_BIN: ${diagnostics.envOverride}` : 'COCO_CODEX_BIN: (unset)'}</div>
+													<div className="truncate">
+														PATH source: {diagnostics.pathSource ?? '(unknown)'}
+														{diagnostics.shell ? ` · shell: ${diagnostics.shell}` : ''}
+													</div>
+													<div className="truncate">
+														env source: {diagnostics.envSource ?? '(unknown)'}
+														{typeof diagnostics.envCount === 'number' ? ` · vars: ${diagnostics.envCount}` : ''}
+													</div>
+													<div className="break-all rounded-lg bg-black/20 p-2">
+														<div className="mb-1 text-text-dim">PATH</div>
+														{diagnostics.path}
+													</div>
+												</div>
+											) : (
+												<div className="mt-3 text-xs text-text-muted">
+													Tip: set <span className="font-mono">COCO_CODEX_BIN</span> to an absolute path (e.g.{' '}
+													<span className="font-mono">/opt/homebrew/bin/codex</span>) if launching from Finder.
+												</div>
+											)}
 										</div>
-
-										{diagnosticsError ? <div className="mt-2 text-xs text-status-warning">{diagnosticsError}</div> : null}
-
-										{diagnostics ? (
-											<div className="mt-3 space-y-2 text-[11px] text-text-muted">
-												<div className="truncate">
-													{diagnostics.resolvedCodexBin ? `resolved codex: ${diagnostics.resolvedCodexBin}` : 'resolved codex: (not found)'}
-												</div>
-												<div className="truncate">
-													{diagnostics.envOverride ? `COCO_CODEX_BIN: ${diagnostics.envOverride}` : 'COCO_CODEX_BIN: (unset)'}
-												</div>
-												<div className="truncate">
-													PATH source: {diagnostics.pathSource ?? '(unknown)'}
-													{diagnostics.shell ? ` · shell: ${diagnostics.shell}` : ''}
-												</div>
-												<div className="truncate">
-													env source: {diagnostics.envSource ?? '(unknown)'}
-													{typeof diagnostics.envCount === 'number' ? ` · vars: ${diagnostics.envCount}` : ''}
-												</div>
-												<div className="break-all rounded-lg bg-black/20 p-2">
-													<div className="mb-1 text-text-dim">PATH</div>
-													{diagnostics.path}
-												</div>
-											</div>
-										) : (
-											<div className="mt-3 text-xs text-text-muted">
-												Tip: set <span className="font-mono">COCO_CODEX_BIN</span> to an absolute path (e.g.{' '}
-												<span className="font-mono">/opt/homebrew/bin/codex</span>) if launching from Finder.
-											</div>
-										)}
 									</div>
 								</div>
 							</div>
-						</div>
-					) : null}
+						) : null}
+					</div>
 				</div>
 			</div>
 		</div>
-		</div >
 	);
 }
 

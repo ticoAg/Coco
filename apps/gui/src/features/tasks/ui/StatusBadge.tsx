@@ -35,11 +35,7 @@ function statusBadgeStyle(state: TaskState): {
 
 export function StatusBadge({ state }: { state: TaskState }) {
 	const config = statusBadgeStyle(state);
-	return (
-		<span className={'inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold tracking-wide ' + config.className}>
-			{config.label}
-		</span>
-	);
+	return <span className={'inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold tracking-wide ' + config.className}>{config.label}</span>;
 }
 
 export default StatusBadge;

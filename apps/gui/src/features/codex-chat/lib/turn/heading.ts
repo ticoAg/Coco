@@ -42,4 +42,3 @@ export function extractHeadingFromMarkdown(text: string): { heading: string | nu
 
 	return { heading: null, body: text };
 }
-

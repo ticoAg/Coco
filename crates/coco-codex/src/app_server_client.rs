@@ -750,10 +750,8 @@ for raw in sys.stdin:
 
     #[tokio::test]
     async fn spawn_request_records_and_session_updates() {
-        let tmp = std::env::temp_dir().join(format!(
-            "coco-codex-app-server-test-{}",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("coco-codex-app-server-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         tokio::fs::create_dir_all(&tmp).await.unwrap();
 

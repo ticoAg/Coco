@@ -151,10 +151,7 @@ export async function readSharedArtifact(taskId: string, category: SharedArtifac
 	});
 }
 
-export async function codexAppServerEnsure(options?: {
-	codexHome?: string | null;
-	profile?: string | null;
-}): Promise<{ appServerId: string }> {
+export async function codexAppServerEnsure(options?: { codexHome?: string | null; profile?: string | null }): Promise<{ appServerId: string }> {
 	return invoke<{ appServerId: string }>('codex_app_server_ensure', {
 		codexHome: options?.codexHome ?? null,
 		profile: options?.profile ?? null,
@@ -183,7 +180,11 @@ export async function codexThreadList(
 	});
 }
 
-export async function codexThreadLoadedList(cursor?: string | null, limit?: number | null, appServerId?: string | null): Promise<CodexThreadLoadedListResponse> {
+export async function codexThreadLoadedList(
+	cursor?: string | null,
+	limit?: number | null,
+	appServerId?: string | null
+): Promise<CodexThreadLoadedListResponse> {
 	return invoke<CodexThreadLoadedListResponse>('codex_thread_loaded_list', {
 		cursor: cursor ?? null,
 		limit: limit ?? null,

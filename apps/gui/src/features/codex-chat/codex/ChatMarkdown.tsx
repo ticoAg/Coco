@@ -52,7 +52,9 @@ export function ChatMarkdown({ text, className, textClassName, dense = false }: 
 					ol: ({ children }) => <ol className={`${listClass} list-decimal pl-5 ${textClass}`}>{children}</ol>,
 					li: ({ children }) => <li className={`my-0.5 ${textClass}`}>{children}</li>,
 					pre: ({ children }) => (
-						<pre className={`${preClass} max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 px-3 py-2 text-[11px] leading-snug ${textClass}`}>
+						<pre
+							className={`${preClass} max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 px-3 py-2 text-[11px] leading-snug ${textClass}`}
+						>
 							{children}
 						</pre>
 					),

@@ -22,9 +22,9 @@ export function SessionSidebar({ isOpen, sessions, loading, error, selectedThrea
 	if (!isOpen) return null;
 
 	return (
-			<div className="fixed inset-0 z-50 flex">
-				<div className="flex-1 bg-black/60" onClick={onClose} role="button" tabIndex={0} />
-				<div className="w-[420px] max-w-[92vw] border-l border-white/10 bg-bg-popover p-6">
+		<div className="fixed inset-0 z-50 flex">
+			<div className="flex-1 bg-black/60" onClick={onClose} role="button" tabIndex={0} />
+			<div className="w-[420px] max-w-[92vw] border-l border-white/10 bg-bg-popover p-6">
 				<div className="mb-4 flex items-start justify-between gap-3">
 					<div>
 						<div className="text-sm font-semibold">Sessions</div>

@@ -375,9 +375,13 @@ export function TurnWorkingItem({ item, turnId, collapsedByEntryId, settings, to
 					{hasContent ? renderMcpContentBlocks(contentBlocks) : null}
 					{errorMessage ? <div className="whitespace-pre-wrap text-[10px] text-status-error">{errorMessage}</div> : null}
 					{hasStructured ? (
-						<pre className="whitespace-pre-wrap break-words rounded-md bg-white/5 px-2 py-1 text-[10px] text-text-muted">{stringifyJsonSafe(structuredContent)}</pre>
+						<pre className="whitespace-pre-wrap break-words rounded-md bg-white/5 px-2 py-1 text-[10px] text-text-muted">
+							{stringifyJsonSafe(structuredContent)}
+						</pre>
 					) : null}
-					{!progressMessage && !hasContent && !errorMessage && !hasStructured ? <div className="text-[10px] text-text-muted">Tool returned no content</div> : null}
+					{!progressMessage && !hasContent && !errorMessage && !hasStructured ? (
+						<div className="text-[10px] text-text-muted">Tool returned no content</div>
+					) : null}
 				</div>
 			</ActivityBlock>
 		);

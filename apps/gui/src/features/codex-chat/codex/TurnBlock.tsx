@@ -158,27 +158,27 @@ export function TurnBlock({
 							ev.stopPropagation();
 							setShowRawUser((prev) => !prev);
 						}}
+					>
+						<Eye className="h-3 w-3" />
+					</button>
+					{onEditUserEntry && lastUserEntry ? (
+						<button
+							type="button"
+							className="rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main"
+							title="编辑并重新运行"
+							onClick={(ev) => {
+								ev.stopPropagation();
+								onEditUserEntry(lastUserEntry);
+							}}
 						>
-							<Eye className="h-3 w-3" />
+							<Pencil className="h-3 w-3" />
 						</button>
-						{onEditUserEntry && lastUserEntry ? (
-							<button
-								type="button"
-								className="rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main"
-								title="编辑并重新运行"
-								onClick={(ev) => {
-									ev.stopPropagation();
-									onEditUserEntry(lastUserEntry);
-								}}
-							>
-								<Pencil className="h-3 w-3" />
-							</button>
-						) : null}
-						{onForkFromTurn ? (
-							<button
-								type="button"
-								className="rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main"
-								title="Fork from this turn"
+					) : null}
+					{onForkFromTurn ? (
+						<button
+							type="button"
+							className="rounded-md p-1 text-text-menuDesc transition-colors hover:bg-bg-menuItemHover hover:text-text-main"
+							title="Fork from this turn"
 							onClick={(ev) => {
 								ev.stopPropagation();
 								onForkFromTurn(turn.id);
@@ -191,12 +191,12 @@ export function TurnBlock({
 			</div>
 
 			<div className="space-y-2">
-					{turn.userEntries.map((e) => (
-						<div key={e.id} className="flex min-w-0 max-w-full justify-end pl-12">
-							<div className="group/user min-w-0 max-w-[77%] break-words rounded-2xl bg-token-foreground/5 px-3 py-2 text-[12px] text-text-main">
-								{/* Attachments in message bubble */}
-								{e.attachments && e.attachments.length > 0 ? (
-									(() => {
+				{turn.userEntries.map((e) => (
+					<div key={e.id} className="flex min-w-0 max-w-full justify-end pl-12">
+						<div className="group/user min-w-0 max-w-[77%] break-words rounded-2xl bg-token-foreground/5 px-3 py-2 text-[12px] text-text-main">
+							{/* Attachments in message bubble */}
+							{e.attachments && e.attachments.length > 0
+								? (() => {
 										const imageAtts = e.attachments.filter((att) => att.type === 'image' || att.type === 'localImage');
 										const labelAtts = e.attachments.filter((att) => att.type !== 'image' && att.type !== 'localImage');
 
@@ -205,12 +205,7 @@ export function TurnBlock({
 												{imageAtts.length > 0 ? (
 													<div className="flex flex-wrap gap-2">
 														{imageAtts.map((att, idx) => {
-															const src =
-																att.type === 'image'
-																	? att.url
-																	: isTauri()
-																		? convertFileSrc(att.path)
-																		: null;
+															const src = att.type === 'image' ? att.url : isTauri() ? convertFileSrc(att.path) : null;
 															if (!src) return null;
 															return (
 																<img
@@ -254,18 +249,18 @@ export function TurnBlock({
 											</div>
 										);
 									})()
-								) : null}
-								{showRawUser ? (
-									<pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 font-mono text-[12px] text-text-main">
-										{e.text}
-									</pre>
-								) : (
-									<ChatMarkdown text={e.text} className="text-[12px] text-text-main" textClassName="text-text-main" dense />
-								)}
-							</div>
+								: null}
+							{showRawUser ? (
+								<pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 font-mono text-[12px] text-text-main">
+									{e.text}
+								</pre>
+							) : (
+								<ChatMarkdown text={e.text} className="text-[12px] text-text-main" textClassName="text-text-main" dense />
+							)}
 						</div>
-					))}
-				</div>
+					</div>
+				))}
+			</div>
 
 			{hasWorking ? (
 				<div className="px-1">

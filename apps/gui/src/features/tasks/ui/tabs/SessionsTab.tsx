@@ -45,19 +45,13 @@ export function SessionsTab({
 						<input type="checkbox" checked={sessionAutoFollow} onChange={(e) => onToggleAutoFollow(e.target.checked)} />
 						<span>Auto-follow</span>
 					</label>
-					<button
-						type="button"
-						className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-sm hover:border-white/20"
-						onClick={onRefresh}
-					>
+					<button type="button" className="rounded-md border border-white/10 bg-bg-panelHover px-3 py-2 text-sm hover:border-white/20" onClick={onRefresh}>
 						Refresh
 					</button>
 				</div>
 			</div>
 
-			{sessionsError ? (
-				<div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{sessionsError}</div>
-			) : null}
+			{sessionsError ? <div className="rounded-lg border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">{sessionsError}</div> : null}
 
 			{sessionsLoading && sessions.length === 0 ? (
 				<div className="rounded-lg border border-white/10 bg-bg-panelHover p-6 text-center text-sm text-text-muted">Loading sessions…</div>
@@ -148,7 +142,9 @@ export function SessionsTab({
 											{filteredRuntimeEvents.length === 0 ? (
 												<div className="text-sm text-text-muted">No runtime events yet.</div>
 											) : (
-												<pre className="max-h-[200px] overflow-auto rounded-md bg-black/20 p-3 text-[11px] text-text-muted">{filteredRuntimeEvents.join('\n')}</pre>
+												<pre className="max-h-[200px] overflow-auto rounded-md bg-black/20 p-3 text-[11px] text-text-muted">
+													{filteredRuntimeEvents.join('\n')}
+												</pre>
 											)}
 										</div>
 
@@ -157,7 +153,9 @@ export function SessionsTab({
 											{filteredRuntimeStderr.length === 0 ? (
 												<div className="text-sm text-text-muted">No stderr output yet.</div>
 											) : (
-												<pre className="max-h-[200px] overflow-auto rounded-md bg-black/20 p-3 text-[11px] text-text-muted">{filteredRuntimeStderr.join('\n')}</pre>
+												<pre className="max-h-[200px] overflow-auto rounded-md bg-black/20 p-3 text-[11px] text-text-muted">
+													{filteredRuntimeStderr.join('\n')}
+												</pre>
 											)}
 										</div>
 									</div>
