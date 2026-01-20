@@ -1,9 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#c084fc"/>
-      <stop offset="0.55" stop-color="#a855f7"/>
-      <stop offset="1" stop-color="#7c3aed"/>
+    <!--
+      Coco app icon source.
+
+      Goal: a compact, high-contrast infinity mark ("co" + "co") that stays legible at 32px
+      while matching the app's dark + neon accent aesthetic.
+    -->
+    <linearGradient id="g" x1="0.12" y1="0.08" x2="0.88" y2="0.92">
+      <stop offset="0" stop-color="#646cff"/>
+      <stop offset="0.55" stop-color="#7b83ff"/>
+      <stop offset="1" stop-color="#00e5ff"/>
     </linearGradient>
 
     <filter id="glow" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
@@ -18,50 +24,16 @@
   <!-- Black rounded square background -->
   <rect x="64" y="64" width="896" height="896" rx="220" fill="#09090b"/>
 
-  <!-- Subagent mesh monogram (A/M-inspired) -->
+  <!-- Coco infinity ("co" + "co") -->
   <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
     <!-- glow layer -->
     <g stroke="url(#g)" opacity="0.28" stroke-width="92">
-      <!-- outer A legs -->
-      <path d="M 512 230 L 292 820"/>
-      <path d="M 512 230 L 732 820"/>
-
-      <!-- crossbar (A) -->
-      <path d="M 382 565 L 642 565"/>
-
-      <!-- inner mesh (M-ish) -->
-      <path d="M 512 230 L 512 735"/>
-      <path d="M 382 565 L 512 735"/>
-      <path d="M 642 565 L 512 735"/>
+      <path d="M 280 512 C 280 360 392 360 512 512 C 632 664 744 664 744 512 C 744 360 632 360 512 512 C 392 664 280 664 280 512"/>
     </g>
 
     <!-- main layer -->
     <g stroke="url(#g)" stroke-width="64">
-      <!-- outer A legs -->
-      <path d="M 512 230 L 292 820"/>
-      <path d="M 512 230 L 732 820"/>
-
-      <!-- crossbar (A) -->
-      <path d="M 382 565 L 642 565"/>
-
-      <!-- inner mesh (M-ish) -->
-      <path d="M 512 230 L 512 735"/>
-      <path d="M 382 565 L 512 735"/>
-      <path d="M 642 565 L 512 735"/>
-    </g>
-
-    <!-- nodes (controller + workers + join point) -->
-    <g fill="#09090b" stroke="url(#g)" stroke-width="22">
-      <!-- controller -->
-      <circle cx="512" cy="230" r="54"/>
-      <!-- crossbar nodes -->
-      <circle cx="382" cy="565" r="42"/>
-      <circle cx="642" cy="565" r="42"/>
-      <!-- join gate -->
-      <circle cx="512" cy="735" r="46"/>
-      <!-- worker endpoints -->
-      <circle cx="292" cy="820" r="46"/>
-      <circle cx="732" cy="820" r="46"/>
+      <path d="M 280 512 C 280 360 392 360 512 512 C 632 664 744 664 744 512 C 744 360 632 360 512 512 C 392 664 280 664 280 512"/>
     </g>
   </g>
 </svg>

@@ -40,6 +40,23 @@ ensure-gui-deps:
 
 # 运行开发模式
 dev: ensure-gui-deps
+    #!/usr/bin/env zsh
+    set -e
+    setopt null_glob
+    # Tauri dev may reuse an existing macOS .app bundle under target/, which can leave
+    # the Dock icon / app name stale after we update icons or tauri.conf.json.
+    DEBUG_BUNDLE_DIR="target/debug/bundle/macos"
+    if [ -d "$DEBUG_BUNDLE_DIR" ]; then
+        for APP_PATH in "$DEBUG_BUNDLE_DIR"/*.app; do
+            [ -d "$APP_PATH" ] || continue
+            INFO_PLIST="$APP_PATH/Contents/Info.plist"
+            APP_ICON="$APP_PATH/Contents/Resources/icon.icns"
+            if [ "apps/gui/src-tauri/tauri.conf.json" -nt "$INFO_PLIST" ] || [ "apps/gui/src-tauri/icons/icon.icns" -nt "$APP_ICON" ]; then
+                echo "[just] Detected stale dev app bundle ($APP_PATH), removing to refresh name/icon..."
+                rm -rf "$APP_PATH"
+            fi
+        done
+    fi
     cd apps/gui && npm run tauri:dev
 
 # 运行开发模式（使用已构建的 app，显示正确图标）
