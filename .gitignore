@@ -122,8 +122,3 @@ CLAUDE.md
 docs/implementation-notes/codex-vscode-plugin/plugin-index.js
 .claude
 /legacy/
-
-# --- Codex feature notes (tracked) ---
-!.feat/
-!.feat/**
-# --- End Codex feature notes ---
