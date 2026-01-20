@@ -162,7 +162,7 @@ export function SlashCommandMenu({
 									role="button"
 									aria-label={isPinned ? '取消固定 prompt' : '固定 prompt'}
 									className={[
-										'ml-2 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded',
+										'ml-1.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded',
 										isPinned ? 'text-primary' : 'text-text-menuLabel hover:bg-white/10 hover:text-text-main',
 									].join(' ')}
 									onClick={(e) => {
@@ -171,7 +171,7 @@ export function SlashCommandMenu({
 										onTogglePromptPin(prompt.name);
 									}}
 								>
-									<Pin className="h-3.5 w-3.5" />
+									<Pin className={MENU_STYLES.iconSm} />
 								</span>
 							</button>
 						);
@@ -209,7 +209,7 @@ export function SlashCommandMenu({
 									role="button"
 									aria-label={isPinned ? '取消固定 skill' : '固定 skill'}
 									className={[
-										'ml-2 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded',
+										'ml-1.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded',
 										isPinned ? 'text-primary' : 'text-text-menuLabel hover:bg-white/10 hover:text-text-main',
 									].join(' ')}
 									onClick={(e) => {
@@ -218,7 +218,7 @@ export function SlashCommandMenu({
 										onToggleSkillPin(skill.name);
 									}}
 								>
-									<Pin className="h-3.5 w-3.5" />
+									<Pin className={MENU_STYLES.iconSm} />
 								</span>
 							</button>
 						);

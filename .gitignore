@@ -122,3 +122,10 @@ CLAUDE.md
 docs/implementation-notes/codex-vscode-plugin/plugin-index.js
 .claude
 /legacy/
+
+# --- Codex feature notes (tracked) ---
+!.feat/
+# Track only the currently closed-out feature notes to avoid surfacing unrelated local notes.
+!.feat/20260120-1239-command-menu-density/
+!.feat/20260120-1239-command-menu-density/**
+# --- End Codex feature notes ---
