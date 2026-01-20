@@ -3460,6 +3460,7 @@ export function CodexChat() {
 		const seq = ++threadWatchSeqRef.current;
 		const threadId = selectedThreadId;
 		const path = activeThread?.path ?? null;
+		console.log('[ThreadWatch] setup effect:', { threadId, path, seq });
 		void (async () => {
 			try {
 				await apiClient.codexThreadWatchStop();
@@ -3470,9 +3471,12 @@ export function CodexChat() {
 			if (threadId && path) {
 				try {
 					await apiClient.codexThreadWatchStart(threadId, path);
-				} catch {
-					// ignore
+					console.log('[ThreadWatch] started watching:', { threadId, path });
+				} catch (err) {
+					console.error('[ThreadWatch] failed to start:', err);
 				}
+			} else {
+				console.log('[ThreadWatch] skipped: no threadId or path', { threadId, path });
 			}
 		})();
 		return () => {
@@ -3489,15 +3493,22 @@ export function CodexChat() {
 		const unlistenPromise = listen<CodexThreadWatchEvent>('codex_thread_fs_update', (event) => {
 			if (!mounted) return;
 			const payload = event.payload;
+			console.log('[ThreadWatch] fs_update event received:', payload);
 			if (!payload || typeof payload !== 'object') return;
-			if (!selectedThreadId || payload.threadId !== selectedThreadId) return;
+			if (!selectedThreadId || payload.threadId !== selectedThreadId) {
+				console.log('[ThreadWatch] skipped: threadId mismatch', { selectedThreadId, payloadThreadId: payload.threadId });
+				return;
+			}
 
 			const { ok, updatedAtMs } = shouldApplyExternalRefresh(payload.threadId, payload.updatedAtMs);
+			console.log('[ThreadWatch] shouldApplyExternalRefresh:', { ok, updatedAtMs, payloadUpdatedAtMs: payload.updatedAtMs, ageMs: updatedAtMs ? Date.now() - updatedAtMs : null });
 			if (!ok || updatedAtMs == null) return;
 			if (activeTurnId) {
+				console.log('[ThreadWatch] deferred: activeTurnId present', activeTurnId);
 				externalRefreshPendingRef.current = { threadId: payload.threadId, updatedAtMs };
 				return;
 			}
+			console.log('[ThreadWatch] refreshing thread:', payload.threadId);
 			void refreshSelectedThread(payload.threadId, updatedAtMs);
 		});
 

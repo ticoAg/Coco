@@ -1,5 +1,5 @@
 use notify::event::{EventKind, ModifyKind};
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{PollWatcher, RecursiveMode, Watcher, Config};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -8,6 +8,7 @@ use tauri::Emitter;
 
 const THREAD_FS_EVENT: &str = "codex_thread_fs_update";
 const DEBOUNCE_MS: u64 = 500;
+const POLL_INTERVAL_MS: u64 = 1000;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,7 +20,7 @@ pub struct CodexThreadWatchEvent {
 
 #[derive(Default)]
 pub struct ThreadWatchState {
-    watcher: Option<RecommendedWatcher>,
+    watcher: Option<PollWatcher>,
     thread_id: Option<String>,
     path: Option<PathBuf>,
 }
@@ -40,6 +41,7 @@ impl ThreadWatchState {
             .parent()
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
+        log::info!("[ThreadWatch] starting: thread={}, path={:?}, watch_dir={:?}", thread_id, path, watch_dir);
         let watched_path = Arc::new(path);
         let watched_thread = Arc::new(thread_id);
         let last_emit = Arc::new(Mutex::new(Instant::now() - Duration::from_millis(DEBOUNCE_MS)));
@@ -48,35 +50,50 @@ impl ThreadWatchState {
         let watched_path_for_event = Arc::clone(&watched_path);
         let watched_thread_for_event = Arc::clone(&watched_thread);
         let last_emit_for_event = Arc::clone(&last_emit);
-        let mut watcher = notify::recommended_watcher(move |res| {
-            let event = match res {
-                Ok(event) => event,
-                Err(_) => return,
-            };
-            if !is_relevant_event(&event.kind) {
-                return;
-            }
-            if !event_matches_path(&event.paths, &watched_path_for_event) {
-                return;
-            }
-            let now = Instant::now();
-            let mut guard = match last_emit_for_event.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            if now.duration_since(*guard) < Duration::from_millis(DEBOUNCE_MS) {
-                return;
-            }
-            *guard = now;
 
-            let updated_at_ms = modified_ms(&watched_path_for_event);
-            let payload = CodexThreadWatchEvent {
-                thread_id: watched_thread_for_event.to_string(),
-                path: watched_path_for_event.to_string_lossy().to_string(),
-                updated_at_ms,
-            };
-            let _ = app_handle.emit(THREAD_FS_EVENT, payload);
-        })
+        let config = Config::default()
+            .with_poll_interval(Duration::from_millis(POLL_INTERVAL_MS));
+
+        let mut watcher = PollWatcher::new(
+            move |res: notify::Result<notify::Event>| {
+                let event = match res {
+                    Ok(event) => event,
+                    Err(e) => {
+                        log::info!("[ThreadWatch] watcher error: {:?}", e);
+                        return;
+                    }
+                };
+                log::info!("[ThreadWatch] raw event: {:?}", event);
+                if !is_relevant_event(&event.kind) {
+                    log::info!("[ThreadWatch] skipped: not relevant event kind {:?}", event.kind);
+                    return;
+                }
+                if !event_matches_path(&event.paths, &watched_path_for_event) {
+                    log::info!("[ThreadWatch] skipped: path mismatch, event paths={:?}, watched={:?}", event.paths, watched_path_for_event);
+                    return;
+                }
+                let now = Instant::now();
+                let mut guard = match last_emit_for_event.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                if now.duration_since(*guard) < Duration::from_millis(DEBOUNCE_MS) {
+                    log::info!("[ThreadWatch] skipped: debounce");
+                    return;
+                }
+                *guard = now;
+
+                let updated_at_ms = modified_ms(&watched_path_for_event);
+                let payload = CodexThreadWatchEvent {
+                    thread_id: watched_thread_for_event.to_string(),
+                    path: watched_path_for_event.to_string_lossy().to_string(),
+                    updated_at_ms,
+                };
+                log::info!("[ThreadWatch] emitting event: {:?}", payload);
+                let _ = app_handle.emit(THREAD_FS_EVENT, payload);
+            },
+            config,
+        )
         .map_err(|e| e.to_string())?;
 
         watcher
@@ -105,7 +122,10 @@ impl ThreadWatchState {
 fn is_relevant_event(kind: &EventKind) -> bool {
     match kind {
         EventKind::Create(_) | EventKind::Remove(_) => true,
-        EventKind::Modify(modify) => matches!(modify, ModifyKind::Data(_) | ModifyKind::Name(_) | ModifyKind::Any),
+        EventKind::Modify(modify) => matches!(
+            modify,
+            ModifyKind::Data(_) | ModifyKind::Name(_) | ModifyKind::Metadata(_) | ModifyKind::Any
+        ),
         _ => false,
     }
 }
