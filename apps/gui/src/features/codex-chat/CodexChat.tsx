@@ -59,6 +59,7 @@ import type {
 import type { TaskDirectoryEntry, TreeNodeData } from '@/types/sidebar';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const TURN_APPEAR_ANIM_MS = 180;
 
 function extractProfileModels(value: unknown): string[] {
 	if (typeof value === 'string') return [value];
@@ -3397,6 +3398,72 @@ export function CodexChat() {
 		void selectSession(activeAgentTab.threadId);
 	}, [activeAgentTab?.threadId, selectSession, selectedThreadId]);
 
+	const [turnAppearById, setTurnAppearById] = useState<Record<string, boolean>>({});
+	const awaitingTurnAppearBaselineRef = useRef(true);
+	const lastTurnOrderIdentityRef = useRef<string[] | null>(null);
+	const turnAppearBaselineRef = useRef<Set<string>>(new Set());
+	const turnAppearTimersRef = useRef<Record<string, number>>({});
+
+	useEffect(() => {
+		// When switching threads, wait for the first turnOrder update before animating.
+		awaitingTurnAppearBaselineRef.current = true;
+		turnAppearBaselineRef.current = new Set();
+		setTurnAppearById({});
+		for (const timer of Object.values(turnAppearTimersRef.current)) {
+			window.clearTimeout(timer);
+		}
+		turnAppearTimersRef.current = {};
+	}, [selectedThreadId]);
+
+	useEffect(() => {
+		return () => {
+			for (const timer of Object.values(turnAppearTimersRef.current)) {
+				window.clearTimeout(timer);
+			}
+		};
+	}, []);
+
+	useEffect(() => {
+		if (!selectedThreadId) return;
+
+		// Detect "real" turn list changes by identity, so we don't prime baseline on thread switch
+		// before the new thread's timeline has been loaded.
+		const turnOrderChanged = lastTurnOrderIdentityRef.current !== turnOrder;
+		lastTurnOrderIdentityRef.current = turnOrder;
+
+		if (awaitingTurnAppearBaselineRef.current) {
+			if (!turnOrderChanged) return;
+			turnAppearBaselineRef.current = new Set(turnOrder);
+			awaitingTurnAppearBaselineRef.current = false;
+			return;
+		}
+
+		const prev = turnAppearBaselineRef.current;
+		const newTurnIds = turnOrder.filter((id) => !prev.has(id));
+		turnAppearBaselineRef.current = new Set(turnOrder);
+		if (newTurnIds.length === 0) return;
+
+		setTurnAppearById((prevMap) => {
+			const out = { ...prevMap };
+			for (const id of newTurnIds) out[id] = true;
+			return out;
+		});
+
+		for (const id of newTurnIds) {
+			const existing = turnAppearTimersRef.current[id];
+			if (existing) window.clearTimeout(existing);
+			turnAppearTimersRef.current[id] = window.setTimeout(() => {
+				setTurnAppearById((prevMap) => {
+					if (!(id in prevMap)) return prevMap;
+					const out = { ...prevMap };
+					delete out[id];
+					return out;
+				});
+				delete turnAppearTimersRef.current[id];
+			}, TURN_APPEAR_ANIM_MS);
+		}
+	}, [selectedThreadId, turnOrder]);
+
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const turnBlocks = useMemo(() => {
 		const out: TurnBlockData[] = [];
@@ -3858,6 +3925,7 @@ export function CodexChat() {
 											{renderTurns.map((turn) => (
 												<TurnBlock
 													key={turn.id}
+													animateIn={Boolean(turnAppearById[turn.id])}
 													turn={turn}
 													collapsedWorkingByTurnId={collapsedWorkingByTurnId}
 													collapsedByEntryId={collapsedByEntryId}
