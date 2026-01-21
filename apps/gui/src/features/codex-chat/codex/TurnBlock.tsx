@@ -150,12 +150,7 @@ function TurnBlockImpl({
 	const hasWorking = turn.workingItemCount > 0;
 
 	return (
-		<div
-			className={[
-				'group/turn space-y-2 min-w-0 max-w-full',
-				animateIn ? 'am-turn-animate-in' : '',
-			].join(' ')}
-		>
+		<div className={['group/turn space-y-2 min-w-0 max-w-full', animateIn ? 'am-turn-animate-in' : ''].join(' ')}>
 			{/* Turn title bar */}
 			<div className="group flex items-center justify-end px-1">
 				<div className="flex shrink-0 items-center gap-1.5">
