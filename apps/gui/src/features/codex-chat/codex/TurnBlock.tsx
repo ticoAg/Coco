@@ -1,6 +1,6 @@
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { Check, ChevronRight, Copy, Eye, File, FileText, GitBranch, Pencil, Zap } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Collapse } from '@/components/ui/Collapse';
 import { ChatMarkdown } from './ChatMarkdown';
 import { CodeReviewAssistantMessage } from './CodeReviewAssistantMessage';
@@ -48,12 +48,12 @@ function turnStatusLabel(status: TurnBlockStatus): string {
 			return 'Failed';
 		case 'interrupted':
 			return 'Interrupted';
-		default:
+	default:
 			return 'Turn';
 	}
 }
 
-export function TurnBlock({
+function TurnBlockImpl({
 	turn,
 	collapsedWorkingByTurnId,
 	collapsedByEntryId,
@@ -397,3 +397,6 @@ export function TurnBlock({
 		</div>
 	);
 }
+
+// Prevent keystrokes in the composer (which update parent state) from re-rendering the entire thread view.
+export const TurnBlock = memo(TurnBlockImpl);
