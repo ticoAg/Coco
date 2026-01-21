@@ -338,6 +338,7 @@ export function TurnBlock({
 										entryId={e.id}
 										text={e.text}
 										enabled={Boolean(shouldTypewriterEntry?.(e.id)) && Boolean(consumeTypewriterEntry)}
+										completed={!!e.completed}
 										charsPerSecond={typewriterCharsPerSecond}
 										onConsume={consumeTypewriterEntry}
 										className="text-[12px] text-text-main"

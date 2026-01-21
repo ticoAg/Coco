@@ -9,11 +9,23 @@ export type TypewriterMarkdownProps = Omit<ChatMarkdownProps, 'text'> & {
 	entryId: string;
 	text: string;
 	enabled: boolean;
+	/** Set true when the entry is finalized (no more deltas expected). */
+	completed?: boolean;
 	charsPerSecond?: number;
 	onConsume?: (entryId: string) => void;
 };
 
-export function TypewriterMarkdown({ entryId, text, enabled, charsPerSecond, onConsume, ...markdownProps }: TypewriterMarkdownProps) {
+export function TypewriterMarkdown({
+	entryId,
+	text,
+	enabled,
+	completed = false,
+	charsPerSecond,
+	onConsume,
+	className,
+	textClassName,
+	dense = false,
+}: TypewriterMarkdownProps) {
 	// Freeze eligibility at mount: once we decide to animate, we keep animating even if the parent
 	// consumes the id and flips `enabled` on subsequent renders.
 	const animateRef = useRef(enabled);
@@ -30,6 +42,7 @@ export function TypewriterMarkdown({ entryId, text, enabled, charsPerSecond, onC
 	const baseCountRef = useRef(0);
 	const visibleCountRef = useRef(0);
 	const [visibleCount, setVisibleCount] = useState(() => (animate ? 0 : text.length));
+	const [renderMarkdown, setRenderMarkdown] = useState(() => !animate);
 
 	useEffect(() => {
 		textRef.current = text;
@@ -42,7 +55,7 @@ export function TypewriterMarkdown({ entryId, text, enabled, charsPerSecond, onC
 	}, [visibleCount]);
 
 	useEffect(() => {
-		if (!animate) return;
+		if (!animate || renderMarkdown) return;
 		// Use a one-shot timeout loop so we don't leave hundreds of idle intervals running,
 		// which can cause noticeable typing latency in the composer.
 		let cancelled = false;
@@ -81,12 +94,32 @@ export function TypewriterMarkdown({ entryId, text, enabled, charsPerSecond, onC
 			handle = window.setTimeout(tick, TICK_MS);
 		}
 
-		return () => {
-			cancelled = true;
-			if (handle != null) window.clearTimeout(handle);
-		};
-	}, [animate, cps, text]);
+			return () => {
+				cancelled = true;
+				if (handle != null) window.clearTimeout(handle);
+			};
+		}, [animate, cps, renderMarkdown, text]);
 
+	useEffect(() => {
+		if (!animate) return;
+		if (renderMarkdown) return;
+		// Stream as plain text to avoid repeatedly parsing markdown while animating.
+		// Once the entry is finalized and we've printed the whole thing, render markdown once.
+		if (!completed) return;
+		if (visibleCount < text.length) return;
+		setRenderMarkdown(true);
+	}, [animate, completed, renderMarkdown, text.length, visibleCount]);
+
+	if (renderMarkdown) {
+		return <ChatMarkdown text={text} className={className} textClassName={textClassName} dense={dense} />;
+	}
+
+	const leadingClass = dense ? 'leading-[1.35]' : 'leading-relaxed';
+	const textClass = textClassName ?? 'text-text-muted';
 	const displayText = animate ? text.slice(0, visibleCount) : text;
-	return <ChatMarkdown text={displayText} {...markdownProps} />;
+	return (
+		<div className={['min-w-0 max-w-full whitespace-pre-wrap break-words', leadingClass, className ?? ''].join(' ')}>
+			<span className={textClass}>{displayText}</span>
+		</div>
+	);
 }

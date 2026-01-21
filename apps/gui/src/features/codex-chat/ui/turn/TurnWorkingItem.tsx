@@ -158,6 +158,7 @@ export function TurnWorkingItem({
 											entryId={entry.id}
 											text={displayBody}
 											enabled={Boolean(shouldTypewriterEntry?.(entry.id)) && Boolean(consumeTypewriterEntry)}
+											completed={!isStreaming}
 											charsPerSecond={typewriterCharsPerSecond}
 											onConsume={consumeTypewriterEntry}
 											className="text-[11px] text-text-muted"
@@ -453,6 +454,7 @@ export function TurnWorkingItem({
 						entryId={e.id}
 						text={displayBody}
 						enabled={Boolean(shouldTypewriterEntry?.(e.id)) && Boolean(consumeTypewriterEntry)}
+						completed={!e.streaming}
 						charsPerSecond={typewriterCharsPerSecond}
 						onConsume={consumeTypewriterEntry}
 						className="text-[11px] text-text-muted"
