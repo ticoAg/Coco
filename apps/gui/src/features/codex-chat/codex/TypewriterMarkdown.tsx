@@ -27,6 +27,7 @@ export function TypewriterMarkdown({ entryId, text, enabled, charsPerSecond, onC
 	const cps = charsPerSecond ?? DEFAULT_CHARS_PER_SEC;
 	const textRef = useRef(text);
 	const startMsRef = useRef<number | null>(null);
+	const baseCountRef = useRef(0);
 	const visibleCountRef = useRef(0);
 	const [visibleCount, setVisibleCount] = useState(() => (animate ? 0 : text.length));
 
@@ -42,24 +43,49 @@ export function TypewriterMarkdown({ entryId, text, enabled, charsPerSecond, onC
 
 	useEffect(() => {
 		if (!animate) return;
-		const handle = window.setInterval(() => {
-			// Start the clock when we have something to print; avoids "skipping ahead" if content arrives later.
+		// Use a one-shot timeout loop so we don't leave hundreds of idle intervals running,
+		// which can cause noticeable typing latency in the composer.
+		let cancelled = false;
+		let handle: number | null = null;
+
+		const tick = () => {
+			if (cancelled) return;
+			const targetLen = textRef.current.length;
+			if (visibleCountRef.current >= targetLen) {
+				// Caught up; pause the clock so late-arriving deltas don't "skip ahead".
+				startMsRef.current = null;
+				baseCountRef.current = visibleCountRef.current;
+				return;
+			}
+
 			if (startMsRef.current == null) {
-				if (textRef.current.length === 0) return;
+				// Start/restart the clock from the current visible position.
 				startMsRef.current = performance.now();
+				baseCountRef.current = visibleCountRef.current;
 			}
 
 			const elapsedMs = performance.now() - (startMsRef.current ?? performance.now());
-			const targetLen = textRef.current.length;
-			const ideal = Math.floor((elapsedMs * cps) / 1000);
+			const ideal = baseCountRef.current + Math.floor((elapsedMs * cps) / 1000);
 			const nextLen = Math.min(targetLen, ideal);
+
 			if (nextLen > visibleCountRef.current) {
 				visibleCountRef.current = nextLen;
 				setVisibleCount(nextLen);
 			}
-		}, TICK_MS);
-		return () => window.clearInterval(handle);
-	}, [animate, cps]);
+
+			handle = window.setTimeout(tick, TICK_MS);
+		};
+
+		// Only schedule work when there's something left to print.
+		if (visibleCountRef.current < textRef.current.length) {
+			handle = window.setTimeout(tick, TICK_MS);
+		}
+
+		return () => {
+			cancelled = true;
+			if (handle != null) window.clearTimeout(handle);
+		};
+	}, [animate, cps, text]);
 
 	const displayText = animate ? text.slice(0, visibleCount) : text;
 	return <ChatMarkdown text={displayText} {...markdownProps} />;
