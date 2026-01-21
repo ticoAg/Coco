@@ -2,7 +2,9 @@ import { ChevronRight, Copy, GitBranch, Search, Wrench, Zap } from 'lucide-react
 import { ActivityBlock } from '../../codex/ActivityBlock';
 import { ChatMarkdown } from '../../codex/ChatMarkdown';
 import { CodeReviewAssistantMessage } from '../../codex/CodeReviewAssistantMessage';
+import { DiffCountBadge } from '../../codex/DiffCountBadge';
 import { FileChangeEntryCard } from '../../codex/FileChangeEntryCard';
+import { TypewriterMarkdown } from '../../codex/TypewriterMarkdown';
 import type { ChatEntry, CodexChatSettings, WorkingItem } from '../../codex/types';
 import { isReadingGroup, isReasoningGroup } from '../../lib/turn/exploration';
 import { extractHeadingFromMarkdown } from '../../lib/turn/heading';
@@ -27,9 +29,23 @@ type Props = {
 	toggleEntryCollapse: (entryId: string) => void;
 	approve: (requestId: number, decision: 'accept' | 'decline') => void;
 	onForkFromTurn?: (turnId: string) => void;
+	typewriterCharsPerSecond?: number;
+	shouldTypewriterEntry?: (entryId: string) => boolean;
+	consumeTypewriterEntry?: (entryId: string) => void;
 };
 
-export function TurnWorkingItem({ item, turnId, collapsedByEntryId, settings, toggleEntryCollapse, approve, onForkFromTurn }: Props): JSX.Element | null {
+export function TurnWorkingItem({
+	item,
+	turnId,
+	collapsedByEntryId,
+	settings,
+	toggleEntryCollapse,
+	approve,
+	onForkFromTurn,
+	typewriterCharsPerSecond,
+	shouldTypewriterEntry,
+	consumeTypewriterEntry,
+}: Props): JSX.Element | null {
 	if (isReadingGroup(item)) {
 		const isFinished = item.entries.every((entry) => entry.status !== 'inProgress');
 		const collapsed = collapsedByEntryId[item.id] ?? settings.defaultCollapseDetails;
@@ -135,15 +151,23 @@ export function TurnWorkingItem({ item, turnId, collapsedByEntryId, settings, to
 							const displayBody = heading ? body : entry.text;
 							const trimmedBody = displayBody.trim();
 							if (!trimmedBody) return null;
-							return (
-								<div key={entry.id}>
-									{heading && item.entries.length > 1 ? <div className="text-[10px] font-medium text-text-muted mb-1">{heading}</div> : null}
-									<ChatMarkdown text={displayBody} className="text-[11px] text-text-muted" dense />
-								</div>
-							);
-						})}
-					</div>
-				) : null}
+								return (
+									<div key={entry.id}>
+										{heading && item.entries.length > 1 ? <div className="text-[10px] font-medium text-text-muted mb-1">{heading}</div> : null}
+										<TypewriterMarkdown
+											entryId={entry.id}
+											text={displayBody}
+											enabled={Boolean(shouldTypewriterEntry?.(entry.id)) && Boolean(consumeTypewriterEntry)}
+											charsPerSecond={typewriterCharsPerSecond}
+											onConsume={consumeTypewriterEntry}
+											className="text-[11px] text-text-muted"
+											dense
+										/>
+									</div>
+								);
+							})}
+						</div>
+					) : null}
 			</ActivityBlock>
 		);
 	}
@@ -231,44 +255,42 @@ export function TurnWorkingItem({ item, turnId, collapsedByEntryId, settings, to
 	}
 
 	if (e.kind === 'fileChange') {
+		const collapsed = collapsedByEntryId[e.id] ?? settings.defaultCollapseDetails;
 		const summary = buildFileChangeSummary(e);
 		const isPending = e.status !== 'completed';
-		const defaultCollapsed = settings.defaultCollapseDetails;
-		const approval = e.approval;
+		const copyContent = summary.changes.map((change) => (change.diff ? `${change.path}\n${change.diff}`.trim() : change.path)).join('\n\n');
 		return (
-			<div key={e.id} className="space-y-2">
+			<ActivityBlock
+				key={e.id}
+				titlePrefix={summary.titlePrefix}
+				titleContent={summary.titleContent}
+				status={e.status !== 'completed' ? e.status : undefined}
+				copyContent={copyContent || summary.titleContent}
+				summaryActions={<DiffCountBadge added={summary.totalAdded} removed={summary.totalRemoved} />}
+				contentClassName="font-sans"
+				scrollable={false}
+				collapsible
+				collapsed={collapsed}
+				onToggleCollapse={() => toggleEntryCollapse(e.id)}
+				approval={e.approval}
+				onApprove={approve}
+			>
 				{summary.changes.length > 0 ? (
-					summary.changes.map((change) => (
-						<FileChangeEntryCard key={`${change.path}-${change.kind.type}`} change={change} isPending={isPending} defaultCollapsed={defaultCollapsed} />
-					))
+					<div className="space-y-2">
+						{summary.changes.map((change) => (
+							<FileChangeEntryCard
+								key={`${change.path}-${change.kind.type}`}
+								change={change}
+								isPending={isPending}
+								// Outer `Edited` block controls the accordion; inside diffs should be visible by default.
+								defaultCollapsed={false}
+							/>
+						))}
+					</div>
 				) : (
 					<div className="text-[10px] italic text-text-muted">No diff content</div>
 				)}
-				{approval ? (
-					<div className="mt-1 flex flex-wrap items-center justify-between gap-2 pl-2 pr-1">
-						<div className="min-w-0 text-xs text-text-muted">
-							Approval required
-							{approval.reason ? `: ${approval.reason}` : ''}.
-						</div>
-						<div className="flex shrink-0 gap-2">
-							<button
-								type="button"
-								className="rounded-md bg-status-success/20 px-2.5 py-1 text-[11px] font-semibold text-status-success hover:bg-status-success/30 transition-colors"
-								onClick={() => approve(approval.requestId, 'accept')}
-							>
-								Approve
-							</button>
-							<button
-								type="button"
-								className="rounded-md bg-status-error/15 px-2.5 py-1 text-[11px] font-semibold text-status-error hover:bg-status-error/25 transition-colors"
-								onClick={() => approve(approval.requestId, 'decline')}
-							>
-								Decline
-							</button>
-						</div>
-					</div>
-				) : null}
-			</div>
+			</ActivityBlock>
 		);
 	}
 
@@ -426,7 +448,17 @@ export function TurnWorkingItem({ item, turnId, collapsedByEntryId, settings, to
 				collapsed={hasBody ? collapsed : true}
 				onToggleCollapse={hasBody ? () => toggleEntryCollapse(e.id) : undefined}
 			>
-				{hasBody ? <ChatMarkdown text={displayBody} className="text-[11px] text-text-muted" dense /> : null}
+				{hasBody ? (
+					<TypewriterMarkdown
+						entryId={e.id}
+						text={displayBody}
+						enabled={Boolean(shouldTypewriterEntry?.(e.id)) && Boolean(consumeTypewriterEntry)}
+						charsPerSecond={typewriterCharsPerSecond}
+						onConsume={consumeTypewriterEntry}
+						className="text-[11px] text-text-muted"
+						dense
+					/>
+				) : null}
 			</ActivityBlock>
 		);
 	}

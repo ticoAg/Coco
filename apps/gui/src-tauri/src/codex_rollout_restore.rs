@@ -486,7 +486,8 @@ async fn parse_rollout_activity_by_turn(
     turn_count: usize,
     cwd: Option<&Path>,
 ) -> std::io::Result<Vec<Vec<Value>>> {
-    let mut per_turn: Vec<Vec<Value>> = vec![Vec::new(); turn_count.max(1)];
+    let target_turn_count = turn_count.max(1);
+    let mut turns: Vec<Vec<Value>> = Vec::with_capacity(target_turn_count);
 
     let file = File::open(rollout_path).await?;
     let reader = BufReader::new(file);
@@ -494,7 +495,6 @@ async fn parse_rollout_activity_by_turn(
 
     // Turn alignment by the persisted EventMsg user_message boundaries.
     // build_turns_from_event_msgs treats each user_message as a new turn.
-    let mut current_turn_index: isize = -1;
     let mut pending_by_call_id: HashMap<String, PendingIndex> = HashMap::new();
 
     while let Some(line) = lines.next_line().await? {
@@ -513,7 +513,19 @@ async fn parse_rollout_activity_by_turn(
         if line_type == "event_msg" {
             let ev_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
             if ev_type == "user_message" {
-                current_turn_index += 1;
+                turns.push(Vec::new());
+            }
+            if ev_type == "thread_rolled_back" {
+                let num_turns = payload
+                    .get("num_turns")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as usize;
+                let new_len = turns.len().saturating_sub(num_turns);
+                if new_len != turns.len() {
+                    turns.truncate(new_len);
+                    // Pending call ids from rolled-back turns should no longer match.
+                    pending_by_call_id.retain(|_, idx| idx.turn_index < new_len);
+                }
             }
             continue;
         }
@@ -525,12 +537,11 @@ async fn parse_rollout_activity_by_turn(
         let item_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
         // Only attach activity items after the first user turn is established.
-        let turn_index = if current_turn_index < 0 {
+        let turn_index = if turns.is_empty() {
             continue;
         } else {
-            usize::try_from(current_turn_index).unwrap_or(0)
+            turns.len().saturating_sub(1)
         };
-        let turn_index = turn_index.min(per_turn.len().saturating_sub(1));
 
         match item_type {
             "reasoning" => {
@@ -543,7 +554,7 @@ async fn parse_rollout_activity_by_turn(
                     let id = format!(
                         "rollout-reasoning-{}-{}",
                         turn_index,
-                        per_turn[turn_index].len() + 1
+                        turns[turn_index].len() + 1
                     );
                     let item = serde_json::json!({
                         "type": "reasoning",
@@ -551,9 +562,9 @@ async fn parse_rollout_activity_by_turn(
                         "summary": summary,
                         "content": Vec::<String>::new(),
                     });
-                    per_turn[turn_index].push(item);
+                    turns[turn_index].push(item);
                 }
-                per_turn[turn_index].push(rollout_placeholder("reasoning"));
+                turns[turn_index].push(rollout_placeholder("reasoning"));
             }
             "message" => {
                 let role = payload.get("role").and_then(|v| v.as_str()).unwrap_or("");
@@ -563,7 +574,7 @@ async fn parse_rollout_activity_by_turn(
                     _ => None,
                 };
                 if let Some(kind) = placeholder {
-                    per_turn[turn_index].push(rollout_placeholder(kind));
+                    turns[turn_index].push(rollout_placeholder(kind));
                 }
             }
             "function_call" => {
@@ -595,10 +606,10 @@ async fn parse_rollout_activity_by_turn(
                         "exitCode": null,
                         "durationMs": null,
                     });
-                    per_turn[turn_index].push(item);
-                    let idx = per_turn[turn_index].len().saturating_sub(1);
+                    turns[turn_index].push(item);
+                    let idx = turns[turn_index].len().saturating_sub(1);
                     pending_by_call_id.insert(
-                        per_turn[turn_index][idx]
+                        turns[turn_index][idx]
                             .get("id")
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
@@ -627,10 +638,10 @@ async fn parse_rollout_activity_by_turn(
                             "error": null,
                             "durationMs": null,
                         });
-                        per_turn[turn_index].push(item);
-                        let idx = per_turn[turn_index].len().saturating_sub(1);
+                        turns[turn_index].push(item);
+                        let idx = turns[turn_index].len().saturating_sub(1);
                         pending_by_call_id.insert(
-                            per_turn[turn_index][idx]
+                            turns[turn_index][idx]
                                 .get("id")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("")
@@ -681,10 +692,10 @@ async fn parse_rollout_activity_by_turn(
                         "changes": changes,
                         "status": normalize_status(status),
                     });
-                    per_turn[turn_index].push(item);
-                    let idx = per_turn[turn_index].len().saturating_sub(1);
+                    turns[turn_index].push(item);
+                    let idx = turns[turn_index].len().saturating_sub(1);
                     pending_by_call_id.insert(
-                        per_turn[turn_index][idx]
+                        turns[turn_index][idx]
                             .get("id")
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
@@ -719,7 +730,7 @@ async fn parse_rollout_activity_by_turn(
                         format!(
                             "websearch-{}-{}",
                             turn_index,
-                            per_turn[turn_index].len() + 1
+                            turns[turn_index].len() + 1
                         )
                     });
 
@@ -728,7 +739,7 @@ async fn parse_rollout_activity_by_turn(
                     "id": id,
                     "query": query,
                 });
-                per_turn[turn_index].push(item);
+                turns[turn_index].push(item);
             }
             "function_call_output" => {
                 let call_id = payload
@@ -754,7 +765,7 @@ async fn parse_rollout_activity_by_turn(
 
                 match pending.kind {
                     PendingKind::Command => {
-                        if let Some(item) = per_turn
+                        if let Some(item) = turns
                             .get_mut(pending.turn_index)
                             .and_then(|t| t.get_mut(pending.item_index))
                         {
@@ -772,7 +783,7 @@ async fn parse_rollout_activity_by_turn(
                         }
                     }
                     PendingKind::Mcp => {
-                        if let Some(item) = per_turn
+                        if let Some(item) = turns
                             .get_mut(pending.turn_index)
                             .and_then(|t| t.get_mut(pending.item_index))
                         {
@@ -823,7 +834,7 @@ async fn parse_rollout_activity_by_turn(
                 // Best effort: mark failed if output contains a clear failure marker.
                 let failed = output.to_lowercase().contains("error")
                     || output.to_lowercase().contains("failed");
-                if let Some(item) = per_turn
+                if let Some(item) = turns
                     .get_mut(pending.turn_index)
                     .and_then(|t| t.get_mut(pending.item_index))
                 {
@@ -843,7 +854,19 @@ async fn parse_rollout_activity_by_turn(
         }
     }
 
-    Ok(per_turn)
+    // `thread.turns` from the app server is authoritative; rollout is append-only so it can
+    // contain rolled-back turns that should not be shown. Align by taking the latest N turns.
+    if turns.len() > target_turn_count {
+        turns = turns.split_off(turns.len().saturating_sub(target_turn_count));
+    }
+    if turns.len() < target_turn_count {
+        let missing = target_turn_count.saturating_sub(turns.len());
+        let mut padded: Vec<Vec<Value>> = vec![Vec::new(); missing];
+        padded.extend(turns);
+        turns = padded;
+    }
+
+    Ok(turns)
 }
 
 fn merge_turn_items(target_items: &mut Vec<Value>, rollout_items: Vec<Value>) {

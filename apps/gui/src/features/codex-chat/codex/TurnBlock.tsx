@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Collapse } from '@/components/ui/Collapse';
 import { ChatMarkdown } from './ChatMarkdown';
 import { CodeReviewAssistantMessage } from './CodeReviewAssistantMessage';
+import { TypewriterMarkdown } from './TypewriterMarkdown';
 import { isReadingGroup, isReasoningGroup } from '../lib/turn/exploration';
 import { ExplorationAccordion } from '../ui/turn/ExplorationAccordion';
 import { TurnWorkingItem } from '../ui/turn/TurnWorkingItem';
@@ -25,6 +26,9 @@ interface TurnBlockProps {
 	collapsedWorkingByTurnId: Record<string, boolean>;
 	collapsedByEntryId: Record<string, boolean>;
 	settings: CodexChatSettings;
+	typewriterCharsPerSecond?: number;
+	shouldTypewriterEntry?: (entryId: string) => boolean;
+	consumeTypewriterEntry?: (entryId: string) => void;
 	pendingTurnId: string;
 	toggleTurnWorking: (turnId: string) => void;
 	toggleEntryCollapse: (entryId: string) => void;
@@ -54,6 +58,9 @@ export function TurnBlock({
 	collapsedWorkingByTurnId,
 	collapsedByEntryId,
 	settings,
+	typewriterCharsPerSecond,
+	shouldTypewriterEntry,
+	consumeTypewriterEntry,
 	pendingTurnId,
 	toggleTurnWorking,
 	toggleEntryCollapse,
@@ -119,10 +126,23 @@ export function TurnBlock({
 					toggleEntryCollapse={toggleEntryCollapse}
 					approve={approve}
 					onForkFromTurn={onForkFromTurn}
+					typewriterCharsPerSecond={typewriterCharsPerSecond}
+					shouldTypewriterEntry={shouldTypewriterEntry}
+					consumeTypewriterEntry={consumeTypewriterEntry}
 				/>
 			);
 		},
-		[approve, collapsedByEntryId, onForkFromTurn, settings, toggleEntryCollapse, turn.id]
+		[
+			approve,
+			collapsedByEntryId,
+			consumeTypewriterEntry,
+			onForkFromTurn,
+			settings,
+			shouldTypewriterEntry,
+			toggleEntryCollapse,
+			turn.id,
+			typewriterCharsPerSecond,
+		]
 	);
 
 	const collapsedExplicit = collapsedWorkingByTurnId[turn.id];
@@ -311,12 +331,21 @@ export function TurnBlock({
 								<pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 font-mono text-[12px] text-text-main">
 									{e.text}
 								</pre>
-							) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
-								<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
-							) : (
-								<ChatMarkdown text={e.text} className="text-[12px] text-text-main" textClassName="text-text-main" dense />
-							)}
-						</div>
+								) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
+									<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
+								) : (
+									<TypewriterMarkdown
+										entryId={e.id}
+										text={e.text}
+										enabled={Boolean(shouldTypewriterEntry?.(e.id)) && Boolean(consumeTypewriterEntry)}
+										charsPerSecond={typewriterCharsPerSecond}
+										onConsume={consumeTypewriterEntry}
+										className="text-[12px] text-text-main"
+										textClassName="text-text-main"
+										dense
+									/>
+								)}
+							</div>
 						<div className="mt-1 flex items-center justify-start gap-2 opacity-0 transition-opacity group-hover/turn:opacity-100">
 							<button
 								type="button"

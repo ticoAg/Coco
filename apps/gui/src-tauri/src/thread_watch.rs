@@ -1,5 +1,5 @@
 use notify::event::{EventKind, ModifyKind};
-use notify::{PollWatcher, RecursiveMode, Watcher, Config};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -8,7 +8,6 @@ use tauri::Emitter;
 
 const THREAD_FS_EVENT: &str = "codex_thread_fs_update";
 const DEBOUNCE_MS: u64 = 500;
-const POLL_INTERVAL_MS: u64 = 1000;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,7 +19,7 @@ pub struct CodexThreadWatchEvent {
 
 #[derive(Default)]
 pub struct ThreadWatchState {
-    watcher: Option<PollWatcher>,
+    watcher: Option<RecommendedWatcher>,
     thread_id: Option<String>,
     path: Option<PathBuf>,
 }
@@ -41,7 +40,12 @@ impl ThreadWatchState {
             .parent()
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        log::info!("[ThreadWatch] starting: thread={}, path={:?}, watch_dir={:?}", thread_id, path, watch_dir);
+        log::info!(
+            "[ThreadWatch] starting: thread={}, path={:?}, watch_dir={:?}",
+            thread_id,
+            path,
+            watch_dir
+        );
         let watched_path = Arc::new(path);
         let watched_thread = Arc::new(thread_id);
         let last_emit = Arc::new(Mutex::new(Instant::now() - Duration::from_millis(DEBOUNCE_MS)));
@@ -51,10 +55,7 @@ impl ThreadWatchState {
         let watched_thread_for_event = Arc::clone(&watched_thread);
         let last_emit_for_event = Arc::clone(&last_emit);
 
-        let config = Config::default()
-            .with_poll_interval(Duration::from_millis(POLL_INTERVAL_MS));
-
-        let mut watcher = PollWatcher::new(
+        let mut watcher = notify::recommended_watcher(
             move |res: notify::Result<notify::Event>| {
                 let event = match res {
                     Ok(event) => event,
@@ -92,13 +93,20 @@ impl ThreadWatchState {
                 log::info!("[ThreadWatch] emitting event: {:?}", payload);
                 let _ = app_handle.emit(THREAD_FS_EVENT, payload);
             },
-            config,
         )
         .map_err(|e| e.to_string())?;
 
+        // On macOS, `notify`'s kqueue backend (vnode events) does not reliably emit file write
+        // events when only the parent directory is watched. We must watch the file itself to
+        // receive NOTE_WRITE/NOTE_EXTEND-style updates (append/new messages).
         watcher
-            .watch(&watch_dir, RecursiveMode::NonRecursive)
+            .watch(watched_path.as_ref(), RecursiveMode::NonRecursive)
             .map_err(|e| e.to_string())?;
+        log::info!(
+            "[ThreadWatch] watching file target={:?} (kqueue), watch_dir={:?}",
+            watched_path,
+            watch_dir
+        );
 
         self.watcher = Some(watcher);
         self.thread_id = Some((*watched_thread).to_string());

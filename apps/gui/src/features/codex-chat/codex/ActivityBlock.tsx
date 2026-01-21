@@ -35,6 +35,8 @@ export interface ActivityBlockProps {
 	children?: React.ReactNode;
 	/** 详情区头部（可选） */
 	detailHeader?: React.ReactNode;
+	/** 内容是否需要独立滚动容器（默认 true） */
+	scrollable?: boolean;
 	/** 审批信息 */
 	approval?: {
 		requestId: number;
@@ -63,6 +65,7 @@ export function ActivityBlock({
 	onToggleCollapse,
 	children,
 	detailHeader,
+	scrollable = true,
 	approval,
 	onApprove,
 	icon,
@@ -166,22 +169,41 @@ export function ActivityBlock({
 				<Collapse open={open} innerClassName="pt-0">
 					<div className="am-shell min-w-0">
 						{detailHeader ? <div className="am-shell-header">{detailHeader}</div> : null}
-						<div className="am-shell-scroll am-scroll-fade min-w-0">
-							<div
-								className={[
-									'min-w-0 am-shell-body text-text-muted',
-									useMono ? 'font-mono font-medium' : 'font-sans',
-									effectiveVariant === 'markdown'
-										? 'whitespace-normal'
-										: effectiveVariant === 'ansi'
-											? 'whitespace-pre-wrap break-words'
-											: 'whitespace-pre-wrap break-words',
-									contentClassName ?? '',
-								].join(' ')}
-							>
-								{contentNode}
+						{scrollable ? (
+							<div className="am-shell-scroll am-scroll-fade min-w-0">
+								<div
+									className={[
+										'min-w-0 am-shell-body text-text-muted',
+										useMono ? 'font-mono font-medium' : 'font-sans',
+										effectiveVariant === 'markdown'
+											? 'whitespace-normal'
+											: effectiveVariant === 'ansi'
+												? 'whitespace-pre-wrap break-words'
+												: 'whitespace-pre-wrap break-words',
+										contentClassName ?? '',
+									].join(' ')}
+								>
+									{contentNode}
+								</div>
 							</div>
-						</div>
+						) : (
+							<div className="min-w-0 p-2">
+								<div
+									className={[
+										'min-w-0 am-shell-body text-text-muted',
+										useMono ? 'font-mono font-medium' : 'font-sans',
+										effectiveVariant === 'markdown'
+											? 'whitespace-normal'
+											: effectiveVariant === 'ansi'
+												? 'whitespace-pre-wrap break-words'
+												: 'whitespace-pre-wrap break-words',
+										contentClassName ?? '',
+									].join(' ')}
+								>
+									{contentNode}
+								</div>
+							</div>
+						)}
 					</div>
 				</Collapse>
 			) : null}

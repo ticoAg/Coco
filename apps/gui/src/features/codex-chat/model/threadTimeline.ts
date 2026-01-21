@@ -649,6 +649,7 @@ export function deriveTimelineFromThread(
 		nextOrder.push(turnId);
 
 		const turnEntries: ChatEntry[] = [];
+		let pendingReadGroupId: string | null = null;
 		const items = turn.items ?? [];
 		const isTurnStreaming = turn.status === 'inProgress';
 		const lastIdx = items.length > 0 ? items.length - 1 : -1;
@@ -673,6 +674,24 @@ export function deriveTimelineFromThread(
 			turnEntries.push(entry);
 			nextItemToTurn[entry.id] = turnId;
 			if (isCollapsibleEntry(entry)) nextEntryCollapse[entry.id] = options.defaultCollapseDetails;
+
+			// Read actions are rendered as a grouped "Read" block (see `mergeReadingEntries`).
+			// We add the synthetic group id here so it can participate in the "gentle accordion" logic
+			// and persist collapse state across thread refreshes.
+			const canGroupRead = (() => {
+				if (entry.kind !== 'command') return false;
+				if (entry.approval) return false;
+				const parsed = resolveParsedCmd(entry.command, entry.commandActions);
+				return parsed.type === 'read';
+			})();
+			if (canGroupRead) {
+				if (!pendingReadGroupId) {
+					pendingReadGroupId = `read-group-${entry.id}`;
+					nextEntryCollapse[pendingReadGroupId] = options.defaultCollapseDetails;
+				}
+			} else {
+				pendingReadGroupId = null;
+			}
 		}
 
 		nextTurns[turnId] = {

@@ -36,4 +36,4 @@ tauri-plugin-dialog = "2.5.0"
 tokio = { version = "1.43.0", features = ["io-util", "macros", "process", "rt", "sync", "time"] }
 coco-orchestrator = { path = "../../../crates/coco-orchestrator" }
 coco-core = { path = "../../../crates/coco-core" }
-notify = "6.1.1"
+notify = { version = "6.1.1", default-features = false, features = ["macos_kqueue"] }

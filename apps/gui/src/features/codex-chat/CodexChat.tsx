@@ -7,7 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { apiClient } from '@/api/client';
 import type { AttachmentItem, ChatEntry, CodexChatSettings, TurnBlockData } from './codex/types';
 import type { ApprovalPolicy } from './codex/types';
-import { errorMessage, formatTokenCount, fuzzyMatch, safeString } from './codex/utils';
+import { errorMessage, formatTokenCount, fuzzyMatch, resolveParsedCmd, safeString } from './codex/utils';
 import { SIDEBAR_EXPANDED_WIDTH_PX } from './codex/styles/menu-styles';
 import { StatusBar, type StatusPopover } from './codex/StatusBar';
 import { SessionTreeSidebar } from './codex/sidebar';
@@ -19,6 +19,7 @@ import {
 	basenameFromPath,
 	buildTurnBlockViews,
 	deriveTimelineFromThread,
+	expandReasoningEntries,
 	guessImageNameFromDataUrl,
 	isImageDataUrl,
 	useCodexJsonRpcEvents,
@@ -65,6 +66,7 @@ const TURN_APPEAR_ANIM_MS = 180;
 const EXTERNAL_REFRESH_RECENT_MS = 2 * 60 * 1000;
 const EXTERNAL_REFRESH_ARCHIVE_MS = 60 * 60 * 1000;
 const EXTERNAL_REFRESH_THROTTLE_MS = 1000;
+const TYPEWRITER_CHARS_PER_SEC = 80;
 
 function extractProfileModels(value: unknown): string[] {
 	if (typeof value === 'string') return [value];
@@ -326,10 +328,19 @@ export function CodexChat() {
 	} | null>(null);
 	const [turnOrder, setTurnOrder] = useState<string[]>([]);
 	const [turnsById, setTurnsById] = useState<Record<string, TurnBlockData>>({});
+	const turnsByIdRef = useRef<Record<string, TurnBlockData>>({});
 	const [collapsedWorkingByTurnId, setCollapsedWorkingByTurnId] = useState<Record<string, boolean>>({});
 	const [_itemToTurnId, setItemToTurnId] = useState<Record<string, string>>({});
 	const [collapsedByEntryId, setCollapsedByEntryId] = useState<Record<string, boolean>>({});
 	const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
+		const lastAutoExpandedEntryIdRef = useRef<string | null>(null);
+		const prevCollapsedEntryKeysRef = useRef<Set<string>>(new Set());
+		const accordionPrimedRef = useRef(false);
+		const userToggledEntryCollapseRef = useRef<Set<string>>(new Set());
+		const userAddedCollapseKeyRef = useRef<Set<string>>(new Set());
+		const typewriterPrimedRef = useRef(false);
+		const typewriterPrevEntryIdsRef = useRef<Set<string>>(new Set());
+		const typewriterEligibleEntryIdsRef = useRef<Set<string>>(new Set());
 
 	const [input, setInput] = useState('');
 	const [sending, setSending] = useState(false);
@@ -369,6 +380,10 @@ export function CodexChat() {
 	const relatedRepoPathsByThreadIdRef = useRef<Record<string, string[]>>({});
 	const skipAutoScrollRef = useRef(false);
 	const lastSelectedThreadIdRef = useRef<string | null>(null);
+
+	useEffect(() => {
+		turnsByIdRef.current = turnsById;
+	}, [turnsById]);
 
 	// Context management state
 	const [autoContext, setAutoContext] = useState<AutoContextInfo | null>(null);
@@ -970,21 +985,24 @@ export function CodexChat() {
 		});
 	}, []);
 
-	const selectSession = useCallback(
-		async (threadId: string, options?: { setAsWorkbenchRoot?: boolean }) => {
-			setSelectedThreadId(threadId);
-			setTurnOrder([]);
-			setTurnsById({});
-			setThreadTokenUsage(null);
-			setCollapsedWorkingByTurnId({});
-			setCollapsedByEntryId({});
-			setItemToTurnId({});
-			itemToTurnRef.current = {};
-			setActiveThread(null);
-			setActiveTurnId(null);
-			if (options?.setAsWorkbenchRoot) {
-				setWorkbenchRootThreadId(threadId);
-			}
+		const selectSession = useCallback(
+			async (threadId: string, options?: { setAsWorkbenchRoot?: boolean }) => {
+				setSelectedThreadId(threadId);
+				setTurnOrder([]);
+				setTurnsById({});
+				setThreadTokenUsage(null);
+				setCollapsedWorkingByTurnId({});
+				setCollapsedByEntryId({});
+				setItemToTurnId({});
+				itemToTurnRef.current = {};
+				setActiveThread(null);
+				setActiveTurnId(null);
+				typewriterPrimedRef.current = false;
+				typewriterPrevEntryIdsRef.current = new Set();
+				typewriterEligibleEntryIdsRef.current = new Set();
+				if (options?.setAsWorkbenchRoot) {
+					setWorkbenchRootThreadId(threadId);
+				}
 
 			try {
 				const res = await apiClient.codexThreadResume(threadId);
@@ -1030,6 +1048,7 @@ export function CodexChat() {
 
 				setTurnOrder(timeline.order);
 				setTurnsById(timeline.turnsById);
+				turnsByIdRef.current = timeline.turnsById;
 				setCollapsedByEntryId(timeline.collapsedByEntryId);
 				setItemToTurnId(timeline.itemToTurnId);
 				itemToTurnRef.current = timeline.itemToTurnId;
@@ -1119,6 +1138,7 @@ export function CodexChat() {
 				});
 				setTurnOrder(timeline.order);
 				setTurnsById(timeline.turnsById);
+				turnsByIdRef.current = timeline.turnsById;
 				setItemToTurnId(timeline.itemToTurnId);
 				itemToTurnRef.current = timeline.itemToTurnId;
 				setCollapsedByEntryId((prev) => {
@@ -2497,14 +2517,16 @@ export function CodexChat() {
 					status: 'inProgress' as const,
 					entries: [],
 				};
-				return {
+				const next = {
 					...prev,
-					[PENDING_TURN_ID]: {
-						...existing,
-						status: 'inProgress',
-						entries: [...existing.entries, userEntry],
-					},
-				};
+						[PENDING_TURN_ID]: {
+							...existing,
+							status: 'inProgress' as const,
+							entries: [...existing.entries, userEntry],
+						},
+					};
+				turnsByIdRef.current = next;
+				return next;
 			});
 			setInput('');
 			setSelectedSkill(null);
@@ -2525,7 +2547,7 @@ export function CodexChat() {
 					status: 'failed' as const,
 					entries: [],
 				};
-				return {
+				const next = {
 					...prev,
 					[PENDING_TURN_ID]: {
 						...existing,
@@ -2533,6 +2555,8 @@ export function CodexChat() {
 						entries: [...existing.entries, systemEntry],
 					},
 				};
+				turnsByIdRef.current = next;
+				return next;
 			});
 		} finally {
 			sendInFlightRef.current = false;
@@ -2735,13 +2759,105 @@ export function CodexChat() {
 
 	const toggleEntryCollapse = useCallback(
 		(entryId: string) => {
+			userToggledEntryCollapseRef.current.add(entryId);
 			setCollapsedByEntryId((prev) => {
+				if (!Object.prototype.hasOwnProperty.call(prev, entryId)) {
+					userAddedCollapseKeyRef.current.add(entryId);
+				}
 				const current = prev[entryId] ?? settings.defaultCollapseDetails;
 				return { ...prev, [entryId]: !current };
 			});
 		},
 		[settings.defaultCollapseDetails]
 	);
+
+	// "Gentle accordion": when a new collapsible activity arrives, auto-expand it and only
+	// auto-collapse the previous auto-expanded activity (never collapse user-toggled ones).
+	useEffect(() => {
+		if (!selectedThreadId) return;
+		// When details are expanded by default, don't fight the user's intent.
+		if (!settings.defaultCollapseDetails) return;
+
+		const keys = Object.keys(collapsedByEntryId);
+		const currentKeySet = new Set(keys);
+
+		if (!accordionPrimedRef.current) {
+			accordionPrimedRef.current = true;
+			prevCollapsedEntryKeysRef.current = currentKeySet;
+			return;
+		}
+
+		const prevKeys = prevCollapsedEntryKeysRef.current;
+		prevCollapsedEntryKeysRef.current = currentKeySet;
+
+		const newKeysAll = keys.filter((k) => !prevKeys.has(k));
+		if (newKeysAll.length === 0) return;
+
+		// A user toggle can introduce a new key (when the entry previously relied on defaultCollapseDetails).
+		// Those are user-driven; skip auto-accordion for them.
+		const userAdded = userAddedCollapseKeyRef.current;
+		const newKeys: string[] = [];
+		for (const k of newKeysAll) {
+			if (userAdded.has(k)) {
+				userAdded.delete(k);
+				continue;
+			}
+			newKeys.push(k);
+		}
+		if (newKeys.length === 0) return;
+
+		// Pick the newest new entry by walking the timeline in order.
+		const newKeySet = new Set(newKeys);
+		let newestNewEntryId: string | null = null;
+		for (const turnId of turnOrder) {
+			const turn = turnsById[turnId];
+			if (!turn) continue;
+			let readGroupId: string | null = null;
+			for (const entry of turn.entries) {
+				// Read commands are rendered as a grouped "Read" block (`read-group-...`).
+				// If a new read arrives, auto-expand the group instead of the raw command entry.
+				const accordionId = (() => {
+					if (entry.kind !== 'command') {
+						readGroupId = null;
+						return entry.id;
+					}
+					if (entry.approval) {
+						readGroupId = null;
+						return entry.id;
+					}
+					const parsed = resolveParsedCmd(entry.command, entry.commandActions);
+					if (parsed.type !== 'read') {
+						readGroupId = null;
+						return entry.id;
+					}
+					if (!readGroupId) readGroupId = `read-group-${entry.id}`;
+					return readGroupId;
+				})();
+
+				if (newKeySet.has(entry.id) || newKeySet.has(accordionId)) {
+					newestNewEntryId = accordionId;
+				}
+			}
+		}
+		if (!newestNewEntryId) return;
+
+		setCollapsedByEntryId((prev) => {
+			if (!Object.prototype.hasOwnProperty.call(prev, newestNewEntryId)) return prev;
+			const next = { ...prev };
+
+			const prevAuto = lastAutoExpandedEntryIdRef.current;
+			if (prevAuto && prevAuto !== newestNewEntryId && Object.prototype.hasOwnProperty.call(next, prevAuto)) {
+				// Only collapse entries that were auto-expanded and untouched by the user.
+				if (!userToggledEntryCollapseRef.current.has(prevAuto)) {
+					next[prevAuto] = true;
+				}
+			}
+
+			next[newestNewEntryId] = false;
+			lastAutoExpandedEntryIdRef.current = newestNewEntryId;
+			return next;
+		});
+	}, [collapsedByEntryId, selectedThreadId, settings.defaultCollapseDetails, turnOrder, turnsById]);
 
 	const toggleTurnWorking = useCallback(
 		(turnId: string) => {
@@ -3457,6 +3573,15 @@ export function CodexChat() {
 	}, [selectedThreadId]);
 
 	useEffect(() => {
+		// Reset per-thread "auto accordion" state when switching sessions or changing the default collapse mode.
+		lastAutoExpandedEntryIdRef.current = null;
+		prevCollapsedEntryKeysRef.current.clear();
+		accordionPrimedRef.current = false;
+		userToggledEntryCollapseRef.current.clear();
+		userAddedCollapseKeyRef.current.clear();
+	}, [selectedThreadId, settings.defaultCollapseDetails]);
+
+	useEffect(() => {
 		const seq = ++threadWatchSeqRef.current;
 		const threadId = selectedThreadId;
 		const path = activeThread?.path ?? null;
@@ -3503,6 +3628,12 @@ export function CodexChat() {
 			const { ok, updatedAtMs } = shouldApplyExternalRefresh(payload.threadId, payload.updatedAtMs);
 			console.log('[ThreadWatch] shouldApplyExternalRefresh:', { ok, updatedAtMs, payloadUpdatedAtMs: payload.updatedAtMs, ageMs: updatedAtMs ? Date.now() - updatedAtMs : null });
 			if (!ok || updatedAtMs == null) return;
+			const pendingTurn = turnsByIdRef.current[PENDING_TURN_ID];
+			if (pendingTurn?.status === 'inProgress') {
+				console.log('[ThreadWatch] deferred: pending turn present', pendingTurn.id);
+				externalRefreshPendingRef.current = { threadId: payload.threadId, updatedAtMs };
+				return;
+			}
 			if (activeTurnId) {
 				console.log('[ThreadWatch] deferred: activeTurnId present', activeTurnId);
 				externalRefreshPendingRef.current = { threadId: payload.threadId, updatedAtMs };
@@ -3534,6 +3665,7 @@ export function CodexChat() {
 		selectedThreadId,
 		activeTurnId,
 		defaultCollapseDetails: settings.defaultCollapseDetails,
+		turnsByIdRef,
 		itemToTurnRef,
 		setItemToTurnId,
 		setThreadRunning,
@@ -3658,6 +3790,73 @@ export function CodexChat() {
 	const renderTurns = useMemo<TurnBlockView[]>(() => {
 		return buildTurnBlockViews(turnBlocks, settings.showReasoning);
 	}, [settings.showReasoning, turnBlocks]);
+
+	// Typewriter: only animate newly-arrived reasoning + final assistant messages (never on initial load).
+	const typewriterDataReady = Boolean(selectedThreadId && activeThread && activeThread.id === selectedThreadId);
+	const typewriterCandidateEntryIds = useMemo(() => {
+		const ids = new Set<string>();
+		for (const turnId of turnOrder) {
+			const turn = turnsById[turnId];
+			if (!turn) continue;
+
+			let lastAssistantMessageId: string | null = null;
+			const reasoningEntries: Array<Extract<ChatEntry, { kind: 'assistant'; role: 'reasoning' }>> = [];
+
+			for (const entry of turn.entries) {
+				if (entry.kind === 'assistant' && entry.role === 'message') lastAssistantMessageId = entry.id;
+				if (entry.kind === 'assistant' && entry.role === 'reasoning') reasoningEntries.push(entry);
+			}
+
+			if (lastAssistantMessageId) ids.add(lastAssistantMessageId);
+
+			const expandedReasoning = expandReasoningEntries(reasoningEntries);
+			for (const entry of expandedReasoning) ids.add(entry.id);
+		}
+		return ids;
+	}, [turnOrder, turnsById]);
+
+	const typewriterNewEntryIds = useMemo(() => {
+		if (!typewriterDataReady) return [];
+		if (!typewriterPrimedRef.current) return [];
+
+		const prev = typewriterPrevEntryIdsRef.current;
+		const out: string[] = [];
+		for (const id of typewriterCandidateEntryIds) {
+			if (!prev.has(id)) out.push(id);
+		}
+		return out;
+	}, [typewriterCandidateEntryIds, typewriterDataReady]);
+
+	const typewriterNewEntryIdSet = useMemo(() => new Set(typewriterNewEntryIds), [typewriterNewEntryIds]);
+
+	useLayoutEffect(() => {
+		if (!typewriterDataReady) return;
+
+		if (!typewriterPrimedRef.current) {
+			typewriterPrimedRef.current = true;
+			typewriterPrevEntryIdsRef.current = typewriterCandidateEntryIds;
+			typewriterEligibleEntryIdsRef.current = new Set();
+			return;
+		}
+
+		const eligible = typewriterEligibleEntryIdsRef.current;
+		for (const id of typewriterNewEntryIds) eligible.add(id);
+		typewriterPrevEntryIdsRef.current = typewriterCandidateEntryIds;
+	}, [typewriterCandidateEntryIds, typewriterDataReady, typewriterNewEntryIds]);
+
+	const consumeTypewriterEntry = useCallback((entryId: string) => {
+		if (!entryId) return;
+		typewriterEligibleEntryIdsRef.current.delete(entryId);
+	}, []);
+
+	const shouldTypewriterEntry = useCallback(
+		(entryId: string) => {
+			if (!entryId) return false;
+			if (typewriterNewEntryIdSet.has(entryId)) return true;
+			return typewriterEligibleEntryIdsRef.current.has(entryId);
+		},
+		[typewriterNewEntryIdSet]
+	);
 
 	const renderCount = useMemo(() => {
 		return renderTurns.reduce((acc, t) => {
@@ -4104,20 +4303,23 @@ export function CodexChat() {
 
 										<div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden pb-4 min-w-0">
 											{renderTurns.map((turn) => (
-												<TurnBlock
-													key={turn.id}
-													animateIn={Boolean(turnAppearById[turn.id])}
-													turn={turn}
-													collapsedWorkingByTurnId={collapsedWorkingByTurnId}
-													collapsedByEntryId={collapsedByEntryId}
-													settings={settings}
-													pendingTurnId={PENDING_TURN_ID}
-													toggleTurnWorking={toggleTurnWorking}
-													toggleEntryCollapse={toggleEntryCollapse}
-													approve={approve}
-													onForkFromTurn={forkFromTurn}
-													onEditUserEntry={openRerunDialog}
-												/>
+													<TurnBlock
+														key={turn.id}
+														animateIn={Boolean(turnAppearById[turn.id])}
+														turn={turn}
+														collapsedWorkingByTurnId={collapsedWorkingByTurnId}
+														collapsedByEntryId={collapsedByEntryId}
+														settings={settings}
+														typewriterCharsPerSecond={TYPEWRITER_CHARS_PER_SEC}
+														shouldTypewriterEntry={shouldTypewriterEntry}
+														consumeTypewriterEntry={consumeTypewriterEntry}
+														pendingTurnId={PENDING_TURN_ID}
+														toggleTurnWorking={toggleTurnWorking}
+														toggleEntryCollapse={toggleEntryCollapse}
+														approve={approve}
+														onForkFromTurn={forkFromTurn}
+														onEditUserEntry={openRerunDialog}
+													/>
 											))}
 										</div>
 										<CodexChatComposer

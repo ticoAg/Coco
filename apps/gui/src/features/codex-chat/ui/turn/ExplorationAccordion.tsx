@@ -14,8 +14,11 @@ export function ExplorationAccordion({
 	renderItem: (item: WorkingItem) => JSX.Element | null;
 }) {
 	const exploring = status === 'exploring';
-	const [expanded, setExpanded] = useState(false);
+	// Keep exploration groups open once they appear while streaming ("exploring"),
+	// so they don't suddenly collapse when the turn finishes.
+	const [expanded, setExpanded] = useState(() => exploring);
 	const open = expanded || exploring;
+	const prevItemCountRef = useRef<number | null>(null);
 
 	const itemCount = useMemo(() => {
 		// `mergeReadingEntries` can turn multiple reads into a single `readingGroup`,
@@ -35,6 +38,15 @@ export function ExplorationAccordion({
 		}
 		return count;
 	}, [items]);
+
+	useEffect(() => {
+		const prev = prevItemCountRef.current;
+		prevItemCountRef.current = itemCount;
+		if (prev === null) return;
+		// "Gentle accordion" parity: when a new item arrives inside an exploration group, auto-open the group
+		// so the (already auto-expanded) inner block is visible. Once opened, we don't auto-collapse it.
+		if (itemCount > prev && !open) setExpanded(true);
+	}, [itemCount, open]);
 
 	const countsText = useMemo(() => {
 		// Plugin parity: hide counts when there's only one item and still exploring.
