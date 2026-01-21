@@ -217,6 +217,9 @@ export function CodexChatComposer({
 		'inline-flex items-center gap-1.5 rounded-md bg-primary px-2 py-1 text-[11px] text-text-main hover:bg-primary-hover';
 	const inlineTagMaxWidthPx = 260;
 	const inlineTagGapPx = 6;
+	const toolbarIconButtonSizeClass = 'h-9 w-9';
+	const toolbarIconSizeClass = 'h-5 w-5';
+	const toolbarPillClassBase = 'ml-2 inline-flex items-center gap-2 rounded-full px-3 py-2 text-[12px] leading-none transition-colors';
 	const inlineTagRef = useRef<HTMLDivElement>(null);
 	const [inlineTagWidth, setInlineTagWidth] = useState(0);
 
@@ -238,12 +241,12 @@ export function CodexChatComposer({
 		return () => ro.disconnect();
 	}, [selectedPrompt?.name, selectedSkill?.name]);
 
-	return (
-		<div className="group relative mt-4 flex flex-col gap-2 rounded-[26px] border border-white/5 bg-[#2b2d31] px-4 pt-3 pb-2 transition-colors focus-within:border-white/10">
-			{/* Floating pinned prompt/skill shortcuts (shown while composer is focused) */}
-			{pinnedResolvedItems.length > 0 && !isSlashMenuOpen && !isAddContextOpen && !isSkillMenuOpen ? (
-				<div className="pointer-events-none absolute bottom-full left-0 right-0 z-50 mb-2 flex flex-wrap gap-1.5 px-4 opacity-0 translate-y-2 transition-all duration-150 ease-out group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-y-0">
-					{pinnedResolvedItems.map((item) =>
+		return (
+			<div className="group relative mt-4 ml-4 mr-4 flex flex-col gap-2 rounded-[26px] border border-white/5 bg-[#2b2d31] px-4 pt-3 pb-1 transition-colors focus-within:border-white/10">
+				{/* Floating pinned prompt/skill shortcuts (shown while composer is focused) */}
+				{pinnedResolvedItems.length > 0 && !isSlashMenuOpen && !isAddContextOpen && !isSkillMenuOpen ? (
+					<div className="pointer-events-none absolute bottom-full left-0 right-0 z-50 mb-2 flex flex-wrap gap-1.5 px-4 opacity-0 translate-y-2 transition-all duration-150 ease-out group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-y-0">
+						{pinnedResolvedItems.map((item) =>
 						item.type === 'prompt' ? (
 							<button
 								key={`prompt:${item.prompt.name}`}
@@ -498,7 +501,7 @@ export function CodexChatComposer({
 			{/* Input area with inline tags for skill/prompt.
 			    Render as an overlay + first-line indent so tags don't consume flex columns. */}
 			<div
-				className="relative min-w-0"
+				className="relative min-w-0 cursor-text"
 				onMouseDown={(e) => {
 					// Make the whole composer row focusable; avoids "dead zone" clicks on the overlay tags.
 					if (e.target === textareaRef.current) return;
@@ -527,8 +530,8 @@ export function CodexChatComposer({
 				<textarea
 					ref={textareaRef}
 					rows={1}
-					className="m-0 h-5 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent p-0 text-[13px] leading-5 outline-none placeholder:text-text-muted/40"
-					placeholder={selectedSkill || selectedPrompt ? '' : 'Ask for follow-up changes'}
+					className="m-0 h-5 w-full min-w-0 resize-none overflow-y-auto bg-transparent p-0 text-[13px] leading-5 outline-none"
+					aria-label="Chat input"
 					value={input}
 					onChange={(e) => {
 						const newValue = e.target.value;
@@ -544,30 +547,30 @@ export function CodexChatComposer({
 			</div>
 
 			{/* Toolbar: + / AutoContext Send */}
-			<div className="flex min-h-8 items-center justify-between gap-2">
-				<div className="flex items-center gap-1">
+			<div className="flex min-h-[44px] items-end justify-between gap-2">
+				<div className="flex items-end gap-1">
 					<button
 						type="button"
-						className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-white/10 hover:text-text-main"
+						className={`flex ${toolbarIconButtonSizeClass} items-center justify-center rounded-full text-text-muted hover:bg-white/10 hover:text-text-main`}
 						title="Add context (+)"
 						onClick={() => setIsAddContextOpen((v) => !v)}
 					>
-						<Plus className="h-4 w-4" />
+						<Plus className={toolbarIconSizeClass} />
 					</button>
 
 					<button
 						type="button"
-						className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-white/10 hover:text-text-main"
+						className={`flex ${toolbarIconButtonSizeClass} items-center justify-center rounded-full text-text-muted hover:bg-white/10 hover:text-text-main`}
 						title="Commands (/)"
 						onClick={() => setIsSlashMenuOpen((v) => !v)}
 					>
-						<ShortSlashIcon className="h-4 w-4" />
+						<ShortSlashIcon className={toolbarIconSizeClass} />
 					</button>
 
 					<button
 						type="button"
 						className={[
-							'ml-2 inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[11px] leading-none transition-colors',
+							toolbarPillClassBase,
 							autoContextEnabled ? 'bg-blue-600/30 text-blue-300' : 'text-text-muted hover:bg-white/10',
 						].join(' ')}
 						onClick={() => setAutoContextEnabled((v) => !v)}
@@ -588,11 +591,11 @@ export function CodexChatComposer({
 					<div className="relative">
 						<button
 							type="button"
-							className="ml-2 inline-flex max-w-[200px] items-center gap-2 rounded-full px-2.5 py-1 text-[11px] leading-none text-text-muted hover:bg-white/10 hover:text-text-main"
+							className={`${toolbarPillClassBase} max-w-[200px] text-text-muted hover:bg-white/10 hover:text-text-main`}
 							onClick={toggleWorktreeMenu}
 							title={activeWorktreePath ?? 'Worktree'}
 						>
-							<GitBranch className="h-3.5 w-3.5 text-text-menuLabel" />
+							<GitBranch className="h-4 w-4 text-text-menuLabel" />
 							<span className="truncate">{worktreeLabel}</span>
 						</button>
 
@@ -669,16 +672,16 @@ export function CodexChatComposer({
 				{activeTurnId && selectedThreadId ? (
 					<button
 						type="button"
-						className="group flex h-7 w-7 items-center justify-center rounded-full bg-status-error/20 text-status-error hover:bg-status-error/30"
+						className={`group flex ${toolbarIconButtonSizeClass} items-center justify-center rounded-full bg-status-error/20 text-status-error hover:bg-status-error/30`}
 						onClick={stopTurn}
 						title="Stop"
 					>
-						<div className="h-2.5 w-2.5 rounded-[1px] bg-current" />
+						<div className="h-3 w-3 rounded-[1px] bg-current" />
 					</button>
 				) : (
 					<button
 						type="button"
-						className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-text-main hover:bg-white/20 disabled:opacity-30 transition-colors"
+						className={`flex ${toolbarIconButtonSizeClass} items-center justify-center rounded-full bg-white/10 text-text-main hover:bg-white/20 disabled:opacity-30 transition-colors`}
 						onClick={() => void sendMessage()}
 						disabled={
 							sending ||
@@ -689,7 +692,7 @@ export function CodexChatComposer({
 						}
 						title="Send (Ctrl/Cmd+Enter)"
 					>
-						<ArrowUp className="h-4 w-4" />
+						<ArrowUp className={toolbarIconSizeClass} />
 					</button>
 				)}
 			</div>

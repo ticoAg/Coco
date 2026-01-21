@@ -219,7 +219,7 @@ function TurnBlockImpl({
 
 			<div className="space-y-2">
 				{turn.userEntries.map((e) => (
-					<div key={e.id} className="flex min-w-0 max-w-full justify-end pl-12">
+					<div key={e.id} className="flex min-w-0 max-w-full justify-end pl-12 pr-4">
 						<div className="group/user min-w-0 max-w-[77%] break-words rounded-2xl bg-token-foreground/5 px-3 py-2 text-[12px] text-text-main">
 							{/* Attachments in message bubble */}
 							{e.attachments && e.attachments.length > 0
@@ -290,7 +290,7 @@ function TurnBlockImpl({
 			</div>
 
 			{hasWorking ? (
-				<div className="px-1">
+				<div className="px-4">
 					<button
 						type="button"
 						className="group flex w-full items-center gap-2 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-left text-[11px] text-text-muted transition-colors hover:bg-white/10 hover:text-text-main"
@@ -309,7 +309,7 @@ function TurnBlockImpl({
 			) : null}
 
 			{hasWorking ? (
-				<Collapse open={workingOpen} innerClassName="pt-1 px-1">
+				<Collapse open={workingOpen} innerClassName="pt-1 px-4">
 					<div className="space-y-0 min-w-0">
 						{turn.workingItems.map((item) => {
 							if (item.kind === 'exploration') {
@@ -323,7 +323,7 @@ function TurnBlockImpl({
 
 			<div className="space-y-2">
 				{turn.assistantMessageEntries.map((e) => (
-					<div key={e.id} className="min-w-0 max-w-full pr-8">
+					<div key={e.id} className="min-w-0 max-w-full pl-4 pr-8">
 						<div className="min-w-0 max-w-full text-[12px] text-text-main">
 							{e.renderPlaceholderWhileStreaming && !e.completed ? (
 								<div className="text-[12px] text-text-muted italic">Generating…</div>

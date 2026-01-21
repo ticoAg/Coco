@@ -235,6 +235,22 @@ type FilePanelTab = {
 
 type PanelTab = AgentPanelTab | FilePanelTab;
 
+type ThreadViewCache = {
+	thread: CodexThread;
+	turnOrder: string[];
+	turnsById: Record<string, TurnBlockData>;
+	itemToTurnId: Record<string, string>;
+	collapsedByEntryId: Record<string, boolean>;
+	collapsedWorkingByTurnId: Record<string, boolean>;
+	threadTokenUsage: {
+		totalTokens: number;
+		contextWindow: number | null;
+	} | null;
+	updatedAtMs: number | null;
+	cachedAtMs: number;
+	scrollTop: number | null;
+};
+
 type TaskContextMenuState = {
 	x: number;
 	y: number;
@@ -267,6 +283,10 @@ export function CodexChat() {
 	const [sessionsLoading, setSessionsLoading] = useState(true);
 	const [sessionsError, setSessionsError] = useState<string | null>(null);
 	const [sessionsLoadedOnce, setSessionsLoadedOnce] = useState(false);
+	// "updatedAtMs" can change for non-history events (e.g. resume/view). We keep a stable
+	// timestamp that only moves forward when the session history meaningfully changes.
+	const [meaningfulUpdatedAtMsByThreadId, setMeaningfulUpdatedAtMsByThreadId] = useState<Record<string, number | null>>({});
+	const prevSessionSummaryByIdRef = useRef<Record<string, { preview: string; interactionCount: number | null }>>({});
 	const [runningThreadIds, setRunningThreadIds] = useState<Record<string, boolean>>({});
 	const [isSessionTreeExpanded, setIsSessionTreeExpanded] = useState(true);
 	const [sessionTreeExpandedNodes, setSessionTreeExpandedNodes] = useState<Set<string>>(new Set());
@@ -333,14 +353,14 @@ export function CodexChat() {
 	const [_itemToTurnId, setItemToTurnId] = useState<Record<string, string>>({});
 	const [collapsedByEntryId, setCollapsedByEntryId] = useState<Record<string, boolean>>({});
 	const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
-		const lastAutoExpandedEntryIdRef = useRef<string | null>(null);
-		const prevCollapsedEntryKeysRef = useRef<Set<string>>(new Set());
-		const accordionPrimedRef = useRef(false);
-		const userToggledEntryCollapseRef = useRef<Set<string>>(new Set());
-		const userAddedCollapseKeyRef = useRef<Set<string>>(new Set());
-		const typewriterPrimedRef = useRef(false);
-		const typewriterPrevEntryIdsRef = useRef<Set<string>>(new Set());
-		const typewriterEligibleEntryIdsRef = useRef<Set<string>>(new Set());
+	const lastAutoExpandedEntryIdRef = useRef<string | null>(null);
+	const prevCollapsedEntryKeysRef = useRef<Set<string>>(new Set());
+	const accordionPrimedRef = useRef(false);
+	const userToggledEntryCollapseRef = useRef<Set<string>>(new Set());
+	const userAddedCollapseKeyRef = useRef<Set<string>>(new Set());
+	const typewriterPrimedRef = useRef(false);
+	const typewriterPrevEntryIdsRef = useRef<Set<string>>(new Set());
+	const typewriterEligibleEntryIdsRef = useRef<Set<string>>(new Set());
 
 	const [input, setInput] = useState('');
 	const [sending, setSending] = useState(false);
@@ -378,12 +398,48 @@ export function CodexChat() {
 	const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
 	const itemToTurnRef = useRef<Record<string, string>>({});
 	const relatedRepoPathsByThreadIdRef = useRef<Record<string, string[]>>({});
+	const scrollRef = useRef<HTMLDivElement>(null);
 	const skipAutoScrollRef = useRef(false);
 	const lastSelectedThreadIdRef = useRef<string | null>(null);
+	const selectedThreadIdRef = useRef<string | null>(null);
+	const [switchingThreadId, setSwitchingThreadId] = useState<string | null>(null);
+	const threadViewCacheRef = useRef<Record<string, ThreadViewCache>>({});
+	const MAX_THREAD_VIEW_CACHE = 12;
+	const sessionLoadSeqRef = useRef(0);
+	const lastThreadResumeAtRef = useRef<Record<string, number>>({});
+	const activeThreadRef = useRef<CodexThread | null>(null);
+	const turnOrderRef = useRef<string[]>([]);
+	const collapsedByEntryIdRef = useRef<Record<string, boolean>>({});
+	const collapsedWorkingByTurnIdRef = useRef<Record<string, boolean>>({});
+	const threadTokenUsageRef = useRef<typeof threadTokenUsage>(null);
 
 	useEffect(() => {
 		turnsByIdRef.current = turnsById;
 	}, [turnsById]);
+
+	useEffect(() => {
+		activeThreadRef.current = activeThread;
+	}, [activeThread]);
+
+	useEffect(() => {
+		turnOrderRef.current = turnOrder;
+	}, [turnOrder]);
+
+	useEffect(() => {
+		collapsedByEntryIdRef.current = collapsedByEntryId;
+	}, [collapsedByEntryId]);
+
+	useEffect(() => {
+		collapsedWorkingByTurnIdRef.current = collapsedWorkingByTurnId;
+	}, [collapsedWorkingByTurnId]);
+
+	useEffect(() => {
+		threadTokenUsageRef.current = threadTokenUsage;
+	}, [threadTokenUsage]);
+
+	useEffect(() => {
+		selectedThreadIdRef.current = selectedThreadId;
+	}, [selectedThreadId]);
 
 	// Context management state
 	const [autoContext, setAutoContext] = useState<AutoContextInfo | null>(null);
@@ -748,6 +804,13 @@ export function CodexChat() {
 		});
 	}, []);
 
+	const bumpMeaningfulUpdatedAtMs = useCallback((threadId: string, updatedAtMs: number | null) => {
+		setMeaningfulUpdatedAtMsByThreadId((prev) => {
+			if (prev[threadId] === updatedAtMs) return prev;
+			return { ...prev, [threadId]: updatedAtMs };
+		});
+	}, []);
+
 	const maybeStartAutoRefresh = useCallback((data: CodexThreadSummary[]) => {
 		const now = Date.now();
 		const hasRecent = data.some((session) => session.updatedAtMs != null && now - session.updatedAtMs <= 30 * 1000);
@@ -783,9 +846,40 @@ export function CodexChat() {
 		setSessionsError(null);
 		try {
 			const res = await apiClient.codexThreadList(null, 200);
-			setSessions(res.data);
+			const data = res.data ?? [];
+			setMeaningfulUpdatedAtMsByThreadId((prev) => {
+				const prevSummaryById = prevSessionSummaryByIdRef.current;
+				const nextSummaryById: typeof prevSummaryById = {};
+				const next: Record<string, number | null> = {};
+				let changed = false;
+
+				for (const session of data) {
+					const id = session.id;
+					const interactionCount = session.interactionCount ?? null;
+					const preview = session.preview ?? '';
+					nextSummaryById[id] = { interactionCount, preview };
+
+					const prevSummary = prevSummaryById[id];
+					const prevMeaningful = prev[id] ?? session.updatedAtMs ?? null;
+					const shouldBump =
+						!prevSummary || prevSummary.interactionCount !== interactionCount || prevSummary.preview !== preview;
+
+					// On first sighting, use server updatedAtMs (best available).
+					// On later refreshes, ignore updatedAtMs changes unless the history meaningfully changed.
+					const meaningful = shouldBump ? (session.updatedAtMs ?? null) : prevMeaningful;
+					next[id] = meaningful;
+					if (!Object.is(prev[id], meaningful)) changed = true;
+				}
+
+				prevSessionSummaryByIdRef.current = nextSummaryById;
+
+				// Keep the mapping bounded to current session list; avoid unbounded growth.
+				if (!changed && Object.keys(prev).length !== data.length) changed = true;
+				return changed ? next : prev;
+			});
+			setSessions(data);
 			setSessionsLoadedOnce(true);
-			maybeStartAutoRefresh(res.data ?? []);
+			maybeStartAutoRefresh(data);
 		} catch (err) {
 			setSessionsError(errorMessage(err, 'Failed to list sessions'));
 		} finally {
@@ -985,49 +1079,142 @@ export function CodexChat() {
 		});
 	}, []);
 
-		const selectSession = useCallback(
-			async (threadId: string, options?: { setAsWorkbenchRoot?: boolean }) => {
-				setSelectedThreadId(threadId);
-				setTurnOrder([]);
-				setTurnsById({});
-				setThreadTokenUsage(null);
-				setCollapsedWorkingByTurnId({});
-				setCollapsedByEntryId({});
-				setItemToTurnId({});
-				itemToTurnRef.current = {};
-				setActiveThread(null);
-				setActiveTurnId(null);
-				typewriterPrimedRef.current = false;
-				typewriterPrevEntryIdsRef.current = new Set();
-				typewriterEligibleEntryIdsRef.current = new Set();
-				if (options?.setAsWorkbenchRoot) {
-					setWorkbenchRootThreadId(threadId);
-				}
+	const snapshotThreadViewCache = useCallback(
+		(threadId: string) => {
+			if (!threadId) return;
+			const thread = activeThreadRef.current;
+			if (!thread || thread.id !== threadId) return;
 
+			threadViewCacheRef.current[threadId] = {
+				thread,
+				turnOrder: turnOrderRef.current,
+				turnsById: turnsByIdRef.current,
+				itemToTurnId: itemToTurnRef.current,
+				collapsedByEntryId: collapsedByEntryIdRef.current,
+				collapsedWorkingByTurnId: collapsedWorkingByTurnIdRef.current,
+				threadTokenUsage: threadTokenUsageRef.current,
+				updatedAtMs: sessions.find((s) => s.id === threadId)?.updatedAtMs ?? null,
+				cachedAtMs: Date.now(),
+				scrollTop: scrollRef.current?.scrollTop ?? null,
+			};
+
+			const cache = threadViewCacheRef.current;
+			const ids = Object.keys(cache);
+			if (ids.length > MAX_THREAD_VIEW_CACHE) {
+				ids.sort((a, b) => (cache[a]?.cachedAtMs ?? 0) - (cache[b]?.cachedAtMs ?? 0));
+				for (const id of ids.slice(0, ids.length - MAX_THREAD_VIEW_CACHE)) {
+					delete cache[id];
+				}
+			}
+		},
+		[sessions]
+	);
+
+	const upsertThreadViewCacheFromTimeline = useCallback(
+		(thread: CodexThread, timeline: ReturnType<typeof deriveTimelineFromThread>) => {
+			const prev = threadViewCacheRef.current[thread.id] ?? null;
+			const collapsedByEntryId = { ...timeline.collapsedByEntryId };
+			if (prev?.collapsedByEntryId) {
+				for (const [entryId, collapsed] of Object.entries(prev.collapsedByEntryId)) {
+					if (Object.prototype.hasOwnProperty.call(collapsedByEntryId, entryId)) {
+						collapsedByEntryId[entryId] = collapsed;
+					}
+				}
+			}
+
+			const collapsedWorkingByTurnId: Record<string, boolean> = prev?.collapsedWorkingByTurnId ? { ...prev.collapsedWorkingByTurnId } : {};
+			for (const turnId of Object.keys(collapsedWorkingByTurnId)) {
+				if (!timeline.turnsById[turnId]) delete collapsedWorkingByTurnId[turnId];
+			}
+
+			threadViewCacheRef.current[thread.id] = {
+				thread,
+				turnOrder: timeline.order,
+				turnsById: timeline.turnsById,
+				itemToTurnId: timeline.itemToTurnId,
+				collapsedByEntryId,
+				collapsedWorkingByTurnId,
+				threadTokenUsage: prev?.threadTokenUsage ?? null,
+				updatedAtMs: sessions.find((s) => s.id === thread.id)?.updatedAtMs ?? null,
+				cachedAtMs: Date.now(),
+				scrollTop: prev?.scrollTop ?? null,
+			};
+
+			const cache = threadViewCacheRef.current;
+			const ids = Object.keys(cache);
+			if (ids.length > MAX_THREAD_VIEW_CACHE) {
+				ids.sort((a, b) => (cache[a]?.cachedAtMs ?? 0) - (cache[b]?.cachedAtMs ?? 0));
+				for (const id of ids.slice(0, ids.length - MAX_THREAD_VIEW_CACHE)) {
+					delete cache[id];
+				}
+			}
+		},
+		[sessions]
+	);
+
+	const selectSession = useCallback(
+		async (threadId: string, options?: { setAsWorkbenchRoot?: boolean }) => {
+			if (!threadId) return;
+
+			// Preserve the current view so switching back is instant (and doesn't lose collapse state / scroll position).
+			const prevThreadId = selectedThreadIdRef.current;
+			if (prevThreadId) snapshotThreadViewCache(prevThreadId);
+
+			setSelectedThreadId(threadId);
+			selectedThreadIdRef.current = threadId;
+			setActiveTurnId(null);
+			typewriterPrimedRef.current = false;
+			typewriterPrevEntryIdsRef.current = new Set();
+			typewriterEligibleEntryIdsRef.current = new Set();
+			if (options?.setAsWorkbenchRoot) {
+				setWorkbenchRootThreadId(threadId);
+			}
+
+			const cached = threadViewCacheRef.current[threadId] ?? null;
+			const hadCachedView = Boolean(cached);
+			if (cached) {
+				// Touch the cache entry so it behaves like an LRU (used sessions stay resident).
+				threadViewCacheRef.current[threadId] = { ...cached, cachedAtMs: Date.now() };
+				setActiveThread(cached.thread);
+				setTurnOrder(cached.turnOrder);
+				setTurnsById(cached.turnsById);
+				turnsByIdRef.current = cached.turnsById;
+				setThreadTokenUsage(cached.threadTokenUsage);
+				setCollapsedWorkingByTurnId(cached.collapsedWorkingByTurnId);
+				setCollapsedByEntryId(cached.collapsedByEntryId);
+				setItemToTurnId(cached.itemToTurnId);
+				itemToTurnRef.current = cached.itemToTurnId;
+				setSwitchingThreadId(null);
+				if (cached.scrollTop != null) {
+					skipAutoScrollRef.current = true;
+					window.requestAnimationFrame(() => {
+						if (!scrollRef.current) return;
+						scrollRef.current.scrollTop = cached.scrollTop ?? 0;
+					});
+				}
+			} else {
+				// Avoid a visible "blank → loaded" jump: keep the old view rendered, but cover it.
+				setActiveThread(null);
+				setThreadTokenUsage(null);
+				itemToTurnRef.current = {};
+				setItemToTurnId({});
+				setSwitchingThreadId(threadId);
+			}
+
+			const now = Date.now();
+			const lastResumeAt = lastThreadResumeAtRef.current[threadId] ?? 0;
+			// Prevent rapid tabbing from spamming resume requests (and thrashing the UI).
+			if (hadCachedView && now - lastResumeAt < 500) return;
+			lastThreadResumeAtRef.current[threadId] = now;
+
+			const loadSeq = ++sessionLoadSeqRef.current;
 			try {
 				const res = await apiClient.codexThreadResume(threadId);
 				const thread = normalizeThreadFromResponse(res);
 				if (!thread) {
-					const turnId = PENDING_TURN_ID;
-					setTurnOrder([turnId]);
-					setTurnsById({
-						[turnId]: {
-							id: turnId,
-							status: 'unknown',
-							entries: [
-								{
-									kind: 'system',
-									id: 'system-parse',
-									tone: 'error',
-									text: 'Failed to parse thread response.',
-								},
-							],
-						},
-					});
+					if (selectedThreadIdRef.current === threadId) setSwitchingThreadId(null);
 					return;
 				}
-
-				setActiveThread(thread);
 
 				// Capture collab tool calls from this thread so the workbench tree/panel can update even
 				// when the thread isn't currently focused.
@@ -1041,37 +1228,71 @@ export function CodexChat() {
 						}
 					}
 				}
-				ingestCollabItems(thread.id, collabItems);
-				const timeline = deriveTimelineFromThread(thread, {
-					defaultCollapseDetails: settings.defaultCollapseDetails,
-				});
+			ingestCollabItems(thread.id, collabItems);
 
+			const timeline = deriveTimelineFromThread(thread, {
+				defaultCollapseDetails: settings.defaultCollapseDetails,
+			});
+			upsertThreadViewCacheFromTimeline(thread, timeline);
+
+			// Only apply to the UI if we are still looking at this thread and nothing newer has won the race.
+			if (selectedThreadIdRef.current !== threadId) return;
+			if (sessionLoadSeqRef.current !== loadSeq) return;
+
+				setActiveThread(thread);
 				setTurnOrder(timeline.order);
 				setTurnsById(timeline.turnsById);
 				turnsByIdRef.current = timeline.turnsById;
-				setCollapsedByEntryId(timeline.collapsedByEntryId);
 				setItemToTurnId(timeline.itemToTurnId);
 				itemToTurnRef.current = timeline.itemToTurnId;
-			} catch (err) {
-				const turnId = PENDING_TURN_ID;
-				setTurnOrder([turnId]);
-				setTurnsById({
-					[turnId]: {
-						id: turnId,
-						status: 'failed',
-						entries: [
-							{
-								kind: 'system',
-								id: 'system-error',
-								tone: 'error',
-								text: errorMessage(err, 'Failed to load thread'),
-							},
-						],
-					},
+				setCollapsedByEntryId((prev) => {
+					const next: Record<string, boolean> = { ...timeline.collapsedByEntryId };
+					for (const [entryId, collapsed] of Object.entries(prev)) {
+						if (Object.prototype.hasOwnProperty.call(next, entryId)) {
+							next[entryId] = collapsed;
+						}
+					}
+					return next;
 				});
+				setCollapsedWorkingByTurnId((prev) => {
+					const next = { ...prev };
+					for (const id of Object.keys(next)) {
+						if (!timeline.turnsById[id]) delete next[id];
+					}
+					return next;
+				});
+			} catch (err) {
+				// Best-effort: keep the cached view; if we didn't have one, clear the overlay so the user can see the error.
+				if (selectedThreadIdRef.current === threadId) {
+					setSwitchingThreadId(null);
+					if (hadCachedView) return;
+					const turnId = PENDING_TURN_ID;
+					setTurnOrder([turnId]);
+					setTurnsById({
+						[turnId]: {
+							id: turnId,
+							status: 'failed',
+							entries: [
+								{
+									kind: 'system',
+									id: 'system-error',
+									tone: 'error',
+									text: errorMessage(err, 'Failed to load thread'),
+								},
+							],
+						},
+					});
+				}
+			} finally {
+				if (selectedThreadIdRef.current === threadId) setSwitchingThreadId(null);
 			}
 		},
-		[ingestCollabItems, settings.defaultCollapseDetails]
+		[
+			ingestCollabItems,
+			settings.defaultCollapseDetails,
+			snapshotThreadViewCache,
+			upsertThreadViewCacheFromTimeline,
+		]
 	);
 
 	const resolveExternalUpdatedAtMs = useCallback(
@@ -1391,7 +1612,7 @@ export function CodexChat() {
 				const candidateThreadIds = [session.id, orchestratorId, ...workerIds].filter((threadId): threadId is string => Boolean(threadId));
 				let latestUpdateMs: number | null = null;
 				for (const threadId of candidateThreadIds) {
-					const updatedAtMs = threadSummaryById.get(threadId)?.updatedAtMs ?? null;
+					const updatedAtMs = meaningfulUpdatedAtMsByThreadId[threadId] ?? threadSummaryById.get(threadId)?.updatedAtMs ?? null;
 					if (updatedAtMs == null) continue;
 					if (latestUpdateMs == null || updatedAtMs > latestUpdateMs) {
 						latestUpdateMs = updatedAtMs;
@@ -1419,7 +1640,8 @@ export function CodexChat() {
 		for (const node of taskNodes) {
 			const threadId = node.metadata?.threadId ?? '';
 			const summary = threadSummaryById.get(threadId);
-			const updatedAtMs = taskLatestUpdateMsByThreadId[threadId] ?? summary?.updatedAtMs ?? null;
+			const updatedAtMs =
+				taskLatestUpdateMsByThreadId[threadId] ?? meaningfulUpdatedAtMsByThreadId[threadId] ?? summary?.updatedAtMs ?? null;
 			const isArchived = updatedAtMs != null && nowMs - updatedAtMs > 60 * 60 * 1000;
 			if (!isArchived) {
 				activeNodes.push(node);
@@ -1503,7 +1725,17 @@ export function CodexChat() {
 			archivedGroupThreadIdsByKey,
 			archivedGroupKeyByNodeId,
 		};
-	}, [activeThread?.cwd, normalizePath, sessions, runningThreadIds, workspaceRoot, workbenchGraph.edges, workspaceDirEntriesByPath, worktrees]);
+	}, [
+		activeThread?.cwd,
+		meaningfulUpdatedAtMsByThreadId,
+		normalizePath,
+		runningThreadIds,
+		sessions,
+		workspaceDirEntriesByPath,
+		workspaceRoot,
+		workbenchGraph.edges,
+		worktrees,
+	]);
 
 	useEffect(() => {
 		setSessionTreeExpandedNodes((prev) => {
@@ -2533,6 +2765,8 @@ export function CodexChat() {
 			setSelectedPrompt(null);
 			setFileAttachments([]);
 			await apiClient.codexTurnStart(threadId, codexInput, selectedModel, selectedEffort, approvalPolicy, activeWorktreePath ?? null);
+			// Ensure the session moves out of the "Archived" group immediately on meaningful history changes.
+			bumpMeaningfulUpdatedAtMs(threadId, Date.now());
 		} catch (err) {
 			const systemEntry: ChatEntry = {
 				kind: 'system',
@@ -2574,6 +2808,7 @@ export function CodexChat() {
 		selectedEffort,
 		selectedModel,
 		selectedThreadId,
+		bumpMeaningfulUpdatedAtMs,
 		fileAttachments,
 		selectedSkill,
 		selectedPrompt,
@@ -2658,6 +2893,8 @@ export function CodexChat() {
 
 			try {
 				await apiClient.codexThreadRollback(selectedThreadId, rollbackTurns);
+				// Rollback is a meaningful history change; let it move the session out of "Archived" immediately.
+				bumpMeaningfulUpdatedAtMs(selectedThreadId, Date.now());
 				await selectSession(selectedThreadId);
 				await listSessions();
 			} catch (err) {
@@ -2722,6 +2959,7 @@ export function CodexChat() {
 			return true;
 		},
 		[
+			bumpMeaningfulUpdatedAtMs,
 			effectiveCwd,
 			activeTurnId,
 			listSessions,
@@ -3777,7 +4015,6 @@ export function CodexChat() {
 		}
 	}, [selectedThreadId, turnOrder]);
 
-	const scrollRef = useRef<HTMLDivElement>(null);
 	const turnBlocks = useMemo(() => {
 		const out: TurnBlockData[] = [];
 		for (const id of turnOrder) {
@@ -4198,75 +4435,75 @@ export function CodexChat() {
 					</div>
 				) : null}
 
-				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col pb-0.5">
-					<div className="flex h-6 items-center justify-between border-b border-white/10 pr-3 py-0">
-						<div className="flex min-w-0 items-center overflow-x-auto">
-							{panelTabs.map((tab) => {
-								const active = tab.id === activeMainTabId;
-								const title = tab.kind === 'file' && tab.dirty ? `${tab.title}*` : tab.title;
-								return (
-									<div
-										key={tab.id}
-										className={[
-											'group inline-flex h-6 max-w-[180px] items-center gap-1.5 border-b-2 px-3 text-[11px] transition-colors',
-											active ? 'border-primary bg-bg-panel/60 text-text-main' : 'border-transparent text-text-muted hover:text-text-main',
-										].join(' ')}
-										onClick={() => {
-											setActiveMainTabId(tab.id);
-											if (tab.kind === 'agent') {
-												setSelectedSessionTreeNodeOverride(null);
-												void openAgentPanel(tab.threadId);
-											}
-										}}
-										onContextMenu={(e) => {
-											e.preventDefault();
-											e.stopPropagation();
-											setPanelTabContextMenu({ x: e.clientX, y: e.clientY, tabId: tab.id });
-										}}
-										role="button"
-										tabIndex={0}
-										onKeyDown={(e) => {
-											if (e.key === 'Enter' || e.key === ' ') {
-												e.preventDefault();
+					<div className="relative flex min-h-0 min-w-0 flex-1 flex-col pb-0.5">
+						<div className="flex h-9 items-center justify-between border-b border-white/10 pr-3 py-0">
+							<div className="flex min-w-0 items-center overflow-x-auto">
+								{panelTabs.map((tab) => {
+									const active = tab.id === activeMainTabId;
+									const title = tab.kind === 'file' && tab.dirty ? `${tab.title}*` : tab.title;
+									return (
+										<div
+											key={tab.id}
+											className={[
+												'group inline-flex h-9 max-w-[180px] items-center gap-1.5 border-b-2 px-3 text-[11px] transition-colors',
+												active ? 'border-primary bg-bg-panel/60 text-text-main' : 'border-transparent text-text-muted hover:text-text-main',
+											].join(' ')}
+											onClick={() => {
 												setActiveMainTabId(tab.id);
 												if (tab.kind === 'agent') {
 													setSelectedSessionTreeNodeOverride(null);
 													void openAgentPanel(tab.threadId);
 												}
-											}
-										}}
-									>
-										<span className="truncate select-none">{title}</span>
-										<button
-											type="button"
-											className="rounded p-0.5 text-text-muted hover:text-text-main"
-											onClick={(e) => {
-												e.stopPropagation();
-												void closePanelTab(tab.id);
 											}}
-											aria-label={`Close ${tab.title}`}
+											onContextMenu={(e) => {
+												e.preventDefault();
+												e.stopPropagation();
+												setPanelTabContextMenu({ x: e.clientX, y: e.clientY, tabId: tab.id });
+											}}
+											role="button"
+											tabIndex={0}
+											onKeyDown={(e) => {
+												if (e.key === 'Enter' || e.key === ' ') {
+													e.preventDefault();
+													setActiveMainTabId(tab.id);
+													if (tab.kind === 'agent') {
+														setSelectedSessionTreeNodeOverride(null);
+														void openAgentPanel(tab.threadId);
+													}
+												}
+											}}
 										>
-											<X className="h-3 w-3" />
-										</button>
-									</div>
-								);
-							})}
-						</div>
+											<span className="truncate select-none">{title}</span>
+											<button
+												type="button"
+												className="rounded p-0.5 text-text-muted hover:text-text-main"
+												onClick={(e) => {
+													e.stopPropagation();
+													void closePanelTab(tab.id);
+												}}
+												aria-label={`Close ${tab.title}`}
+											>
+												<X className="h-4 w-4" />
+											</button>
+										</div>
+									);
+								})}
+							</div>
 
-						<div className="relative flex shrink-0 items-center">
-							<button
-								type="button"
-								className="am-icon-button h-6 w-6 text-text-muted hover:text-text-main"
-								onClick={() => {
-									setIsSettingsMenuOpen(false);
-									void createNewSession();
-								}}
-								title="New session"
-							>
-								<Plus className="h-4 w-4" />
-							</button>
+							<div className="relative flex shrink-0 items-center">
+								<button
+									type="button"
+									className="am-icon-button h-9 w-9 text-text-muted hover:text-text-main"
+									onClick={() => {
+										setIsSettingsMenuOpen(false);
+										void createNewSession();
+									}}
+									title="New session"
+								>
+									<Plus className="h-5 w-5" />
+								</button>
+							</div>
 						</div>
-					</div>
 
 					<div className="relative flex min-h-0 flex-1 flex-col px-4 pt-6">
 						{workspaceRootError ? <div className="mt-2 text-xs text-status-warning">{workspaceRootError}</div> : null}
@@ -4293,15 +4530,26 @@ export function CodexChat() {
 										forkThreadLatest={forkThreadLatest}
 									/>
 
-									<div className="min-h-0 flex-1 flex flex-col min-w-0">
-										<CodexChatWorkbenchThreadChips
-											enabled={isWorkbenchEnabled}
-											workbenchGraph={workbenchGraph}
-											selectedThreadId={selectedThreadId}
-											selectSession={selectSession}
-										/>
+										<div className="relative min-h-0 flex-1 flex flex-col min-w-0">
+											<CodexChatWorkbenchThreadChips
+												enabled={isWorkbenchEnabled}
+												workbenchGraph={workbenchGraph}
+												selectedThreadId={selectedThreadId}
+												selectSession={selectSession}
+											/>
 
-										<div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden pb-4 min-w-0">
+											{switchingThreadId && switchingThreadId === selectedThreadId ? (
+												<div className="absolute inset-0 z-40 flex items-center justify-center bg-black/10 backdrop-blur-[1px] cursor-wait">
+													<div className="rounded-lg border border-white/10 bg-bg-popover/80 px-3 py-2 text-xs text-text-muted">
+														Loading session…
+													</div>
+												</div>
+											) : null}
+
+											<div
+												ref={scrollRef}
+												className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden pb-4 min-w-0 -mr-4 pr-4"
+											>
 											{renderTurns.map((turn) => (
 													<TurnBlock
 														key={turn.id}
