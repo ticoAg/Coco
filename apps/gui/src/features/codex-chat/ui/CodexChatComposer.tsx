@@ -497,10 +497,18 @@ export function CodexChatComposer({
 
 			{/* Input area with inline tags for skill/prompt.
 			    Render as an overlay + first-line indent so tags don't consume flex columns. */}
-			<div className="relative min-w-0">
+			<div
+				className="relative min-w-0"
+				onMouseDown={(e) => {
+					// Make the whole composer row focusable; avoids "dead zone" clicks on the overlay tags.
+					if (e.target === textareaRef.current) return;
+					e.preventDefault();
+					textareaRef.current?.focus();
+				}}
+			>
 				<div
 					ref={inlineTagRef}
-					className="pointer-events-none absolute left-0 top-[2px] flex items-center gap-1.5 overflow-hidden"
+					className="pointer-events-none absolute left-0 top-[2px] flex w-max items-center gap-1.5 overflow-hidden"
 					style={{ maxWidth: inlineTagMaxWidthPx }}
 				>
 					{selectedPrompt ? (
