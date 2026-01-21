@@ -861,8 +861,7 @@ export function CodexChat() {
 
 					const prevSummary = prevSummaryById[id];
 					const prevMeaningful = prev[id] ?? session.updatedAtMs ?? null;
-					const shouldBump =
-						!prevSummary || prevSummary.interactionCount !== interactionCount || prevSummary.preview !== preview;
+					const shouldBump = !prevSummary || prevSummary.interactionCount !== interactionCount || prevSummary.preview !== preview;
 
 					// On first sighting, use server updatedAtMs (best available).
 					// On later refreshes, ignore updatedAtMs changes unless the history meaningfully changed.
@@ -1228,16 +1227,16 @@ export function CodexChat() {
 						}
 					}
 				}
-			ingestCollabItems(thread.id, collabItems);
+				ingestCollabItems(thread.id, collabItems);
 
-			const timeline = deriveTimelineFromThread(thread, {
-				defaultCollapseDetails: settings.defaultCollapseDetails,
-			});
-			upsertThreadViewCacheFromTimeline(thread, timeline);
+				const timeline = deriveTimelineFromThread(thread, {
+					defaultCollapseDetails: settings.defaultCollapseDetails,
+				});
+				upsertThreadViewCacheFromTimeline(thread, timeline);
 
-			// Only apply to the UI if we are still looking at this thread and nothing newer has won the race.
-			if (selectedThreadIdRef.current !== threadId) return;
-			if (sessionLoadSeqRef.current !== loadSeq) return;
+				// Only apply to the UI if we are still looking at this thread and nothing newer has won the race.
+				if (selectedThreadIdRef.current !== threadId) return;
+				if (sessionLoadSeqRef.current !== loadSeq) return;
 
 				setActiveThread(thread);
 				setTurnOrder(timeline.order);
@@ -1287,12 +1286,7 @@ export function CodexChat() {
 				if (selectedThreadIdRef.current === threadId) setSwitchingThreadId(null);
 			}
 		},
-		[
-			ingestCollabItems,
-			settings.defaultCollapseDetails,
-			snapshotThreadViewCache,
-			upsertThreadViewCacheFromTimeline,
-		]
+		[ingestCollabItems, settings.defaultCollapseDetails, snapshotThreadViewCache, upsertThreadViewCacheFromTimeline]
 	);
 
 	const resolveExternalUpdatedAtMs = useCallback(
@@ -1640,8 +1634,7 @@ export function CodexChat() {
 		for (const node of taskNodes) {
 			const threadId = node.metadata?.threadId ?? '';
 			const summary = threadSummaryById.get(threadId);
-			const updatedAtMs =
-				taskLatestUpdateMsByThreadId[threadId] ?? meaningfulUpdatedAtMsByThreadId[threadId] ?? summary?.updatedAtMs ?? null;
+			const updatedAtMs = taskLatestUpdateMsByThreadId[threadId] ?? meaningfulUpdatedAtMsByThreadId[threadId] ?? summary?.updatedAtMs ?? null;
 			const isArchived = updatedAtMs != null && nowMs - updatedAtMs > 60 * 60 * 1000;
 			if (!isArchived) {
 				activeNodes.push(node);
@@ -2751,12 +2744,12 @@ export function CodexChat() {
 				};
 				const next = {
 					...prev,
-						[PENDING_TURN_ID]: {
-							...existing,
-							status: 'inProgress' as const,
-							entries: [...existing.entries, userEntry],
-						},
-					};
+					[PENDING_TURN_ID]: {
+						...existing,
+						status: 'inProgress' as const,
+						entries: [...existing.entries, userEntry],
+					},
+				};
 				turnsByIdRef.current = next;
 				return next;
 			});
@@ -3842,14 +3835,16 @@ export function CodexChat() {
 				console.log('[ThreadWatch] skipped: no threadId or path', { threadId, path });
 			}
 		})();
-		return () => {
-			if (seq === threadWatchSeqRef.current) {
-				void apiClient.codexThreadWatchStop().catch(() => {
-					// ignore
-				});
-			}
-		};
 	}, [activeThread?.path, selectedThreadId]);
+
+	// Ensure we always stop the watcher on unmount.
+	useEffect(() => {
+		return () => {
+			void apiClient.codexThreadWatchStop().catch(() => {
+				// ignore
+			});
+		};
+	}, []);
 
 	useEffect(() => {
 		let mounted = true;
@@ -3864,7 +3859,12 @@ export function CodexChat() {
 			}
 
 			const { ok, updatedAtMs } = shouldApplyExternalRefresh(payload.threadId, payload.updatedAtMs);
-			console.log('[ThreadWatch] shouldApplyExternalRefresh:', { ok, updatedAtMs, payloadUpdatedAtMs: payload.updatedAtMs, ageMs: updatedAtMs ? Date.now() - updatedAtMs : null });
+			console.log('[ThreadWatch] shouldApplyExternalRefresh:', {
+				ok,
+				updatedAtMs,
+				payloadUpdatedAtMs: payload.updatedAtMs,
+				ageMs: updatedAtMs ? Date.now() - updatedAtMs : null,
+			});
 			if (!ok || updatedAtMs == null) return;
 			const pendingTurn = turnsByIdRef.current[PENDING_TURN_ID];
 			if (pendingTurn?.status === 'inProgress') {
@@ -4435,75 +4435,75 @@ export function CodexChat() {
 					</div>
 				) : null}
 
-					<div className="relative flex min-h-0 min-w-0 flex-1 flex-col pb-0.5">
-						<div className="flex h-9 items-center justify-between border-b border-white/10 pr-3 py-0">
-							<div className="flex min-w-0 items-center overflow-x-auto">
-								{panelTabs.map((tab) => {
-									const active = tab.id === activeMainTabId;
-									const title = tab.kind === 'file' && tab.dirty ? `${tab.title}*` : tab.title;
-									return (
-										<div
-											key={tab.id}
-											className={[
-												'group inline-flex h-9 max-w-[180px] items-center gap-1.5 border-b-2 px-3 text-[11px] transition-colors',
-												active ? 'border-primary bg-bg-panel/60 text-text-main' : 'border-transparent text-text-muted hover:text-text-main',
-											].join(' ')}
-											onClick={() => {
+				<div className="relative flex min-h-0 min-w-0 flex-1 flex-col pb-0.5">
+					<div className="flex h-9 items-center justify-between border-b border-white/10 pr-3 py-0">
+						<div className="flex min-w-0 items-center overflow-x-auto">
+							{panelTabs.map((tab) => {
+								const active = tab.id === activeMainTabId;
+								const title = tab.kind === 'file' && tab.dirty ? `${tab.title}*` : tab.title;
+								return (
+									<div
+										key={tab.id}
+										className={[
+											'group inline-flex h-9 max-w-[180px] items-center gap-1.5 border-b-2 px-3 text-[11px] transition-colors',
+											active ? 'border-primary bg-bg-panel/60 text-text-main' : 'border-transparent text-text-muted hover:text-text-main',
+										].join(' ')}
+										onClick={() => {
+											setActiveMainTabId(tab.id);
+											if (tab.kind === 'agent') {
+												setSelectedSessionTreeNodeOverride(null);
+												void openAgentPanel(tab.threadId);
+											}
+										}}
+										onContextMenu={(e) => {
+											e.preventDefault();
+											e.stopPropagation();
+											setPanelTabContextMenu({ x: e.clientX, y: e.clientY, tabId: tab.id });
+										}}
+										role="button"
+										tabIndex={0}
+										onKeyDown={(e) => {
+											if (e.key === 'Enter' || e.key === ' ') {
+												e.preventDefault();
 												setActiveMainTabId(tab.id);
 												if (tab.kind === 'agent') {
 													setSelectedSessionTreeNodeOverride(null);
 													void openAgentPanel(tab.threadId);
 												}
-											}}
-											onContextMenu={(e) => {
-												e.preventDefault();
+											}
+										}}
+									>
+										<span className="truncate select-none">{title}</span>
+										<button
+											type="button"
+											className="rounded p-0.5 text-text-muted hover:text-text-main"
+											onClick={(e) => {
 												e.stopPropagation();
-												setPanelTabContextMenu({ x: e.clientX, y: e.clientY, tabId: tab.id });
+												void closePanelTab(tab.id);
 											}}
-											role="button"
-											tabIndex={0}
-											onKeyDown={(e) => {
-												if (e.key === 'Enter' || e.key === ' ') {
-													e.preventDefault();
-													setActiveMainTabId(tab.id);
-													if (tab.kind === 'agent') {
-														setSelectedSessionTreeNodeOverride(null);
-														void openAgentPanel(tab.threadId);
-													}
-												}
-											}}
+											aria-label={`Close ${tab.title}`}
 										>
-											<span className="truncate select-none">{title}</span>
-											<button
-												type="button"
-												className="rounded p-0.5 text-text-muted hover:text-text-main"
-												onClick={(e) => {
-													e.stopPropagation();
-													void closePanelTab(tab.id);
-												}}
-												aria-label={`Close ${tab.title}`}
-											>
-												<X className="h-4 w-4" />
-											</button>
-										</div>
-									);
-								})}
-							</div>
-
-							<div className="relative flex shrink-0 items-center">
-								<button
-									type="button"
-									className="am-icon-button h-9 w-9 text-text-muted hover:text-text-main"
-									onClick={() => {
-										setIsSettingsMenuOpen(false);
-										void createNewSession();
-									}}
-									title="New session"
-								>
-									<Plus className="h-5 w-5" />
-								</button>
-							</div>
+											<X className="h-4 w-4" />
+										</button>
+									</div>
+								);
+							})}
 						</div>
+
+						<div className="relative flex shrink-0 items-center">
+							<button
+								type="button"
+								className="am-icon-button h-9 w-9 text-text-muted hover:text-text-main"
+								onClick={() => {
+									setIsSettingsMenuOpen(false);
+									void createNewSession();
+								}}
+								title="New session"
+							>
+								<Plus className="h-5 w-5" />
+							</button>
+						</div>
+					</div>
 
 					<div className="relative flex min-h-0 flex-1 flex-col px-4 pt-6">
 						{workspaceRootError ? <div className="mt-2 text-xs text-status-warning">{workspaceRootError}</div> : null}
@@ -4530,44 +4530,39 @@ export function CodexChat() {
 										forkThreadLatest={forkThreadLatest}
 									/>
 
-										<div className="relative min-h-0 flex-1 flex flex-col min-w-0">
-											<CodexChatWorkbenchThreadChips
-												enabled={isWorkbenchEnabled}
-												workbenchGraph={workbenchGraph}
-												selectedThreadId={selectedThreadId}
-												selectSession={selectSession}
-											/>
+									<div className="relative min-h-0 flex-1 flex flex-col min-w-0">
+										<CodexChatWorkbenchThreadChips
+											enabled={isWorkbenchEnabled}
+											workbenchGraph={workbenchGraph}
+											selectedThreadId={selectedThreadId}
+											selectSession={selectSession}
+										/>
 
-											{switchingThreadId && switchingThreadId === selectedThreadId ? (
-												<div className="absolute inset-0 z-40 flex items-center justify-center bg-black/10 backdrop-blur-[1px] cursor-wait">
-													<div className="rounded-lg border border-white/10 bg-bg-popover/80 px-3 py-2 text-xs text-text-muted">
-														Loading session…
-													</div>
-												</div>
-											) : null}
+										{switchingThreadId && switchingThreadId === selectedThreadId ? (
+											<div className="absolute inset-0 z-40 flex items-center justify-center bg-black/10 backdrop-blur-[1px] cursor-wait">
+												<div className="rounded-lg border border-white/10 bg-bg-popover/80 px-3 py-2 text-xs text-text-muted">Loading session…</div>
+											</div>
+										) : null}
 
-											<div
-												ref={scrollRef}
-												className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden pb-4 min-w-0 -mr-4 pr-4"
-											>
+										<div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden pb-4 min-w-0 -mr-4 pr-4">
 											{renderTurns.map((turn) => (
-													<TurnBlock
-														key={turn.id}
-														animateIn={Boolean(turnAppearById[turn.id])}
-														turn={turn}
-														collapsedWorkingByTurnId={collapsedWorkingByTurnId}
-														collapsedByEntryId={collapsedByEntryId}
-														settings={settings}
-														typewriterCharsPerSecond={TYPEWRITER_CHARS_PER_SEC}
-														shouldTypewriterEntry={shouldTypewriterEntry}
-														consumeTypewriterEntry={consumeTypewriterEntry}
-														pendingTurnId={PENDING_TURN_ID}
-														toggleTurnWorking={toggleTurnWorking}
-														toggleEntryCollapse={toggleEntryCollapse}
-														approve={approve}
-														onForkFromTurn={forkFromTurn}
-														onEditUserEntry={openRerunDialog}
-													/>
+												<TurnBlock
+													key={turn.id}
+													animateIn={Boolean(turnAppearById[turn.id])}
+													turn={turn}
+													collapsedWorkingByTurnId={collapsedWorkingByTurnId}
+													collapsedByEntryId={collapsedByEntryId}
+													settings={settings}
+													typewriterCharsPerSecond={TYPEWRITER_CHARS_PER_SEC}
+													shouldTypewriterEntry={shouldTypewriterEntry}
+													consumeTypewriterEntry={consumeTypewriterEntry}
+													pendingTurnId={PENDING_TURN_ID}
+													toggleTurnWorking={toggleTurnWorking}
+													toggleEntryCollapse={toggleEntryCollapse}
+													approve={approve}
+													onForkFromTurn={forkFromTurn}
+													onEditUserEntry={openRerunDialog}
+												/>
 											))}
 										</div>
 										<CodexChatComposer

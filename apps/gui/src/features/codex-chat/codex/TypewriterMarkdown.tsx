@@ -94,11 +94,11 @@ export function TypewriterMarkdown({
 			handle = window.setTimeout(tick, TICK_MS);
 		}
 
-			return () => {
-				cancelled = true;
-				if (handle != null) window.clearTimeout(handle);
-			};
-		}, [animate, cps, renderMarkdown, text]);
+		return () => {
+			cancelled = true;
+			if (handle != null) window.clearTimeout(handle);
+		};
+	}, [animate, cps, renderMarkdown, text]);
 
 	useEffect(() => {
 		if (!animate) return;

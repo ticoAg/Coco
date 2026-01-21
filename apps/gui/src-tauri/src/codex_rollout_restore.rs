@@ -727,11 +727,7 @@ async fn parse_rollout_activity_by_turn(
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| {
-                        format!(
-                            "websearch-{}-{}",
-                            turn_index,
-                            turns[turn_index].len() + 1
-                        )
+                        format!("websearch-{}-{}", turn_index, turns[turn_index].len() + 1)
                     });
 
                 let item = serde_json::json!({

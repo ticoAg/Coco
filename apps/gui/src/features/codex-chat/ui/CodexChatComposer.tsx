@@ -213,8 +213,7 @@ export function CodexChatComposer({
 		const parts = normalized.split('/').filter(Boolean);
 		return parts[parts.length - 1] ?? value;
 	};
-	const pinnedItemClassName =
-		'inline-flex items-center gap-1.5 rounded-md bg-primary px-2 py-1 text-[11px] text-text-main hover:bg-primary-hover';
+	const pinnedItemClassName = 'inline-flex items-center gap-1.5 rounded-md bg-primary px-2 py-1 text-[11px] text-text-main hover:bg-primary-hover';
 	const inlineTagMaxWidthPx = 260;
 	const inlineTagGapPx = 6;
 	const toolbarIconButtonSizeClass = 'h-9 w-9';
@@ -241,12 +240,12 @@ export function CodexChatComposer({
 		return () => ro.disconnect();
 	}, [selectedPrompt?.name, selectedSkill?.name]);
 
-		return (
-			<div className="group relative mt-4 ml-4 mr-4 flex flex-col gap-2 rounded-[26px] border border-white/5 bg-[#2b2d31] px-4 pt-3 pb-1 transition-colors focus-within:border-white/10">
-				{/* Floating pinned prompt/skill shortcuts (shown while composer is focused) */}
-				{pinnedResolvedItems.length > 0 && !isSlashMenuOpen && !isAddContextOpen && !isSkillMenuOpen ? (
-					<div className="pointer-events-none absolute bottom-full left-0 right-0 z-50 mb-2 flex flex-wrap gap-1.5 px-4 opacity-0 translate-y-2 transition-all duration-150 ease-out group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-y-0">
-						{pinnedResolvedItems.map((item) =>
+	return (
+		<div className="group relative mt-4 ml-4 mr-4 flex flex-col gap-2 rounded-[26px] border border-white/5 bg-[#2b2d31] px-4 pt-3 pb-1 transition-colors focus-within:border-white/10">
+			{/* Floating pinned prompt/skill shortcuts (shown while composer is focused) */}
+			{pinnedResolvedItems.length > 0 && !isSlashMenuOpen && !isAddContextOpen && !isSkillMenuOpen ? (
+				<div className="pointer-events-none absolute bottom-full left-0 right-0 z-50 mb-2 flex flex-wrap gap-1.5 px-4 opacity-0 translate-y-2 transition-all duration-150 ease-out group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-y-0">
+					{pinnedResolvedItems.map((item) =>
 						item.type === 'prompt' ? (
 							<button
 								key={`prompt:${item.prompt.name}`}
@@ -569,10 +568,7 @@ export function CodexChatComposer({
 
 					<button
 						type="button"
-						className={[
-							toolbarPillClassBase,
-							autoContextEnabled ? 'bg-blue-600/30 text-blue-300' : 'text-text-muted hover:bg-white/10',
-						].join(' ')}
+						className={[toolbarPillClassBase, autoContextEnabled ? 'bg-blue-600/30 text-blue-300' : 'text-text-muted hover:bg-white/10'].join(' ')}
 						onClick={() => setAutoContextEnabled((v) => !v)}
 						title={
 							autoContext

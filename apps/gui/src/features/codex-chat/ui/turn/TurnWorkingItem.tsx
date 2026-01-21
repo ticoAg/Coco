@@ -151,24 +151,24 @@ export function TurnWorkingItem({
 							const displayBody = heading ? body : entry.text;
 							const trimmedBody = displayBody.trim();
 							if (!trimmedBody) return null;
-								return (
-									<div key={entry.id}>
-										{heading && item.entries.length > 1 ? <div className="text-[10px] font-medium text-text-muted mb-1">{heading}</div> : null}
-										<TypewriterMarkdown
-											entryId={entry.id}
-											text={displayBody}
-											enabled={Boolean(shouldTypewriterEntry?.(entry.id)) && Boolean(consumeTypewriterEntry)}
-											completed={!isStreaming}
-											charsPerSecond={typewriterCharsPerSecond}
-											onConsume={consumeTypewriterEntry}
-											className="text-[11px] text-text-muted"
-											dense
-										/>
-									</div>
-								);
-							})}
-						</div>
-					) : null}
+							return (
+								<div key={entry.id}>
+									{heading && item.entries.length > 1 ? <div className="text-[10px] font-medium text-text-muted mb-1">{heading}</div> : null}
+									<TypewriterMarkdown
+										entryId={entry.id}
+										text={displayBody}
+										enabled={Boolean(shouldTypewriterEntry?.(entry.id)) && Boolean(consumeTypewriterEntry)}
+										completed={!isStreaming}
+										charsPerSecond={typewriterCharsPerSecond}
+										onConsume={consumeTypewriterEntry}
+										className="text-[11px] text-text-muted"
+										dense
+									/>
+								</div>
+							);
+						})}
+					</div>
+				) : null}
 			</ActivityBlock>
 		);
 	}

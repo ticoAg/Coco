@@ -9,9 +9,9 @@ mod thread_watch;
 use codex_app_server::CodexAppServer;
 use codex_app_server::CodexDiagnostics;
 use codex_app_server_pool::CodexAppServerPool;
-use thread_watch::ThreadWatchState;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
+use thread_watch::ThreadWatchState;
 use tokio::sync::Mutex as TokioMutex;
 
 const CODEX_APP_SERVER_POOL_MAX: usize = 8;

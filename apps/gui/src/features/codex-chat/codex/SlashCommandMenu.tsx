@@ -205,9 +205,7 @@ export function SlashCommandMenu({
 							>
 								<Zap className={`${MENU_STYLES.iconSm} shrink-0 text-text-menuLabel`} />
 								<div className="min-w-0 flex flex-1 items-center">
-									<span className="min-w-0 max-w-[50%] truncate">
-										{indices && indices.length > 0 ? highlightMatches(skill.name, indices) : skill.name}
-									</span>
+									<span className="min-w-0 max-w-[50%] truncate">{indices && indices.length > 0 ? highlightMatches(skill.name, indices) : skill.name}</span>
 									<span aria-hidden className="shrink-0 w-[3ch]" />
 									<span className={MENU_STYLES.popoverItemDescFill} title={skill.shortDescription || skill.description}>
 										{skill.shortDescription || skill.description}

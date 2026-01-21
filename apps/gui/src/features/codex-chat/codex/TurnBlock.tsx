@@ -48,7 +48,7 @@ function turnStatusLabel(status: TurnBlockStatus): string {
 			return 'Failed';
 		case 'interrupted':
 			return 'Interrupted';
-	default:
+		default:
 			return 'Turn';
 	}
 }
@@ -326,22 +326,22 @@ function TurnBlockImpl({
 								<pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-black/20 px-2 py-1 font-mono text-[12px] text-text-main">
 									{e.text}
 								</pre>
-								) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
-									<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
-								) : (
-									<TypewriterMarkdown
-										entryId={e.id}
-										text={e.text}
-										enabled={Boolean(shouldTypewriterEntry?.(e.id)) && Boolean(consumeTypewriterEntry)}
-										completed={!!e.completed}
-										charsPerSecond={typewriterCharsPerSecond}
-										onConsume={consumeTypewriterEntry}
-										className="text-[12px] text-text-main"
-										textClassName="text-text-main"
-										dense
-									/>
-								)}
-							</div>
+							) : e.structuredOutput && e.structuredOutput.type === 'code-review' ? (
+								<CodeReviewAssistantMessage output={e.structuredOutput} completed={!!e.completed} />
+							) : (
+								<TypewriterMarkdown
+									entryId={e.id}
+									text={e.text}
+									enabled={Boolean(shouldTypewriterEntry?.(e.id)) && Boolean(consumeTypewriterEntry)}
+									completed={!!e.completed}
+									charsPerSecond={typewriterCharsPerSecond}
+									onConsume={consumeTypewriterEntry}
+									className="text-[12px] text-text-main"
+									textClassName="text-text-main"
+									dense
+								/>
+							)}
+						</div>
 						<div className="mt-1 flex items-center justify-start gap-2 opacity-0 transition-opacity group-hover/turn:opacity-100">
 							<button
 								type="button"

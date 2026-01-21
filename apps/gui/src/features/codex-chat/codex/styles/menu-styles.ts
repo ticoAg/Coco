@@ -5,7 +5,8 @@ export const MENU_STYLES = {
 	/** 弹出菜单标题 */
 	popoverTitle: 'px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-text-menuLabel',
 	/** 弹出菜单选项 */
-	popoverItem: 'flex h-7 w-full items-center gap-1.5 rounded-lg px-2.5 text-left text-[12px] leading-4 text-text-main transition-colors hover:bg-bg-menuItemHover group',
+	popoverItem:
+		'flex h-7 w-full items-center gap-1.5 rounded-lg px-2.5 text-left text-[12px] leading-4 text-text-main transition-colors hover:bg-bg-menuItemHover group',
 	/** 弹出菜单选项（高亮/聚焦） */
 	popoverItemActive:
 		'flex h-7 w-full items-center gap-1.5 rounded-lg px-2.5 text-left text-[12px] leading-4 bg-bg-menuItemHover text-text-main transition-colors group',

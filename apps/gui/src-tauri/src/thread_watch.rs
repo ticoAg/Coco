@@ -48,52 +48,59 @@ impl ThreadWatchState {
         );
         let watched_path = Arc::new(path);
         let watched_thread = Arc::new(thread_id);
-        let last_emit = Arc::new(Mutex::new(Instant::now() - Duration::from_millis(DEBOUNCE_MS)));
+        let last_emit = Arc::new(Mutex::new(
+            Instant::now() - Duration::from_millis(DEBOUNCE_MS),
+        ));
 
         let app_handle = app.clone();
         let watched_path_for_event = Arc::clone(&watched_path);
         let watched_thread_for_event = Arc::clone(&watched_thread);
         let last_emit_for_event = Arc::clone(&last_emit);
 
-        let mut watcher = notify::recommended_watcher(
-            move |res: notify::Result<notify::Event>| {
-                let event = match res {
-                    Ok(event) => event,
-                    Err(e) => {
-                        log::info!("[ThreadWatch] watcher error: {:?}", e);
-                        return;
-                    }
-                };
-                log::info!("[ThreadWatch] raw event: {:?}", event);
-                if !is_relevant_event(&event.kind) {
-                    log::info!("[ThreadWatch] skipped: not relevant event kind {:?}", event.kind);
+        let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            let event = match res {
+                Ok(event) => event,
+                Err(e) => {
+                    log::info!("[ThreadWatch] watcher error: {:?}", e);
                     return;
                 }
-                if !event_matches_path(&event.paths, &watched_path_for_event) {
-                    log::info!("[ThreadWatch] skipped: path mismatch, event paths={:?}, watched={:?}", event.paths, watched_path_for_event);
-                    return;
-                }
-                let now = Instant::now();
-                let mut guard = match last_emit_for_event.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-                if now.duration_since(*guard) < Duration::from_millis(DEBOUNCE_MS) {
-                    log::info!("[ThreadWatch] skipped: debounce");
-                    return;
-                }
-                *guard = now;
+            };
+            log::info!("[ThreadWatch] raw event: {:?}", event);
+            if !is_relevant_event(&event.kind) {
+                log::info!(
+                    "[ThreadWatch] skipped: not relevant event kind {:?}",
+                    event.kind
+                );
+                return;
+            }
+            if !event_matches_path(&event.paths, &watched_path_for_event) {
+                log::info!(
+                    "[ThreadWatch] skipped: path mismatch, event paths={:?}, watched={:?}",
+                    event.paths,
+                    watched_path_for_event
+                );
+                return;
+            }
+            let now = Instant::now();
+            let mut guard = match last_emit_for_event.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if now.duration_since(*guard) < Duration::from_millis(DEBOUNCE_MS) {
+                log::info!("[ThreadWatch] skipped: debounce");
+                return;
+            }
+            *guard = now;
 
-                let updated_at_ms = modified_ms(&watched_path_for_event);
-                let payload = CodexThreadWatchEvent {
-                    thread_id: watched_thread_for_event.to_string(),
-                    path: watched_path_for_event.to_string_lossy().to_string(),
-                    updated_at_ms,
-                };
-                log::info!("[ThreadWatch] emitting event: {:?}", payload);
-                let _ = app_handle.emit(THREAD_FS_EVENT, payload);
-            },
-        )
+            let updated_at_ms = modified_ms(&watched_path_for_event);
+            let payload = CodexThreadWatchEvent {
+                thread_id: watched_thread_for_event.to_string(),
+                path: watched_path_for_event.to_string_lossy().to_string(),
+                updated_at_ms,
+            };
+            log::info!("[ThreadWatch] emitting event: {:?}", payload);
+            let _ = app_handle.emit(THREAD_FS_EVENT, payload);
+        })
         .map_err(|e| e.to_string())?;
 
         // On macOS, `notify`'s kqueue backend (vnode events) does not reliably emit file write
@@ -140,7 +147,9 @@ fn is_relevant_event(kind: &EventKind) -> bool {
 
 fn event_matches_path(paths: &[PathBuf], target: &Path) -> bool {
     paths.iter().any(|path| path == target)
-        || paths.iter().any(|path| path.file_name() == target.file_name())
+        || paths
+            .iter()
+            .any(|path| path.file_name() == target.file_name())
 }
 
 fn to_epoch_ms(ts: std::time::SystemTime) -> Option<u64> {
