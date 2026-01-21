@@ -111,6 +111,7 @@ target/
 ############################
 # Local workspace data (keep out of git)
 .coco/
+.snow/
 .feat/
 openspec/
 
