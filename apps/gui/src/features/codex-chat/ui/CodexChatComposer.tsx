@@ -1,4 +1,5 @@
 import { ArrowUp, File, FileText, Folder, GitBranch, Image, Plus, X, Zap } from 'lucide-react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { ChangeEvent, ClipboardEvent, Dispatch, KeyboardEvent, RefObject, SetStateAction } from 'react';
 import type { AutoContextInfo, CustomPrompt, FileAttachment, FileInfo, SkillMetadata, WorktreeInfo } from '@/types/codex';
 import type { SlashCommand } from '../codex/slash-commands';
@@ -214,6 +215,28 @@ export function CodexChatComposer({
 	};
 	const pinnedItemClassName =
 		'inline-flex items-center gap-1.5 rounded-md bg-primary px-2 py-1 text-[11px] text-text-main hover:bg-primary-hover';
+	const inlineTagMaxWidthPx = 260;
+	const inlineTagGapPx = 6;
+	const inlineTagRef = useRef<HTMLDivElement>(null);
+	const [inlineTagWidth, setInlineTagWidth] = useState(0);
+
+	useLayoutEffect(() => {
+		const el = inlineTagRef.current;
+		if (!el) {
+			setInlineTagWidth(0);
+			return;
+		}
+
+		const update = () => {
+			const nextWidth = Math.min(el.getBoundingClientRect().width, inlineTagMaxWidthPx);
+			setInlineTagWidth(nextWidth);
+		};
+
+		update();
+		const ro = new ResizeObserver(update);
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [selectedPrompt?.name, selectedSkill?.name]);
 
 	return (
 		<div className="group relative mt-4 flex flex-col gap-2 rounded-[26px] border border-white/5 bg-[#2b2d31] px-4 pt-3 pb-2 transition-colors focus-within:border-white/10">
@@ -472,20 +495,27 @@ export function CodexChatComposer({
 			{/* Hidden file input for image upload */}
 			<input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} />
 
-			{/* Input area with inline tags for skill/prompt */}
-			<div className="flex flex-wrap items-start gap-1.5">
-				{selectedPrompt ? (
-					<div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-blue-500/10 px-1.5 py-0.5 text-[11px] text-blue-400">
-						<FileText className="h-3 w-3" />
-						<span className="max-w-[160px] truncate">prompts:{selectedPrompt.name}</span>
-					</div>
-				) : null}
-				{selectedSkill ? (
-					<div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
-						<Zap className="h-3 w-3" />
-						<span className="max-w-[160px] truncate">{selectedSkill.name}</span>
-					</div>
-				) : null}
+			{/* Input area with inline tags for skill/prompt.
+			    Render as an overlay + first-line indent so tags don't consume flex columns. */}
+			<div className="relative min-w-0">
+				<div
+					ref={inlineTagRef}
+					className="pointer-events-none absolute left-0 top-[2px] flex items-center gap-1.5 overflow-hidden"
+					style={{ maxWidth: inlineTagMaxWidthPx }}
+				>
+					{selectedPrompt ? (
+						<div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-blue-500/10 px-1.5 py-0.5 text-[11px] text-blue-400">
+							<FileText className="h-3 w-3" />
+							<span className="max-w-[160px] truncate">prompts:{selectedPrompt.name}</span>
+						</div>
+					) : null}
+					{selectedSkill ? (
+						<div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
+							<Zap className="h-3 w-3" />
+							<span className="max-w-[160px] truncate">{selectedSkill.name}</span>
+						</div>
+					) : null}
+				</div>
 				<textarea
 					ref={textareaRef}
 					rows={1}
@@ -495,6 +525,9 @@ export function CodexChatComposer({
 					onChange={(e) => {
 						const newValue = e.target.value;
 						setInput(newValue);
+					}}
+					style={{
+						textIndent: inlineTagWidth > 0 ? `${inlineTagWidth + inlineTagGapPx}px` : undefined,
 					}}
 					onPaste={handleTextareaPaste}
 					onKeyDown={handleTextareaKeyDown}
