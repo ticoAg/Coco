@@ -59,7 +59,34 @@ just be-build
 
 ## Release (macOS DMG)
 
-See [`docs/coco/release.md`](docs/coco/release.md) for the tag-driven GitHub Actions release workflow and local DMG build commands.
+See [`docs/coco/release.md`](docs/coco/release.md) for the full tag-driven GitHub Actions release workflow and local DMG/DEB build commands.
+
+Quick path (recommended):
+
+```bash
+# (optional) Run preflight locally (Rust + GUI + macOS Tauri build)
+EXPECTED_VERSION=X.Y.Z scripts/release/preflight.sh
+
+# Bump versions consistently across Rust crates + GUI + Tauri config (+ lockfiles)
+just bump-version X.Y.Z
+git add -A
+git commit -m "release: vX.Y.Z"
+git push
+
+# Tag-driven GitHub Release
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+Custom GitHub Release notes (optional):
+
+- Create and commit a file at `docs/release-notes/vX.Y.Z.md` (see `docs/release-notes/TEMPLATE.md`).
+- The Release workflow will use it as the release body prefix and still append GitHub-generated notes.
+- You can also edit an existing Release body manually via:
+
+```bash
+gh release edit vX.Y.Z --notes-file docs/release-notes/vX.Y.Z.md
+```
 
 ## Workspace root (tasks)
 
