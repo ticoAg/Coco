@@ -77,6 +77,11 @@ scripts/release/propose_release.sh
 
 说明：该脚本依赖一个可选的 release proposal 工具（`gh-release-dmg` skill）。如果你本地没有这个工具，脚本会给出提示并退出；不影响 tag 驱动的 GitHub Actions 发版流程。
 
+（可选）自定义 GitHub Release Notes：
+
+- 你可以在发版前创建并提交 `docs/release-notes/vX.Y.Z.md`（例如 `docs/release-notes/v1.2.2.md`）。
+- 当 push `vX.Y.Z` tag 触发 GitHub Actions 发版时，Release workflow 会将该文件内容作为 release notes 的前置内容；同时仍会追加 GitHub 自动生成的变更列表（如果开启了自动 notes）。
+
 ### 3) 提交并 push
 
 ```bash
