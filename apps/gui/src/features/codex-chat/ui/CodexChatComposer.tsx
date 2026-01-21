@@ -495,11 +495,6 @@ export function CodexChatComposer({
 					onChange={(e) => {
 						const newValue = e.target.value;
 						setInput(newValue);
-
-						// Auto-resize textarea
-						const textarea = e.target;
-						textarea.style.height = 'auto';
-						textarea.style.height = `${Math.min(textarea.scrollHeight, 264)}px`;
 					}}
 					onPaste={handleTextareaPaste}
 					onKeyDown={handleTextareaKeyDown}
